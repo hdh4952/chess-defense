@@ -179,7 +179,12 @@ describe('render() (Task 7 — 캔버스 렌더러)', () => {
     it('하이라이트 fillRect는 file*squarePx와 rankToTopY(rank)로 그려진다', () => {
       const { ctx, records } = makeStubCtx();
       const state = createInitialState();
-      const square = { file: 5, rank: 3 };
+      // file=5, rank=3은 일부러 피한다: file+rank === CONFIG.board.ranks(8)인 칸은
+      // file*SQ === rankToTopY(rank)가 우연히 성립해(둘 다 같은 값), fillRect(x, y, …)의 x/y가
+      // 뒤바뀌어도(transpose 버그) 이 단언을 그대로 통과시킨다 — 즉 그런 회귀를 절대 못 잡는
+      // 좌표였다 (회귀 4). file+rank !== 8인 칸을 골라 x/y가 서로 다른 값이 되게 한다.
+      const square = { file: 5, rank: 2 };
+      expect(square.file * SQ).not.toBe(rankToTopY(square.rank));   // 전제 확인: x/y가 실제로 다르다
       const color = 'rgba(11, 22, 33, 0.5)';
       const view = createFrameView();
       view.highlights.push({ square, color });

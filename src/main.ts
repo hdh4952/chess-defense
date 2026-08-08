@@ -44,6 +44,25 @@ if (import.meta.env.DEV) {
   (window as unknown as Record<string, unknown>).__drag = drag;
 }
 
+// frame() 예외 로깅 스로틀 (회귀 5). 매 호출마다 새 Error 인스턴스가 달려 있어 DevTools가
+// 동일 에러로 묶어 접지 못하므로, 결함이 프레임마다(~60Hz) 계속 재발하면 콘솔·보존 메모리가
+// 무한정 불어난다. 조용히 삼키지는 않되(검토 Item 3 요구사항), 첫 발생은 즉시 로그하고 이후는
+// 일정 간격으로만 다시 로그해 그 사이 억제된 횟수를 함께 남긴다.
+const FRAME_ERROR_LOG_INTERVAL_MS = 5000;
+let lastFrameErrorLoggedAt = -Infinity;
+let suppressedFrameErrorCount = 0;
+function logFrameError(err: unknown): void {
+  const t = performance.now();
+  if (t - lastFrameErrorLoggedAt < FRAME_ERROR_LOG_INTERVAL_MS) {
+    suppressedFrameErrorCount++;
+    return;
+  }
+  const suffix = suppressedFrameErrorCount > 0 ? ` (그 사이 억제된 오류 ${suppressedFrameErrorCount}건)` : '';
+  console.error(`[chess-defense] frame() 처리 중 오류 — 다음 프레임에서 계속 진행합니다${suffix}`, err);
+  lastFrameErrorLoggedAt = t;
+  suppressedFrameErrorCount = 0;
+}
+
 let last = performance.now();
 function frame(now: number): void {
   // 프레임 본문 전체를 try로 감싸고, 다음 프레임 예약은 반드시 finally에서 한다 (검토 Item 3).
@@ -54,8 +73,15 @@ function frame(now: number): void {
   // 프레임까지 막지 못하게 하고, catch에서 콘솔에 남겨 조용히 삼켜지지 않게 한다.
   try {
     const realDt = (now - last) / 1000;
-    tick(realDt, dt => stepGame(state, dt * state.speedMultiplier, events));
+    // stepGame이 던지면(현재는 안 던지지만 미래에 던질 수 있다) tick() 호출이 완주하지 못한다.
+    // last를 tick() 뒤에 갱신하면 이런 경우 last가 갱신되지 않아, 다음 프레임의 realDt가 이번
+    // 프레임 몫까지 두 번 누적된 값이 된다 — 게다가 그 예외는 createTicker의 while 루프를
+    // acc -= fixedDt 전에 빠져나가므로, 결함이 지속되는 동안 accumulator가 매 프레임 maxFrame만큼
+    // 계속 불어나다가 결함이 풀리는 순간 그 밀린 프레임을 한꺼번에 재생해 "멈춤 후 급가속"이
+    // 벌어진다 (회귀 2). realDt를 이미 계산해 둔 지역 변수에 담아 뒀으므로, last는 tick() 호출
+    // 성패와 무관하게 이 시점에 곧바로 갱신한다.
     last = now;
+    tick(realDt, dt => stepGame(state, dt * state.speedMultiplier, events));
 
     for (const ev of events) { banners.onEvent(ev); fx.onEvent(ev); }
     banners.update(state, realDt);
@@ -92,9 +118,13 @@ function frame(now: number): void {
     events.length = 0;
   } catch (err) {
     // 조용히 삼키지 않고 콘솔에 남긴다 — 그래야 장시간 플레이 중 한 프레임이 죽어도 원인을 추적할
-    // 수 있다. 게임 상태 자체는 이미 손상됐을 수 있지만, 루프가 멈추는 것보다는 다음 프레임에서
-    // 계속 시도하는 편이 낫다(대부분의 throw 지점은 렌더/UI 갱신이라 상태를 훼손하지 않는다).
-    console.error('[chess-defense] frame() 처리 중 오류 — 다음 프레임에서 계속 진행합니다', err);
+    // 수 있다. 렌더/UI 갱신 중의 throw가 상태를 저절로 안전하게 만들어 주는 것은 아니다 — 예를
+    // 들어 render()는 캔버스 컨텍스트에 save()/translate()를 걸어 둔 채로 죽을 수 있는데, 그쪽은
+    // 이제 자체 try/finally로 restore를 보장한다(회귀 3). 이 catch는 그런 보호가 없는 지점의
+    // throw까지 포함해 루프 자체가 멈추지 않게 하는 마지막 방어선일 뿐, "대부분 안전하다"는
+    // 가정에 기대지 않는다. 매 프레임(~60Hz) 반복되는 결함이 콘솔을 무한정 채우지 않도록
+    // logFrameError가 로그 빈도를 스로틀한다(회귀 5).
+    logFrameError(err);
   } finally {
     requestAnimationFrame(frame);
   }

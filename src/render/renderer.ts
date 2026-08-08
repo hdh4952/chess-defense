@@ -38,25 +38,33 @@ const COLOR = {
 
 export function render(ctx: CanvasRenderingContext2D, state: GameState, view: ViewState = EMPTY_VIEW): void {
   ctx.save();
-  ctx.translate(view.shake.x, view.shake.y);
-  drawBoard(ctx);
-  for (const h of view.highlights) {
-    ctx.fillStyle = h.color;
-    ctx.fillRect(h.square.file * SQ, rankToTopY(h.square.rank), SQ, SQ);
+  // save()/restore()를 try/finally로 감싼다 (회귀 3). main.ts의 Item 3 수정 전에는 여기서 던지면
+  // rAF 루프 자체가 멈췄으니 restore 누락이 관측될 일이 없었지만, 이제는 루프가 살아남아 다음
+  // 프레임에도 같은 지점(예: drawPiece/drawEnemy)에서 반복해 던질 수 있다 — 그때마다 restore()가
+  // 스킵되면 save 스택이 무한히 쌓이고 view.shake의 translate가 매 프레임 누적돼 보드가 화면
+  // 밖으로 서서히 밀려난다. fx.draw() 주변에 이미 있던 try/finally와 동일한 이유·동일한 패턴이다.
+  try {
+    ctx.translate(view.shake.x, view.shake.y);
+    drawBoard(ctx);
+    for (const h of view.highlights) {
+      ctx.fillStyle = h.color;
+      ctx.fillRect(h.square.file * SQ, rankToTopY(h.square.rank), SQ, SQ);
+    }
+    for (const l of view.lines) {
+      ctx.strokeStyle = l.color;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(fileCenterX(l.from.file), rankToTopY(l.from.rank) + SQ / 2);
+      ctx.lineTo(fileCenterX(l.to.file), rankToTopY(l.to.rank) + SQ / 2);
+      ctx.stroke();
+    }
+    for (const p of state.pieces) if (p.square) drawPiece(ctx, p);
+    const sorted = [...state.enemies].sort((a, b) => a.y - b.y);
+    for (const e of sorted) drawEnemy(ctx, e);
+    drawBossVignette(ctx, state);
+  } finally {
+    ctx.restore();
   }
-  for (const l of view.lines) {
-    ctx.strokeStyle = l.color;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(fileCenterX(l.from.file), rankToTopY(l.from.rank) + SQ / 2);
-    ctx.lineTo(fileCenterX(l.to.file), rankToTopY(l.to.rank) + SQ / 2);
-    ctx.stroke();
-  }
-  for (const p of state.pieces) if (p.square) drawPiece(ctx, p);
-  const sorted = [...state.enemies].sort((a, b) => a.y - b.y);
-  for (const e of sorted) drawEnemy(ctx, e);
-  drawBossVignette(ctx, state);
-  ctx.restore();
 }
 
 function drawBoard(ctx: CanvasRenderingContext2D): void {

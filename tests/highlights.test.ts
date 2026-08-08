@@ -252,6 +252,67 @@ describe('buildHighlights — 착지 불가능한 hover 칸은 미리보기를 �
   });
 });
 
+describe('buildHighlights — hover 칸이 기물 자신의 현재 칸이면 미리보기가 사라지지 않는다 (회귀 1)', () => {
+  // canLandAt은 pieceAt을 통해 "자기 자신이 점유한 칸"도 점유 칸으로 판정해 거부한다. 그런데
+  // DragController.onMove는 커서 아래 칸을 그대로 hoverSquare에 넣고, 클릭 선택/드래그 시작
+  // 모두 기물이 서 있는 바로 그 칸 위에서 일어난다 — 즉 "기물을 클릭해서 사거리를 본다"는 가장
+  // 흔한 조작에서 hoverSquare가 항상 자기 자신의 칸과 같다. Item 1의 가드가 이 경우까지
+  // canLandAt으로 걸러 버리면, 기물을 선택하는 그 순간 미리보기가 통째로 사라진다.
+  it('보드 위 룩을 클릭 선택하고 커서가 그 칸 위에 그대로 있으면 사거리 15칸이 그대로 보인다', () => {
+    const s = waveState();
+    const p = boardPiece('rook', 2, 2);
+    s.pieces.push(p);
+    const hl = buildHighlights(s, noInteraction({ selectedPieceId: p.id, hoverSquare: { file: 2, rank: 2 } }));
+
+    const expected = rookTargets({ file: 2, rank: 2 });
+    expect(expected).toHaveLength(15);
+    const squares = highlightSquares(hl);
+    expect(squares).toHaveLength(15);
+    for (const t of expected) expect(squares).toContainEqual(t);
+  });
+
+  it('보드 위 퀸을 클릭 선택하고 커서가 그 칸 위에 그대로 있으면 8방향 라인이 그대로 보인다', () => {
+    const s = waveState();
+    const q = boardPiece('queen', 2, 2);
+    s.pieces.push(q);
+    const hl = buildHighlights(s, noInteraction({ selectedPieceId: q.id, hoverSquare: { file: 2, rank: 2 } }));
+
+    const expectedSquares = queenLines({ file: 2, rank: 2 });
+    const squares = highlightSquares(hl);
+    expect(squares).toHaveLength(expectedSquares.length);
+    for (const sq of expectedSquares) expect(squares).toContainEqual(sq);
+    expect(hl.lines.length).toBeGreaterThan(0);   // 8방향 라인도 여전히 그려진다 (빈 배열이 아님)
+  });
+
+  it('보드 위 비숍을 드래그 시작하고 커서가 원래 칸 위에 그대로 있으면 사거리 14칸이 그대로 보인다', () => {
+    const s = waveState();
+    const b = boardPiece('bishop', 4, 3);
+    s.pieces.push(b);
+    const hl = buildHighlights(
+      s, noInteraction({ dragging: { pieceId: b.id, from: 'board' }, hoverSquare: { file: 4, rank: 3 } }),
+    );
+
+    // 길이는 bishopTargets에서 그대로 유도한다(하드코딩하지 않음) — 핵심은 "0으로 비지 않고
+    // attackTargets 전체가 그대로 남아 있다"는 것이지, 특정 좌표에서의 정확한 칸 수가 아니다.
+    const expected = bishopTargets({ file: 4, rank: 3 });
+    const squares = highlightSquares(hl);
+    expect(squares.length).toBeGreaterThan(0);
+    expect(squares).toHaveLength(expected.length);
+    for (const t of expected) expect(squares).toContainEqual(t);
+  });
+
+  it('다른 칸으로 hover를 옮기면(자기 칸이 아님) 여전히 착지 불가 검증이 적용된다', () => {
+    // 회귀 수정이 "자기 자신의 칸일 때만" 예외이지 canLandAt 검증 자체를 무력화한 게 아님을 확인한다.
+    const s = waveState();
+    const p = boardPiece('rook', 2, 2);
+    const blocker = boardPiece('pawn', 4, 4);
+    s.pieces.push(p, blocker);
+    const hl = buildHighlights(s, noInteraction({ selectedPieceId: p.id, hoverSquare: { file: 4, rank: 4 } }));
+    expect(hl.highlights).toEqual([]);
+    expect(hl.lines).toEqual([]);
+  });
+});
+
 describe('buildHighlights — 기준 칸 중복 방지 (리뷰 Finding 2)', () => {
   it('폰처럼 attackTargets에 자기 칸이 없는 기물은 origin이 정확히 한 번만 추가된다', () => {
     const s = waveState();

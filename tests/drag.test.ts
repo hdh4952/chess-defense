@@ -471,6 +471,31 @@ describe('DragController — 나이트 쿨다운 / 일시정지 (스펙 5.3, 7.7
     expect(p.square).toEqual({ file: 2, rank: 2 });
   });
 
+  it('다른 기물이 이미 선택된 상태에서 쿨다운 중인 나이트를 클릭하면 그 선택이 그대로 유지된다 (검토 회귀 6)', () => {
+    // downAt을 비우는 위 수정(Item 1)의 부수효과를 고정한다: 예전에는 이 클릭이 onUp의
+    // 클릭-투-무브 분기까지 도달해, 이미 선택돼 있던 다른 기물(x)을 나이트가 있는 칸으로
+    // 옮기려 시도했다(점유 칸이라 실패) — 그 뒤 어느 쪽이든 selectedPieceId는 null로
+    // 지워졌다. 이제는 그 분기 자체에 진입하지 않으므로 x의 선택이 그대로 남는다. 두 경로
+    // 모두 실제 이동은 전혀 일어나지 않으므로("both paths end with no move") 결과는
+    // 동등하게 안전하고, "거부된 눌림은 어떤 기존 상태도 건드리지 않는다"는 원칙에 새
+    // 동작이 더 부합한다고 판단해 그대로 유지하고 이 테스트로 고정한다.
+    const { state, drag } = setup('wave');
+    const x = boardPiece('rook', 0, 1);
+    const n = boardPiece('knight', 5, 5);
+    n.cooldown = 2.0;
+    state.pieces.push(x, n);
+
+    click(squareCenter(0, 1));                              // x를 클릭 선택
+    expect(drag.interaction.selectedPieceId).toBe(x.id);
+
+    document.dispatchEvent(pointer('pointerdown', squareCenter(5, 5).x, squareCenter(5, 5).y));
+    document.dispatchEvent(pointer('pointerup', squareCenter(5, 5).x, squareCenter(5, 5).y));
+
+    expect(drag.interaction.selectedPieceId).toBe(x.id);    // 기존 선택이 그대로 유지된다
+    expect(x.square).toEqual({ file: 0, rank: 1 });          // x는 옮겨지지 않았다
+    expect(n.square).toEqual({ file: 5, rank: 5 });          // n도 그대로
+  });
+
   it('일시정지 중에는 드래그 시작 자체가 막힌다 — ghost도 뜨지 않는다 (Finding 2: onDown 가드에 실질적 검증)', () => {
     const { state, drag } = setup('wave');
     const p = boardPiece('pawn', 1, 1);
