@@ -51,3 +51,16 @@ export type GameEvent =
   | { kind: 'bossSpawned'; file: number }
   | { kind: 'waveCleared'; wave: number }
   | { kind: 'prepareStarted'; wave: number; isBossWave: boolean };
+
+/**
+ * 드래그/클릭 선택/hover 상호작용 상태 — DOM 이벤트 자체가 아니라 뷰모델이므로 core에 속하지는
+ * 않지만, render/(highlights.ts)와 ui/(drag.ts, tooltip.ts) 양쪽이 함께 참조해야 한다. 원래
+ * ui/drag.ts에 있었으나, 그러면 render/가 ui/의 타입에 의존하는 동시에 ui/도 render/에 의존하는
+ * 역방향 계층 구조가 된다 (검토 Item 8). ui/drag.ts(DragController)가 소유·갱신하고,
+ * render/highlights.ts와 ui/tooltip.ts는 읽기 전용으로 참조한다.
+ */
+export interface Interaction {
+  dragging: { pieceId: string; from: 'slot' | 'board' } | null;
+  selectedPieceId: string | null;
+  hoverSquare: Square | null;
+}

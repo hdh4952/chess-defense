@@ -2,8 +2,7 @@ import { CONFIG } from '../config';
 import { pieceDamage } from '../core/combat';
 import { sellPrice } from '../core/economy';
 import { pieceAt } from '../core/pieces';
-import type { GameState } from '../types';
-import type { Interaction } from './drag';
+import type { GameState, Interaction } from '../types';
 import { PIECE_NAME } from './layout';
 
 /** 캔버스 위 기물 hover 툴팁 (스펙 7.7). mouse는 캔버스 클라이언트 좌표 */

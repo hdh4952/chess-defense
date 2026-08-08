@@ -4,7 +4,7 @@ import { updateTooltip } from '../src/ui/tooltip';
 import { pieceDamage } from '../src/core/combat';
 import { sellPrice } from '../src/core/economy';
 import { PIECE_NAME } from '../src/ui/layout';
-import type { Interaction } from '../src/ui/drag';
+import type { Interaction } from '../src/types';
 import { boardPiece, waveState } from './helpers';
 
 // updateTooltip은 DOM 요소를 직접 조작하므로 happy-dom 환경에서만 테스트할 수 있다 (컨트롤러

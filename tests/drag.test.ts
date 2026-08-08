@@ -455,6 +455,22 @@ describe('DragController — 나이트 쿨다운 / 일시정지 (스펙 5.3, 7.7
     expect(p.square).toEqual({ file: 2, rank: 2 });         // 직선 칸으로는 여전히 이동 안 됨
   });
 
+  it('쿨다운 중인 나이트를 눌렀다 놓아도 클릭-투-무브 선택으로 새어나가지 않는다 (검토 Item 1)', () => {
+    // onDown이 드래그 시작을 거부하면서도 downAt을 남겨 두면, onUp이 "클릭"으로 오인해
+    // 이 나이트를 selectedPieceId로 만들어 버린다 — 실제로는 아무 이동도 할 수 없는 기물이
+    // 선택된 것처럼 보이는 상태다. downAt을 함께 비워 이 눌림이 어떤 제스처로도 이어지지 않게 한다.
+    const { state, drag } = setup('wave');
+    const p = boardPiece('knight', 2, 2);
+    p.cooldown = 2.4;
+    state.pieces.push(p);
+
+    document.dispatchEvent(pointer('pointerdown', squareCenter(2, 2).x, squareCenter(2, 2).y));
+    document.dispatchEvent(pointer('pointerup', squareCenter(2, 2).x, squareCenter(2, 2).y));
+
+    expect(drag.interaction.selectedPieceId).toBeNull();
+    expect(p.square).toEqual({ file: 2, rank: 2 });
+  });
+
   it('일시정지 중에는 드래그 시작 자체가 막힌다 — ghost도 뜨지 않는다 (Finding 2: onDown 가드에 실질적 검증)', () => {
     const { state, drag } = setup('wave');
     const p = boardPiece('pawn', 1, 1);

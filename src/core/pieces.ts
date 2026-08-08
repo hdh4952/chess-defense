@@ -25,6 +25,23 @@ export function isKnightMove(a: Square, b: Square): boolean {
   return (df === 1 && dr === 2) || (df === 2 && dr === 1);
 }
 
+/**
+ * 착지 가능 판정 — canPlaceAt(범위 내 1~7랭크 + 빈 칸) 위에 "이미 보드 위인 나이트"에게만 걸리는
+ * L자 행마·이동 쿨다운 게이트를 얹은 단일 판정 (검토 Item 1). moveOnBoard/placeFromSlot(실제 규칙)과
+ * highlights.ts의 buildHighlights(미리보기)가 반드시 이 함수 하나만 호출하게 해, 미리보기가
+ * 실제로는 거부될 이동/배치/폭발을 약속하는 일이 구조적으로 불가능해진다.
+ * 슬롯에서 배치하는 나이트(piece.square === null)에는 L자/쿨다운을 적용하지 않는다 — 배치는
+ * 쿨다운 중에도 항상 허용되고(스펙 5.1), 다만 그 자리에서 폭발하지 않을 뿐이다.
+ */
+export function canLandAt(state: GameState, piece: Piece, square: Square): boolean {
+  if (!canPlaceAt(state, square.file, square.rank)) return false;
+  if (piece.type === 'knight' && piece.square !== null) {
+    if (piece.cooldown > 0) return false;
+    if (!isKnightMove(piece.square, square)) return false;
+  }
+  return true;
+}
+
 function interactable(state: GameState): boolean {
   return !state.paused && (state.phase === 'prepare' || state.phase === 'wave');
 }
@@ -47,7 +64,7 @@ export function placeFromSlot(
 ): boolean {
   const p = findPiece(state, pieceId);
   if (!p || p.square !== null || !interactable(state)) return false;
-  if (!canPlaceAt(state, file, rank)) return false;
+  if (!canLandAt(state, p, { file, rank })) return false;
   p.square = { file, rank };
   p.slotIndex = null;
   recalcQueenBuffs(state);
@@ -61,11 +78,7 @@ export function moveOnBoard(
 ): boolean {
   const p = findPiece(state, pieceId);
   if (!p || p.square === null || !interactable(state)) return false;
-  if (!canPlaceAt(state, file, rank)) return false;
-  if (p.type === 'knight') {
-    if (p.cooldown > 0) return false;
-    if (!isKnightMove(p.square, { file, rank })) return false;
-  }
+  if (!canLandAt(state, p, { file, rank })) return false;
   p.square = { file, rank };
   recalcQueenBuffs(state);
   if (p.type === 'knight') tryKnightBlast(state, p, events);

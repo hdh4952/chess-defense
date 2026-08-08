@@ -2,8 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildHighlights } from '../src/render/highlights';
 import { bishopTargets, knightBlastTargets, knightMoves, pawnTargets, queenLines, rookTargets } from '../src/core/patterns';
 import { sameSquare } from '../src/core/grid';
-import type { Interaction } from '../src/ui/drag';
-import type { Piece, PieceType, Square } from '../src/types';
+import type { Interaction, Piece, PieceType, Square } from '../src/types';
 import { boardPiece, waveState } from './helpers';
 
 // buildHighlights는 순수 함수 — DOM 없이 (state, interaction)만으로 테스트할 수 있다 (컨트롤러 결정,
@@ -191,6 +190,25 @@ describe('buildHighlights — 나이트 (2계층: 이동 칸 + hover 시 폭발 
     expect(squares).toHaveLength(freeMoves.length);      // 폭발 9칸이 섞여 들어오지 않았다
   });
 
+  it('쿨다운 중인 나이트를 클릭 선택하면 이동 하이라이트도 폭발 미리보기도 뜨지 않는다 (검토 Item 1)', () => {
+    // drag.ts는 쿨다운 중인 보드 위 나이트의 드래그 "시작"은 거부하지만, onUp이 클릭-투-무브로
+    // 새어나가면 selectedPieceId가 채워질 수 있었다. buildHighlights가 canPlaceAt만 보고 쿨다운을
+    // 보지 않던 시절에는, 그 상태에서 moveOnBoard가 거부할 이동 전체가 그대로 초록으로 칠해지고
+    // hover한 칸에는 일어나지 않을 폭발까지 미리 그렸다. canLandAt으로 통합한 뒤에는 쿨다운 중인
+    // 나이트의 모든 후보 칸이 canLandAt에서 걸러져 legalMoves가 통째로 비어야 한다.
+    const s = waveState();
+    const n = boardPiece('knight', 3, 4);   // d4
+    n.cooldown = 1.5;
+    s.pieces.push(n);
+    const dest = { file: 5, rank: 5 };      // 쿨다운만 아니면 정상적인 L자 이동 칸
+    expect(knightMoves({ file: 3, rank: 4 })).toContainEqual(dest);
+
+    const hl = buildHighlights(s, noInteraction({ selectedPieceId: n.id, hoverSquare: dest }));
+
+    expect(hl.highlights).toEqual([]);   // 초록 이동 칸도, 파란 폭발 미리보기도 전혀 없다
+    expect(hl.lines).toEqual([]);
+  });
+
   it('나이트가 슬롯에서 드래그 중이면(보드 위가 아님) L자 이동 미리보기 대신 hover 칸의 폭발 범위(attackTargets)를 보여준다', () => {
     const s = waveState();
     const n = slotPiece('nk', 'knight', 0);
@@ -205,6 +223,32 @@ describe('buildHighlights — 나이트 (2계층: 이동 칸 + hover 시 폭발 
     expect(squares).toHaveLength(blast.length);
     for (const b of blast) expect(squares).toContainEqual(b);
     expect(squares).toContainEqual(anchor);
+  });
+});
+
+describe('buildHighlights — 착지 불가능한 hover 칸은 미리보기를 그리지 않는다 (검토 Item 1)', () => {
+  // moveOnBoard/placeFromSlot이 실제로 거부할 칸(8랭크·점유·범위 밖)에 hover해도 종전에는 전체
+  // 사거리가 그대로 칠해져, "이 칸으로 이동/배치하면 이렇게 된다"는 미리보기가 실제로는 실행 불가능한
+  // 약속을 하고 있었다. canLandAt 도입 이후에는 이런 hover에서 하이라이트가 전혀 그려지지 않는다.
+  it('보드 위 룩을 선택하고 8랭크(스폰 구역)에 hover하면 사거리 하이라이트가 전혀 없다', () => {
+    const s = waveState();
+    const p = boardPiece('rook', 2, 2);
+    s.pieces.push(p);
+    const hl = buildHighlights(s, noInteraction({ selectedPieceId: p.id, hoverSquare: { file: 2, rank: 8 } }));
+    expect(hl.highlights).toEqual([]);
+    expect(hl.lines).toEqual([]);
+  });
+
+  it('슬롯의 폰을 점유된 칸 위에 hover하면 사거리 하이라이트가 전혀 없다', () => {
+    const s = waveState();
+    const p = slotPiece('p-blocked', 'pawn', 0);
+    const blocker = boardPiece('bishop', 3, 4);
+    s.pieces.push(p, blocker);
+    const hl = buildHighlights(
+      s, noInteraction({ dragging: { pieceId: p.id, from: 'slot' }, hoverSquare: { file: 3, rank: 4 } }),
+    );
+    expect(hl.highlights).toEqual([]);
+    expect(hl.lines).toEqual([]);
   });
 });
 

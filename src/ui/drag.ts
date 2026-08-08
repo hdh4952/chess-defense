@@ -1,7 +1,7 @@
 import { CONFIG } from '../config';
 import { moveOnBoard, pieceAt, placeFromSlot, recallToSlot, reorderSlots, findPiece } from '../core/pieces';
 import { sellPiece, sellPrice } from '../core/economy';
-import type { GameEvent, GameState, Square } from '../types';
+import type { GameEvent, GameState, Interaction } from '../types';
 import type { Layout } from './layout';
 import { ALLY_GLYPH } from '../render/renderer';
 
@@ -12,12 +12,6 @@ export type DropTarget =
   | { kind: 'slot'; index: number }
   | { kind: 'sell' }
   | null;
-
-export interface Interaction {
-  dragging: { pieceId: string; from: 'slot' | 'board' } | null;
-  selectedPieceId: string | null;
-  hoverSquare: Square | null;
-}
 
 function contains(r: RectLike, x: number, y: number): boolean {
   return x >= r.left && x < r.left + r.width && y >= r.top && y < r.top + r.height;
@@ -155,6 +149,11 @@ export class DragController {
     const piece = findPiece(this.state, hit.pieceId)!;
     if (piece.type === 'knight' && hit.from === 'board' && piece.cooldown > 0) {
       this.showCooldown(e, piece.cooldown);            // 쿨다운 중: 시작 거부 + 표시 (스펙 5.3)
+      // downAt을 비워 onUp이 "클릭"으로 오인하지 않게 한다 (검토 Item 1) — 그렇지 않으면 드래그
+      // 시작이 거부된 이 눌림이 onUp에서 클릭-투-무브로 새어나가 쿨다운 중인 나이트가 그대로
+      // selectedPieceId가 되고, buildHighlights가 (결과가 비어 있더라도) 선택 상태를 만든다.
+      // 애초에 "거부된 눌림"이 어떤 제스처로도 이어지지 않게 막는 편이 더 명확하다.
+      this.downAt = null;
       return;
     }
     this.interaction.dragging = hit;
