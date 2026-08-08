@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG } from '../src/config';
-import { BOARD_W, rankToTopY } from '../src/core/grid';
+import { BOARD_H, BOARD_W, rankToTopY } from '../src/core/grid';
 import { createInitialState } from '../src/core/state';
 import { render } from '../src/render/renderer';
 import type { Enemy, Piece } from '../src/types';
@@ -34,7 +34,7 @@ function makeStubCtx() {
   ctxObj.fillText = (text: string, x: number, y: number): void => record('fillText', [text, x, y]);
   ctxObj.createRadialGradient = (...args: unknown[]) => { record('createRadialGradient', args); return gradientStub; };
   ctxObj.createLinearGradient = (...args: unknown[]) => { record('createLinearGradient', args); return gradientStub; };
-  return { ctx: ctxObj, records };
+  return { ctx: ctxObj, records, gradientStub };
 }
 
 function makeEnemy(overrides: Partial<Enemy>): Enemy {
@@ -118,5 +118,64 @@ describe('render() (Task 7 — 캔버스 렌더러)', () => {
     const xs = enemyGlyphDraws.map(r => r.args[1] as number);
     expect(new Set(xs).size).toBe(2);
     expect(Math.abs(xs[1] - xs[0])).toBeCloseTo(6);
+  });
+
+  describe('보스 비네트 (스펙 7.9)', () => {
+    function vignetteDrawn(records: Call[], gradientStub: unknown): boolean {
+      return records.some(
+        r => r.method === 'fillRect' && r.args[2] === BOARD_W && r.args[3] === BOARD_H
+          && r.fillStyle === gradientStub,
+      );
+    }
+
+    it('보스가 3랭크(트리거 이전)에 있으면 비네트를 그리지 않는다', () => {
+      const { ctx, records, gradientStub } = makeStubCtx();
+      const state = createInitialState();
+      state.enemies.push(makeEnemy({ id: 'boss', file: 0, y: rankToTopY(3), isBoss: true }));
+
+      render(ctx as unknown as CanvasRenderingContext2D, state);
+
+      expect(records.some(r => r.method === 'createRadialGradient')).toBe(false);
+      expect(vignetteDrawn(records, gradientStub)).toBe(false);
+    });
+
+    it('보스가 2랭크 이하로 진입하면 비네트를 그린다', () => {
+      const { ctx, records, gradientStub } = makeStubCtx();
+      const state = createInitialState();
+      state.enemies.push(makeEnemy({ id: 'boss', file: 0, y: rankToTopY(2), isBoss: true }));
+
+      render(ctx as unknown as CanvasRenderingContext2D, state);
+
+      expect(records.some(r => r.method === 'createRadialGradient')).toBe(true);
+      expect(vignetteDrawn(records, gradientStub)).toBe(true);
+    });
+
+    it('보스가 아닌 적이 1랭크에 있어도 비네트를 그리지 않는다', () => {
+      const { ctx, records, gradientStub } = makeStubCtx();
+      const state = createInitialState();
+      state.enemies.push(makeEnemy({ id: 'grunt', file: 0, y: rankToTopY(1), isBoss: false }));
+
+      render(ctx as unknown as CanvasRenderingContext2D, state);
+
+      expect(records.some(r => r.method === 'createRadialGradient')).toBe(false);
+      expect(vignetteDrawn(records, gradientStub)).toBe(false);
+    });
+  });
+
+  describe('퀸 버프 뱃지 (스펙 7.7)', () => {
+    it('queenBuffCount에 따라 ×N 텍스트가 그려지고, 0이면 뱃지가 없다', () => {
+      const { ctx, records } = makeStubCtx();
+      const state = createInitialState();
+      state.pieces.push(makePiece({ id: 'q0', type: 'queen', square: { file: 0, rank: 1 }, queenBuffCount: 0 }));
+      state.pieces.push(makePiece({ id: 'q1', type: 'queen', square: { file: 1, rank: 1 }, queenBuffCount: 1 }));
+      state.pieces.push(makePiece({ id: 'q2', type: 'queen', square: { file: 2, rank: 1 }, queenBuffCount: 2 }));
+
+      render(ctx as unknown as CanvasRenderingContext2D, state);
+
+      const badgeTexts = records
+        .filter(r => r.method === 'fillText' && typeof r.args[0] === 'string' && (r.args[0] as string).startsWith('×'))
+        .map(r => r.args[0]);
+      expect(badgeTexts).toEqual(['×2', '×3']); // buffCount 0 → 뱃지 없음, 1 → ×2, 2 → ×3
+    });
   });
 });

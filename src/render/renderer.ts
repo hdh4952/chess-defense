@@ -47,10 +47,12 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState, view: Vi
 }
 
 function drawBoard(ctx: CanvasRenderingContext2D): void {
-  for (let row = 0; row < CONFIG.board.ranks; row++) {
+  for (let rank = CONFIG.board.ranks; rank >= 1; rank--) {
+    const row = CONFIG.board.ranks - rank;         // grid.ts의 rankToTopY와 동일한 매핑을 재사용
+    const y = rankToTopY(rank);
     for (let col = 0; col < CONFIG.board.files; col++) {
       ctx.fillStyle = (row + col) % 2 === 0 ? COLOR.light : COLOR.dark;
-      ctx.fillRect(col * SQ, row * SQ, SQ, SQ);
+      ctx.fillRect(col * SQ, y, SQ, SQ);
     }
   }
   ctx.fillStyle = COLOR.spawnTint;               // 8랭크 = 배치 불가 스폰 구역
