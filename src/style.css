@@ -1,1 +1,9 @@
-body { margin: 0; }
+body {
+  margin: 0;
+  background: #23221f;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: system-ui, sans-serif;
+  user-select: none;
+}
