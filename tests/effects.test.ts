@@ -68,6 +68,47 @@ describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스�
       expect(endpoints).toEqual(expectedEndpoints);
     });
 
+    it('룩 d4 발사: 균열 4개의 끝점이 정확히 h4/a4/d8/d1 칸 중심이다 (하드코딩된 기대값 — 알고리즘 재구현에 기대지 않음)', () => {
+      // 리뷰 발견 2: farthestPerDirection 헬퍼는 effects.ts의 방향 버킷팅 로직을 거의 그대로
+      // 재구현한 것이라, 그 접근 자체에 내재한 결함은 두 곳에서 똑같이 통과해버릴 수 있다.
+      // d4(file=3,rank=4)의 4극단은 손으로 세어도 뻔하므로 여기서는 리터럴로 못박는다.
+      const fx = new Effects();
+      const from: Square = { file: 3, rank: 4 }; // d4
+      fx.onEvent({ kind: 'attack', pieceType: 'rook', from, targets: rookTargets(from) });
+
+      const { ctx, records } = makeStubCtx();
+      fx.draw(ctx as unknown as CanvasRenderingContext2D);
+
+      const lineTos = records.filter(r => r.method === 'lineTo');
+      const endpoints = new Set(lineTos.map(l => `${l.args[0]},${l.args[1]}`));
+      const h4 = center({ file: 7, rank: 4 });
+      const a4 = center({ file: 0, rank: 4 });
+      const d8 = center({ file: 3, rank: 8 });
+      const d1 = center({ file: 3, rank: 1 });
+      expect(endpoints).toEqual(new Set([
+        `${h4.x},${h4.y}`, `${a4.x},${a4.y}`, `${d8.x},${d8.y}`, `${d1.x},${d1.y}`,
+      ]));
+    });
+
+    it('비숍 d4 발사: 광선 4개의 끝점이 정확히 h8/g1/a7/a1 칸 중심이다 (하드코딩된 기대값)', () => {
+      const fx = new Effects();
+      const from: Square = { file: 3, rank: 4 }; // d4
+      fx.onEvent({ kind: 'attack', pieceType: 'bishop', from, targets: bishopTargets(from) });
+
+      const { ctx, records } = makeStubCtx();
+      fx.draw(ctx as unknown as CanvasRenderingContext2D);
+
+      const lineTos = records.filter(r => r.method === 'lineTo');
+      const endpoints = new Set(lineTos.map(l => `${l.args[0]},${l.args[1]}`));
+      const h8 = center({ file: 7, rank: 8 });
+      const g1 = center({ file: 6, rank: 1 });
+      const a7 = center({ file: 0, rank: 7 });
+      const a1 = center({ file: 0, rank: 1 });
+      expect(endpoints).toEqual(new Set([
+        `${h8.x},${h8.y}`, `${g1.x},${g1.y}`, `${a7.x},${a7.y}`, `${a1.x},${a1.y}`,
+      ]));
+    });
+
     it('비숍 attack: 발사된 각 대각선 방향마다 광선(beam) 선 1개', () => {
       const fx = new Effects();
       const from: Square = { file: 4, rank: 4 };
@@ -158,6 +199,9 @@ describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스�
         const fx = new Effects();
         const from: Square = { file: 4, rank: 4 };
         fx.onEvent({ kind: 'attack', pieceType: 'rook', from, targets: rookTargets(from) });
+        // shakeOffset()은 이제 update()가 실제로 진행될 때만 갱신되는 순수 getter이므로
+        // (리뷰 발견 1 수정), main.ts와 동일하게 dt>0인 update() 한 번을 거친 뒤 읽는다.
+        fx.update(0.01);
         const offset = fx.shakeOffset();
         expect(offset).not.toEqual({ x: 0, y: 0 });
       } finally {
@@ -174,6 +218,39 @@ describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스�
       fx.update(0.05); // 누적 0.15 — 정확히 소진 시점
       fx.update(0.05); // 여유분 — Math.max(0, ...)로 음수가 남지 않아야 함
       expect(fx.shakeOffset()).toEqual({ x: 0, y: 0 });
+    });
+
+    it('일시정지 중(update(0) 반복)에는 진동 오프셋이 고정되고 새 난수를 뽑지 않으며, 재개하면 다시 갱신된다 (리뷰 발견 1)', () => {
+      // main.ts는 state.paused일 때 fx.update(0)을 매 rAF 프레임(초당 약 60회)마다 계속 호출한다.
+      // 수정 전에는 shakeOffset()이 호출될 때마다 새 난수를 뽑아, 감쇠는 멈췄는데(수명 고정)
+      // 화면 진동만 정지 중 영원히 계속되는 상태가 됐다 — 정지가 없느니만 못한 결과.
+      const randomSpy = vi.spyOn(Math, 'random');
+      try {
+        randomSpy.mockReturnValue(0.9);
+        const fx = new Effects();
+        const from: Square = { file: 4, rank: 4 };
+        fx.onEvent({ kind: 'attack', pieceType: 'rook', from, targets: rookTargets(from) }); // shake = 0.15
+        fx.update(0.01); // 정지 전 한 프레임 — 오프셋이 처음 계산된다
+        const seeded = fx.shakeOffset();
+        expect(seeded).not.toEqual({ x: 0, y: 0 });
+
+        const randomCallsBeforePause = randomSpy.mock.calls.length;
+        const duringPause: { x: number; y: number }[] = [];
+        for (let i = 0; i < 5; i++) {          // 일시정지 중 5개의 rAF 프레임을 흉내
+          fx.update(0);
+          duringPause.push(fx.shakeOffset());
+        }
+        expect(randomSpy.mock.calls.length).toBe(randomCallsBeforePause); // 새 난수 호출 없음
+        for (const offset of duringPause) expect(offset).toEqual(seeded); // 값이 완전히 고정됨
+
+        randomSpy.mockReturnValue(0.1); // 재개: 다른 난수로 바꿔서 실제로 다시 뽑히는지 확인
+        fx.update(0.01);
+        const afterResume = fx.shakeOffset();
+        expect(afterResume).not.toEqual(seeded);
+        expect(randomSpy.mock.calls.length).toBeGreaterThan(randomCallsBeforePause);
+      } finally {
+        randomSpy.mockRestore();
+      }
     });
   });
 

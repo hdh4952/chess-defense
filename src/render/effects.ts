@@ -20,6 +20,14 @@ interface Fx {
 export class Effects {
   private list: Fx[] = [];
   private shake = 0;
+  // shakeOffset()가 호출될 때마다 새 난수를 뽑으면, 일시정지 중처럼 update(dt)가 dt=0으로
+  // 계속 호출되는(rAF는 멈추지 않으므로) 상황에서도 매 프레임 새 오프셋이 나와 "보드는 얼어있는데
+  // 화면만 영원히 떨리는" 결과가 된다 (Task 19 리뷰 발견 1). 그래서 난수는 오직 update()가
+  // dt>0으로(=시간이 실제로 흘렀을 때만) 호출될 때 한 번만 다시 뽑고, shakeOffset()은 그 결과를
+  // 그대로 돌려주는 순수 getter로 둔다 — 책임을 main.ts(호출부)가 아니라 shake 값을 실제로
+  // 소유·감쇠시키는 이 클래스 안에 둬야, 이 클래스를 쓰는 다른 어떤 호출부도 이 가드를 따로
+  // 재구현할 필요가 없다.
+  private lastShakeOffset: { x: number; y: number } = { x: 0, y: 0 };
 
   onEvent(ev: GameEvent): void {
     if (ev.kind === 'attack') {
@@ -75,13 +83,20 @@ export class Effects {
       if (f.kind === 'ember') { f.x += f.vx! * dt; f.y += f.vy! * dt; }
     }
     this.list = this.list.filter(f => f.t < f.ttl);
-    this.shake = Math.max(0, this.shake - dt);
+    if (dt > 0) {                    // dt===0(일시정지 프레임)에는 감쇠도 재추첨도 건너뛴다
+      this.shake = Math.max(0, this.shake - dt);
+      this.lastShakeOffset = this.rollShakeOffset();
+    }
   }
 
-  shakeOffset(): { x: number; y: number } {
+  private rollShakeOffset(): { x: number; y: number } {
     if (this.shake <= 0) return { x: 0, y: 0 };
     const a = this.shake * 14;
     return { x: (Math.random() - 0.5) * a, y: (Math.random() - 0.5) * a };
+  }
+
+  shakeOffset(): { x: number; y: number } {
+    return this.lastShakeOffset;
   }
 
   draw(ctx: CanvasRenderingContext2D): void {
