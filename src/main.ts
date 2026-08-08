@@ -4,6 +4,7 @@ import { stepGame } from './core/step';
 import { createTicker } from './core/ticker';
 import { startWave } from './core/wave';
 import { render } from './render/renderer';
+import { wireControls } from './ui/controls';
 import { updateHud } from './ui/hud';
 import { createLayout } from './ui/layout';
 import { updateShop, wireShop } from './ui/shop';
@@ -20,6 +21,7 @@ const events: GameEvent[] = [];
 const tick = createTicker();
 
 wireShop(layout, state);
+wireControls(layout, state);
 layout.startBtn.addEventListener('click', () => { if (!state.paused) startWave(state); });
 const drag = new DragController(state, layout, events);   // interaction은 Task 18(하이라이트/툴팁)에서 사용
 
