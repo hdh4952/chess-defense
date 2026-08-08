@@ -28,6 +28,12 @@ body {
 #start-wave { padding: 12px; font-size: 16px; }
 canvas { display: block; }
 
+#tooltip {
+  position: fixed; z-index: 15; pointer-events: none;
+  background: #111c; color: #eee; font-size: 12px; line-height: 1.5;
+  padding: 6px 10px; border-radius: 6px; border: 1px solid #555;
+}
+
 #banner-root { position: fixed; inset: 0; pointer-events: none; z-index: 20; }
 .banner {
   position: absolute; top: 30%; left: 50%; transform: translateX(-50%);
