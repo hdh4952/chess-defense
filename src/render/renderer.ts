@@ -10,6 +10,19 @@ export interface ViewState {
   shake: { x: number; y: number };
 }
 export const EMPTY_VIEW: ViewState = { highlights: [], lines: [], shake: { x: 0, y: 0 } };
+// 공유 싱글턴 보호: 과거 main.ts가 `{ ...EMPTY_VIEW, highlights: [] }`로 highlights만 새로
+// 할당하고 lines/shake는 이 상수를 참조 공유한 채로 남겨둔 버그가 있었다 (Task 17 리뷰에서 발견).
+// freeze로 향후 실수로 EMPTY_VIEW.lines.push(...) 등을 호출하면 개발 중 즉시 TypeError로 드러난다.
+Object.freeze(EMPTY_VIEW.highlights);
+Object.freeze(EMPTY_VIEW.lines);
+Object.freeze(EMPTY_VIEW.shake);
+Object.freeze(EMPTY_VIEW);
+
+/** 매 프레임 새로 만드는 ViewState. 세 필드 모두 새 배열/객체 — EMPTY_VIEW와 참조를 공유하지
+ * 않으므로 Task 18(하이라이트/툴팁)·19(공격 이펙트/화면 흔들림)가 안전하게 push/대입할 수 있다. */
+export function createFrameView(): ViewState {
+  return { highlights: [], lines: [], shake: { x: 0, y: 0 } };
+}
 
 export const ALLY_GLYPH: Record<PieceType, string> = {
   pawn: '♟', knight: '♞', bishop: '♝', rook: '♜', queen: '♛',

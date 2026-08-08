@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CONFIG } from '../src/config';
 import { BOARD_H, BOARD_W, rankToTopY } from '../src/core/grid';
 import { createInitialState } from '../src/core/state';
-import { render } from '../src/render/renderer';
+import { createFrameView, EMPTY_VIEW, render } from '../src/render/renderer';
 import type { Enemy, Piece } from '../src/types';
 
 const SQ = CONFIG.board.squarePx;
@@ -159,6 +159,43 @@ describe('render() (Task 7 — 캔버스 렌더러)', () => {
 
       expect(records.some(r => r.method === 'createRadialGradient')).toBe(false);
       expect(vignetteDrawn(records, gradientStub)).toBe(false);
+    });
+  });
+
+  describe('createFrameView / EMPTY_VIEW 참조 격리 (Task 17 리뷰 수정)', () => {
+    it('createFrameView()가 반환하는 highlights/lines/shake는 매번 새 인스턴스이며 EMPTY_VIEW와 참조를 공유하지 않는다', () => {
+      const a = createFrameView();
+      const b = createFrameView();
+      expect(a.highlights).not.toBe(EMPTY_VIEW.highlights);
+      expect(a.lines).not.toBe(EMPTY_VIEW.lines);
+      expect(a.shake).not.toBe(EMPTY_VIEW.shake);
+      // 두 번 호출한 결과끼리도 서로 다른 인스턴스여야 한다 (프레임마다 새로 만든다는 계약).
+      expect(a.highlights).not.toBe(b.highlights);
+      expect(a.lines).not.toBe(b.lines);
+      expect(a.shake).not.toBe(b.shake);
+    });
+
+    it('createFrameView()의 lines에 push해도 EMPTY_VIEW.lines는 비어 있는 채로 남는다 (Task 18/19 회귀 방지)', () => {
+      const view = createFrameView();
+      view.lines.push({ from: { file: 0, rank: 1 }, to: { file: 0, rank: 2 }, color: '#fff' });
+      expect(view.lines).toHaveLength(1);
+      expect(EMPTY_VIEW.lines).toHaveLength(0);
+    });
+
+    it('EMPTY_VIEW와 그 내부 배열/객체는 freeze되어 있어 실수로 뮤테이션하면 즉시 실패한다', () => {
+      expect(Object.isFrozen(EMPTY_VIEW)).toBe(true);
+      expect(Object.isFrozen(EMPTY_VIEW.highlights)).toBe(true);
+      expect(Object.isFrozen(EMPTY_VIEW.lines)).toBe(true);
+      expect(Object.isFrozen(EMPTY_VIEW.shake)).toBe(true);
+      // ES 모듈은 기본 strict mode이므로 frozen 배열에 push하면 TypeError.
+      expect(() => EMPTY_VIEW.lines.push({ from: { file: 0, rank: 1 }, to: { file: 0, rank: 2 }, color: '#fff' })).toThrow(TypeError);
+      expect(() => { EMPTY_VIEW.shake.x = 5; }).toThrow(TypeError);
+    });
+
+    it('freeze 이후에도 render(ctx, state) 기본 인자 경로(view 생략)는 정상 동작한다', () => {
+      const { ctx } = makeStubCtx();
+      const state = createInitialState();
+      expect(() => render(ctx as unknown as CanvasRenderingContext2D, state)).not.toThrow();
     });
   });
 

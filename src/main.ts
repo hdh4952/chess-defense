@@ -3,7 +3,7 @@ import { createInitialState } from './core/state';
 import { stepGame } from './core/step';
 import { createTicker } from './core/ticker';
 import { startWave } from './core/wave';
-import { EMPTY_VIEW, render, type ViewState } from './render/renderer';
+import { createFrameView, render } from './render/renderer';
 import { Banners } from './ui/banners';
 import { wireControls } from './ui/controls';
 import { updateHud } from './ui/hud';
@@ -41,7 +41,7 @@ function frame(now: number): void {
   for (const ev of events) banners.onEvent(ev);
   banners.update(state, realDt);
 
-  const view: ViewState = { ...EMPTY_VIEW, highlights: [] };
+  const view = createFrameView();   // EMPTY_VIEW와 참조를 공유하지 않는 신규 인스턴스 (스펙 무관 — Task 17 리뷰 수정)
   if (banners.bossFlash) {                          // 파일 전체 붉은 강조 1초 (스펙 7.9)
     for (let rank = 1; rank <= 8; rank++) {
       view.highlights.push({ square: { file: banners.bossFlash.file, rank }, color: 'rgba(220,50,40,0.28)' });

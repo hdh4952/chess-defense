@@ -21,10 +21,13 @@ export class Banners {
   }
 
   update(state: GameState, dt: number): void {
-    if (this.bossFlash) {
+    // 일시정지 중에는 실시간(realDt) 카운트다운을 멈춘다 — 그렇지 않으면 게임 상태는 얼어있는데
+    // "1초 안에 반응하라"는 강조 표시만 벽시계 기준으로 계속 사라진다 (Task 17 리뷰 수정).
+    if (this.bossFlash && !state.paused) {
       this.bossFlash.t -= dt;
       if (this.bossFlash.t <= 0) this.bossFlash = null;
     }
+    // 결과 화면 판정은 게이팅하지 않는다 — victory/defeat는 종단 상태이며 일시정지 여부와 무관하게 표시돼야 한다.
     if (!this.resultShown && (state.phase === 'victory' || state.phase === 'defeat')) {
       this.resultShown = true;
       this.showResult(state);

@@ -130,9 +130,34 @@ describe('Banners.update — bossFlash 타이머 만료', () => {
     expect(banners.bossFlash).toBeNull();
     expect(bossFlashHighlights(banners.bossFlash)).toEqual([]);
   });
+
+  it('일시정지 중에는 카운트다운이 멈춘다 (Task 17 리뷰 수정 — 벽시계 기준으로 저절로 사라지면 안 됨)', () => {
+    const { banners, state } = setup();
+    banners.onEvent({ kind: 'bossSpawned', file: 4 });
+    const flashBefore = banners.bossFlash;
+    expect(flashBefore).toEqual({ file: 4, t: 1.0 });
+
+    state.paused = true;
+    banners.update(state, 0.5);
+    banners.update(state, 0.5);
+    banners.update(state, 10); // 아무리 오래 지나도 paused면 t가 줄지 않는다
+    expect(banners.bossFlash).toEqual({ file: 4, t: 1.0 });
+
+    state.paused = false;
+    banners.update(state, 0.5);
+    expect(banners.bossFlash).toEqual({ file: 4, t: 0.5 });
+  });
 });
 
 describe('Banners.update — 결과 화면 (스펙 3.2)', () => {
+  it('일시정지 상태여도 결과 화면 판정은 게이팅되지 않는다 (종단 상태는 paused와 무관하게 표시)', () => {
+    const { layout, banners, state } = setup();
+    state.phase = 'victory';
+    state.paused = true;
+    banners.update(state, 0.1);
+    expect(layout.bannerRoot.querySelectorAll('.result-overlay')).toHaveLength(1);
+  });
+
   it('victory 도달 시 웨이브 도달/처치 수/획득 골드를 담은 오버레이를 정확히 한 번만 렌더한다', () => {
     const { layout, banners, state } = setup();
     state.wave = 20;
