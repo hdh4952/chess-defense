@@ -284,7 +284,7 @@ describe('buildHighlights — hover 칸이 기물 자신의 현재 칸이면 미
     expect(hl.lines.length).toBeGreaterThan(0);   // 8방향 라인도 여전히 그려진다 (빈 배열이 아님)
   });
 
-  it('보드 위 비숍을 드래그 시작하고 커서가 원래 칸 위에 그대로 있으면 사거리 14칸이 그대로 보인다', () => {
+  it('보드 위 비숍을 드래그 시작하고 커서가 원래 칸 위에 그대로 있으면 사거리 12칸이 그대로 보인다', () => {
     const s = waveState();
     const b = boardPiece('bishop', 4, 3);
     s.pieces.push(b);
