@@ -1,9 +1,29 @@
+:root { color-scheme: dark; }
 body {
-  margin: 0;
-  background: #23221f;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  font-family: system-ui, sans-serif;
-  user-select: none;
+  margin: 0; background: #23221f; color: #e8e8e8;
+  font-family: system-ui, sans-serif; user-select: none;
 }
+#hud { display: flex; gap: 20px; align-items: center; padding: 8px 16px; background: #1a1918; }
+#hud button { font-size: 14px; }
+#main { display: flex; gap: 12px; padding: 12px; justify-content: center; align-items: flex-start; }
+#left, #right { width: 210px; display: flex; flex-direction: column; gap: 12px; }
+#slots { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.slot-cell {
+  aspect-ratio: 1; background: #35332f; border-radius: 4px;
+  display: flex; align-items: center; justify-content: center; font-size: 30px;
+}
+.slot-cell .glyph.ally { color: #fff; text-shadow: 0 0 2px #000, 0 0 2px #000; cursor: grab; }
+#shop { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.shop-btn { padding: 6px 2px; font-size: 13px; }
+.shop-btn .glyph { font-size: 20px; }
+.shop-btn:disabled { opacity: 0.4; }
+#board-wrap { position: relative; }   /* 툴팁/고스트 기준점 */
+#sell-slot {
+  min-height: 110px; border: 2px dashed #a05548; border-radius: 6px;
+  text-align: center; padding: 12px 4px; font-size: 26px; color: #caa;
+}
+#sell-slot small { font-size: 11px; }
+#sell-slot.armed { background: rgba(200, 80, 60, 0.25); }
+#sell-preview { font-size: 14px; color: #ffd54a; min-height: 18px; }
+#start-wave { padding: 12px; font-size: 16px; }
+canvas { display: block; }
