@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { CONFIG } from '../src/config';
 import { recalcQueenBuffs } from '../src/core/buff';
 import {
   buyPiece, canBuy, freeSlotIndex, resetPieceSeq, sellPiece, sellPrice, SLOT_CAPACITY,
@@ -29,7 +30,11 @@ describe('구매 (스펙 6/7.2/7.4)', () => {
     s.gold = 100000;
     for (let i = 0; i < SLOT_CAPACITY; i++) expect(buyPiece(s, 'pawn')).not.toBeNull();
     expect(canBuy(s, 'pawn')).toBe(false);
+    const goldBeforeFailed = s.gold;
     expect(buyPiece(s, 'pawn')).toBeNull();
+    // Atomicity: refusal mutated nothing
+    expect(s.gold).toBe(goldBeforeFailed);
+    expect(s.pieces).toHaveLength(SLOT_CAPACITY);
   });
   it('일시정지·게임 종료 중 구매 불가 (스펙 7.4)', () => {
     const s = createInitialState();
@@ -38,6 +43,15 @@ describe('구매 (스펙 6/7.2/7.4)', () => {
     s.paused = false;
     s.phase = 'defeat';
     expect(canBuy(s, 'pawn')).toBe(false);
+    s.phase = 'victory';
+    expect(canBuy(s, 'pawn')).toBe(false);
+  });
+  it('canBuy 양수 경로: 충분한 금, 빈 슬롯, 미일시정지 상태에서 참 (웨이브 중 구매 열림)', () => {
+    const s = createInitialState();
+    s.gold = CONFIG.pieces.pawn.cost;
+    s.paused = false;
+    s.phase = 'wave';  // 웨이브 중 구매 활성화 (스펙 7.4)
+    expect(canBuy(s, 'pawn')).toBe(true);
   });
   it('빈 슬롯은 낮은 번호부터 재사용', () => {
     const s = createInitialState();
@@ -76,6 +90,13 @@ describe('판매 (스펙 6/7.3)', () => {
     const s = createInitialState();
     const p = buyPiece(s, 'pawn')!;
     s.paused = true;
+    expect(sellPiece(s, p.id)).toBe(false);
+    expect(s.pieces).toHaveLength(1);
+  });
+  it('게임 종료 (victory/defeat) 중 판매 불가', () => {
+    const s = createInitialState();
+    const p = buyPiece(s, 'pawn')!;
+    s.phase = 'victory';
     expect(sellPiece(s, p.id)).toBe(false);
     expect(s.pieces).toHaveLength(1);
   });
