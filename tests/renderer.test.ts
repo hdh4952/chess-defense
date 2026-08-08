@@ -4,38 +4,9 @@ import { BOARD_H, BOARD_W, rankToTopY } from '../src/core/grid';
 import { createInitialState } from '../src/core/state';
 import { createFrameView, EMPTY_VIEW, render } from '../src/render/renderer';
 import type { Enemy, Piece } from '../src/types';
+import { makeStubCtx, type Call } from './canvasStub';
 
 const SQ = CONFIG.board.squarePx;
-
-interface Call { method: string; args: unknown[]; fillStyle: unknown }
-
-/** CanvasRenderingContext2D의 최소 기록용 스텁. render()가 사용하는 메서드만 구현한다. */
-function makeStubCtx() {
-  const records: Call[] = [];
-  const gradientStub = { addColorStop: (_offset: number, _color: string): void => {} };
-  const ctxObj: any = {
-    fillStyle: '', strokeStyle: '', font: '', lineWidth: 1,
-    textAlign: 'start', textBaseline: 'alphabetic', globalAlpha: 1,
-  };
-  const record = (method: string, args: unknown[]): void => {
-    records.push({ method, args, fillStyle: ctxObj.fillStyle });
-  };
-  ctxObj.save = (): void => record('save', []);
-  ctxObj.restore = (): void => record('restore', []);
-  ctxObj.translate = (x: number, y: number): void => record('translate', [x, y]);
-  ctxObj.fillRect = (x: number, y: number, w: number, h: number): void => record('fillRect', [x, y, w, h]);
-  ctxObj.beginPath = (): void => record('beginPath', []);
-  ctxObj.moveTo = (x: number, y: number): void => record('moveTo', [x, y]);
-  ctxObj.lineTo = (x: number, y: number): void => record('lineTo', [x, y]);
-  ctxObj.stroke = (): void => record('stroke', []);
-  ctxObj.ellipse = (...args: unknown[]): void => record('ellipse', args);
-  ctxObj.fill = (): void => record('fill', []);
-  ctxObj.strokeText = (text: string, x: number, y: number): void => record('strokeText', [text, x, y]);
-  ctxObj.fillText = (text: string, x: number, y: number): void => record('fillText', [text, x, y]);
-  ctxObj.createRadialGradient = (...args: unknown[]) => { record('createRadialGradient', args); return gradientStub; };
-  ctxObj.createLinearGradient = (...args: unknown[]) => { record('createLinearGradient', args); return gradientStub; };
-  return { ctx: ctxObj, records, gradientStub };
-}
 
 function makeEnemy(overrides: Partial<Enemy>): Enemy {
   return {
