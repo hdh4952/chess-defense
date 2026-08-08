@@ -1,11 +1,13 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from 'vitest';
 import { CONFIG } from '../src/config';
+import { createEnemy } from '../src/core/enemy';
 import { stepGame } from '../src/core/step';
 import { createInitialState } from '../src/core/state';
 import { createLayout } from '../src/ui/layout';
 import { wireControls } from '../src/ui/controls';
 import type { GameEvent, GameState } from '../src/types';
+import { boardPiece } from './helpers';
 
 function makeApp(): HTMLElement {
   const app = document.createElement('div');
@@ -101,10 +103,16 @@ describe('wireControls — 탭 이탈 자동 일시정지 (Task 16, 스펙 7.7)'
 });
 
 describe('speedMultiplier 배속 균일성 (스펙 7.7 — main.ts의 유일한 dt 경로 검증)', () => {
+  // 아래 두 테스트가 함께 "이동/쿨다운/준비시간이 모두 같은 dt를 공유하므로, 배속이 한쪽에만
+  // 적용되는 회귀를 잡아낸다"는 주장을 검증한다 (검토 Item 4). 이전에는 이 테스트가 그 주장을
+  // 주석에 적어 두고도 두 state의 pieces/enemies를 항상 비운 채 'prepare' 페이즈에만 머물러,
+  // moveEnemies/updateCombat을 단 한 번도 실행하지 않았다 — 준비 카운트다운만 검증하면서
+  // "세 서브시스템 모두"를 검증한다고 주장한 것 자체가 틀렸다.
   it('2배속은 동일한 프레임 수에 걸쳐 준비 카운트다운을 정확히 2배 진행시킨다', () => {
     // main.ts의 tick(realDt, dt => stepGame(state, dt * state.speedMultiplier, events))와
-    // 동일한 호출 형태를 고정 스텝으로 재현한다. 이동/쿨다운/준비시간이 모두 같은 dt를
-    // 공유하는 구조이므로, 어느 한 서브시스템에만 배속이 적용되는 회귀를 잡아낸다.
+    // 동일한 호출 형태를 고정 스텝으로 재현한다. 이 테스트는 updatePrepare 경로만 검증한다 —
+    // 이동/쿨다운 경로는 pieces/enemies가 비어 있어 전혀 구동되지 않으며, 그 두 경로는
+    // 바로 아래 테스트가 담당한다.
     const fixedDt = 1 / 60;
     const frames = 120; // 1배속 2초, 2배속 4초 — 둘 다 prepareSeconds(10s) 미만
     const events: GameEvent[] = [];
@@ -126,5 +134,50 @@ describe('speedMultiplier 배속 균일성 (스펙 7.7 — main.ts의 유일한 
 
     expect(elapsed1).toBeCloseTo(frames * fixedDt, 10);
     expect(elapsed2).toBeCloseTo(elapsed1 * 2, 10);
+  });
+
+  it('2배속은 동일한 프레임 수에 걸쳐 적 이동과 기물 쿨다운도 정확히 2배 진행시킨다 (wave 페이즈)', () => {
+    // 위 테스트의 빈 상태로는 moveEnemies/updateCombat이 실제로 dt를 소비하는지 검증할 수 없었다
+    // (검토 Item 4) — 보드 위 기물 1개와 적 1개를 두고 'wave' 페이즈에서 직접 구동해, 적 y 진행량과
+    // 기물 쿨다운 소진량이 실제로 2:1이 되는지 측정한다. 쿨다운은 10초로 크게 잡아 두 state 모두
+    // 측정 구간(최대 4초 상당) 안에 0에 도달해 발사·리셋되는 일이 없게 한다.
+    const fixedDt = 1 / 60;
+    const frames = 120;
+    const events: GameEvent[] = [];
+
+    const s1 = createInitialState();
+    s1.phase = 'wave';
+    const p1 = boardPiece('rook', 0, 1);
+    p1.cooldown = 10;
+    s1.pieces.push(p1);
+    const e1 = createEnemy(1, 0, false, 'e1');
+    s1.enemies.push(e1);
+
+    const s2 = createInitialState();
+    s2.phase = 'wave';
+    s2.speedMultiplier = 2;
+    const p2 = boardPiece('rook', 0, 1);
+    p2.cooldown = 10;
+    s2.pieces.push(p2);
+    const e2 = createEnemy(1, 0, false, 'e2');
+    s2.enemies.push(e2);
+
+    for (let i = 0; i < frames; i++) {
+      stepGame(s1, fixedDt * s1.speedMultiplier, events);
+      stepGame(s2, fixedDt * s2.speedMultiplier, events);
+    }
+
+    expect(s1.phase).toBe('wave');
+    expect(s2.phase).toBe('wave');
+
+    // 적 이동(moveEnemies): 2배속 쪽이 정확히 2배 더 전진했다.
+    expect(e1.y).toBeGreaterThan(0);
+    expect(e2.y).toBeCloseTo(e1.y * 2, 9);
+
+    // 기물 쿨다운(updateCombat): 2배속 쪽이 정확히 2배 더 소진됐다.
+    const cooldownProgress1 = 10 - p1.cooldown;
+    const cooldownProgress2 = 10 - p2.cooldown;
+    expect(cooldownProgress1).toBeGreaterThan(0);
+    expect(cooldownProgress2).toBeCloseTo(cooldownProgress1 * 2, 9);
   });
 });

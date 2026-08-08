@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG } from '../src/config';
-import { BOARD_H, BOARD_W, rankToTopY } from '../src/core/grid';
+import { BOARD_H, BOARD_W, fileCenterX, rankToTopY } from '../src/core/grid';
 import { createInitialState } from '../src/core/state';
 import { createFrameView, EMPTY_VIEW, render } from '../src/render/renderer';
 import type { Enemy, Piece } from '../src/types';
@@ -167,6 +167,60 @@ describe('render() (Task 7 — 캔버스 렌더러)', () => {
       const { ctx } = makeStubCtx();
       const state = createInitialState();
       expect(() => render(ctx as unknown as CanvasRenderingContext2D, state)).not.toThrow();
+    });
+  });
+
+  describe('ViewState → 픽셀 변환 (Item 2 — EMPTY_VIEW만으로는 검증되지 않던 실제 렌더 경로)', () => {
+    // 기존 스위트는 전부 EMPTY_VIEW(기본 인자)로만 render()를 호출해, 하이라이트 fillRect·라인
+    // moveTo/lineTo·화면 흔들림 translate 세 경로가 한 번도 실행되지 않았다. buildHighlights()의
+    // *출력*은 highlights.test.ts가 잘 검증하지만, 그 출력이 실제로 어떤 픽셀 좌표에 그려지는지는
+    // 이 파일이 처음 검증한다 — 기대값은 하드코딩된 픽셀이 아니라 grid.ts/CONFIG에서 직접
+    // 유도해, 보드 반전이나 랭크 off-by-one 같은 회귀를 실제로 잡아낼 수 있게 한다.
+    it('하이라이트 fillRect는 file*squarePx와 rankToTopY(rank)로 그려진다', () => {
+      const { ctx, records } = makeStubCtx();
+      const state = createInitialState();
+      const square = { file: 5, rank: 3 };
+      const color = 'rgba(11, 22, 33, 0.5)';
+      const view = createFrameView();
+      view.highlights.push({ square, color });
+
+      render(ctx as unknown as CanvasRenderingContext2D, state, view);
+
+      const hit = records.find(r => r.method === 'fillRect' && r.fillStyle === color);
+      expect(hit).toBeDefined();
+      expect(hit!.args).toEqual([square.file * SQ, rankToTopY(square.rank), SQ, SQ]);
+    });
+
+    it('라인 moveTo/lineTo는 fileCenterX(file)와 rankToTopY(rank)+squarePx/2로 그려진다', () => {
+      const { ctx, records } = makeStubCtx();
+      const state = createInitialState();
+      const from = { file: 1, rank: 2 };
+      const to = { file: 6, rank: 7 };
+      const color = '#abcdef';
+      const view = createFrameView();
+      view.lines.push({ from, to, color });
+
+      render(ctx as unknown as CanvasRenderingContext2D, state, view);
+
+      const moveTo = records.find(r => r.method === 'moveTo' && r.strokeStyle === color);
+      const lineTo = records.find(r => r.method === 'lineTo' && r.strokeStyle === color);
+      expect(moveTo).toBeDefined();
+      expect(lineTo).toBeDefined();
+      expect(moveTo!.args).toEqual([fileCenterX(from.file), rankToTopY(from.rank) + SQ / 2]);
+      expect(lineTo!.args).toEqual([fileCenterX(to.file), rankToTopY(to.rank) + SQ / 2]);
+    });
+
+    it('shake가 {0,0}이 아니면 그 값 그대로 translate가 호출된다', () => {
+      const { ctx, records } = makeStubCtx();
+      const state = createInitialState();
+      const view = createFrameView();
+      view.shake = { x: 4.5, y: -2.25 };
+
+      render(ctx as unknown as CanvasRenderingContext2D, state, view);
+
+      const translate = records.find(r => r.method === 'translate');
+      expect(translate).toBeDefined();
+      expect(translate!.args).toEqual([4.5, -2.25]);
     });
   });
 

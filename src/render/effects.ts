@@ -96,7 +96,11 @@ export class Effects {
   }
 
   shakeOffset(): { x: number; y: number } {
-    return this.lastShakeOffset;
+    // 캐시된 내부 객체를 그대로 참조로 돌려주면, 호출부가 이 반환값을 "이번 프레임 소유"라고 믿고
+    // 직접 대입/변형할 때(예: main.ts가 view.shake에 그대로 얹는 패턴) Effects의 내부 상태를
+    // 오염시킬 수 있다 — 이 브랜치에 이미 정확히 이 필드에서 참조 공유 버그가 한 번 있었다
+    // (renderer.ts의 EMPTY_VIEW.shake, Task 17 리뷰). 매 호출마다 얕은 복사본을 돌려준다.
+    return { ...this.lastShakeOffset };
   }
 
   draw(ctx: CanvasRenderingContext2D): void {

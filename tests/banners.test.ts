@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { CONFIG } from '../src/config';
 import { createInitialState } from '../src/core/state';
 import { createLayout } from '../src/ui/layout';
 import { Banners } from '../src/ui/banners';
@@ -37,7 +38,9 @@ function injectRealStylesheet(): void {
 function bossFlashHighlights(bossFlash: { file: number; t: number } | null): { square: { file: number; rank: number }; color: string }[] {
   const highlights: { square: { file: number; rank: number }; color: string }[] = [];
   if (bossFlash) {
-    for (let rank = 1; rank <= 8; rank++) {
+    // main.ts와 마찬가지로 CONFIG.board.ranks에서 유도한다 — 8을 양쪽에 각자 하드코딩해 두면
+    // 보드 크기 설정이 바뀔 때 이 미러링 헬퍼만 조용히 어긋날 수 있다 (검토 Item 7).
+    for (let rank = 1; rank <= CONFIG.board.ranks; rank++) {
       highlights.push({ square: { file: bossFlash.file, rank }, color: 'rgba(220,50,40,0.28)' });
     }
   }
@@ -117,9 +120,9 @@ describe('Banners.update — bossFlash 타이머 만료', () => {
     banners.update(state, 0.1); // 아직 활성 (t = 0.9)
 
     const highlights = bossFlashHighlights(banners.bossFlash);
-    expect(highlights).toHaveLength(8);
+    expect(highlights).toHaveLength(CONFIG.board.ranks);
     const ranks = highlights.map(h => h.square.rank).sort((a, b) => a - b);
-    expect(ranks).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(ranks).toEqual(Array.from({ length: CONFIG.board.ranks }, (_, i) => i + 1));
     expect(highlights.every(h => h.square.file === 2)).toBe(true);
   });
 

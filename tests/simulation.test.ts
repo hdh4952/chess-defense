@@ -3,7 +3,7 @@ import { CONFIG, enemyCount, enemyHp } from '../src/config';
 import { moveOnBoard } from '../src/core/pieces';
 import { createInitialState } from '../src/core/state';
 import { stepGame } from '../src/core/step';
-import { enemySquare } from '../src/core/grid';
+import { BOARD_H, enemySquare } from '../src/core/grid';
 import type { GameEvent, GameState, Phase, Piece } from '../src/types';
 import { boardPiece } from './helpers';
 
@@ -126,6 +126,12 @@ describe('전 게임 시뮬레이션', () => {
   });
 
   it('20웨이브 보스 누수: 체력 6 이상이면 승리, 5 이하면 패배 우선 (스펙 3.1/10.5)', () => {
+    // hp/maxHp/speed/y 모두 config에서 유도한다 — 예전에는 1470·80/6·639.9가 리터럴로 박혀 있어
+    // (검토 Item 10) enemyHp/bossHpMultiplier나 보드 치수가 재조정되면 이 테스트가 실제 게임과
+    // 조용히 어긋날 수 있었다. bossHpFor(20)와 이하 계산이 각각 1470/(80/6)과 정확히 같은 값으로
+    // 나옴을 확인했다 — 유도 전후로 실측값의 차이는 없다.
+    const bossHp = bossHpFor(20);
+    const bossSpeed = (CONFIG.board.squarePx / CONFIG.enemy.secondsPerSquare) * CONFIG.enemy.bossSpeedMultiplier;
     for (const [hp, expected] of [[6, 'victory'], [5, 'defeat']] as const) {
       const s = createInitialState();
       s.wave = 20;
@@ -133,8 +139,8 @@ describe('전 게임 시뮬레이션', () => {
       s.phase = 'wave';
       s.spawnedCount = 1;                                // 보스 이미 스폰됨
       const boss = {
-        id: 'b', file: 3, y: 639.9, hp: 1470, maxHp: 1470, isBoss: true,
-        speed: 80 / 6, jitterX: 0,
+        id: 'b', file: 3, y: BOARD_H - 0.1, hp: bossHp, maxHp: bossHp, isBoss: true,
+        speed: bossSpeed, jitterX: 0,
       };
       s.enemies.push(boss);
       run(s, 2, () => 0);
