@@ -32,14 +32,15 @@ export function applyAttack(
   }
 }
 
+/** dt를 매 틱 반복해서 빼면 반올림 오차가 남아(~1e-16) 쿨다운이 정확히 0에 도달하지 못하고 발사가 한 틱 밀릴 수 있다 — 그 잔차를 0으로 스냅한다. */
+const COOLDOWN_EPS = 1e-9;
+
 /**
  * 쿨다운 진행 + 폰/비숍/룩 주기 발사.
  * - 쿨다운은 슬롯에 있어도 계속 흐른다 (기물 ID 종속, 스펙 5.1/10.5)
  * - 사거리 내 적이 없으면 쿨 0에서 대기, 적 진입 즉시 발사 (계획서 검토 노트 5)
  * - 나이트는 이동 쿨다운만 감소 (폭발은 pieces.ts), 퀸은 공격 없음
  */
-const COOLDOWN_EPS = 1e-9;
-
 export function updateCombat(state: GameState, dt: number, events: GameEvent[]): void {
   for (const p of state.pieces) {
     p.cooldown = Math.max(0, p.cooldown - dt);

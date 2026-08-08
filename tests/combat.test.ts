@@ -44,6 +44,35 @@ describe('applyAttack', () => {
     applyAttack(s, [{ file: 2, rank: 5 }], 10, []);
     expect(far.hp).toBe(10);
   });
+  it('한 번의 타격으로 여러 적 동시 처치 — 각각 보상·이벤트 지급, 제거 누락/중복 없음', () => {
+    const s = waveState();
+    s.enemies.push(enemyAt(1, 2, 5, false, 'v1'), enemyAt(1, 2, 5, false, 'v2'));
+    const ev: GameEvent[] = [];
+    applyAttack(s, [{ file: 2, rank: 5 }], 10, ev);
+    expect(s.enemies).toHaveLength(0);
+    expect(s.gold).toBe(300 + 20);
+    expect(s.stats.totalKills).toBe(2);
+    expect(s.stats.totalGoldEarned).toBe(20);
+    expect(ev).toHaveLength(2);
+    expect(ev).toContainEqual({
+      kind: 'enemyDied', enemyId: 'v1', square: { file: 2, rank: 5 }, isBoss: false, reward: 10,
+    });
+    expect(ev).toContainEqual({
+      kind: 'enemyDied', enemyId: 'v2', square: { file: 2, rank: 5 }, isBoss: false, reward: 10,
+    });
+  });
+  it('보스 처치: 보상 = maxHp(420), enemyDied 이벤트에 isBoss: true', () => {
+    const s = waveState();
+    s.enemies.push(enemyAt(5, 2, 5, true, 'boss'));
+    const ev: GameEvent[] = [];
+    applyAttack(s, [{ file: 2, rank: 5 }], 420, ev);
+    expect(s.enemies).toHaveLength(0);
+    expect(s.gold).toBe(300 + 420);
+    expect(s.stats.totalGoldEarned).toBe(420);
+    expect(ev).toContainEqual({
+      kind: 'enemyDied', enemyId: 'boss', square: { file: 2, rank: 5 }, isBoss: true, reward: 420,
+    });
+  });
 });
 
 describe('updateCombat — 주기 공격 (스펙 5.2/5.4/5.5)', () => {
@@ -124,8 +153,8 @@ describe('updateCombat — 주기 공격 (스펙 5.2/5.4/5.5)', () => {
     s.pieces.push(n, q);
     const e = enemyAt(1, 3, 4);            // 나이트 자신 칸
     s.enemies.push(e);
-    updateCombat(s, 2.0, []);
-    expect(e.hp).toBe(10);                 // 아무도 안 때림
-    expect(n.cooldown).toBeCloseTo(1.0);   // 이동 쿨다운은 감소
+    updateCombat(s, 3.0, []);              // 쿨다운이 정확히 0에 도달 — 발사 게이트가 실제로 열리는 지점
+    expect(e.hp).toBe(10);                 // 쿨 0이어도 나이트는 안 때림
+    expect(n.cooldown).toBe(0);            // 이동 쿨다운은 0까지 감소 (나이트 예외로 재설정되지 않음)
   });
 });
