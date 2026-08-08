@@ -1,4 +1,5 @@
 import type { GameEvent, GameState, Phase } from '../types';
+import { updateCombat } from './combat';
 import { moveEnemies, processLeaks } from './enemy';
 import { checkWaveEnd, updatePrepare, updateSpawning } from './wave';
 
@@ -13,7 +14,7 @@ export function stepGame(
   updatePrepare(state, dt);                 // 준비 시간 카운트다운
   updateSpawning(state, dt, events, rng);   // 적 스폰 타이머
   moveEnemies(state, dt);                   // 적 위치 갱신
-  // (Task 13) 여기에 updateCombat(state, dt, events) 호출이 추가된다
+  updateCombat(state, dt, events);          // 기물 쿨다운 → 공격 판정 → 처치/골드
   processLeaks(state, events);              // 1랭크 통과 → 체력 감소
   if ((state.phase as Phase) === 'defeat') return;     // 즉시 정지 (스펙 10.5)
   checkWaveEnd(state, events);              // 웨이브 종료/승리 판정
