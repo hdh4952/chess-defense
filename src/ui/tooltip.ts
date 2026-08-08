@@ -15,7 +15,9 @@ export function updateTooltip(
   if (!p || !mouse) { el.hidden = true; return; }
   const def = CONFIG.pieces[p.type];
   const rows = p.type === 'queen'
-    ? ['공격력 — (버퍼)', `버프 효과 ×2 (8방향 직선)`]
+    // 겹치는 퀸마다 배율이 한 단계씩 더 쌓인다 (recalcQueenBuffs: queenBuffCount += 1 per queen) —
+    // "×2"로 고정 표기하면 두 번째 퀸이 아무 효과가 없다고 오해할 수 있다 (리뷰 Finding 3).
+    ? ['공격력 — (버퍼)', `버프 효과: 겹치는 퀸마다 +100% (8방향 직선)`]
     : [
         `기본 공격력 ${def.damage} · 배율 ×${1 + p.queenBuffCount} · 최종 ${pieceDamage(p)}`,
         p.type === 'knight' ? `이동 쿨다운 ${def.interval}s` : `공격 주기 ${def.interval}s`,

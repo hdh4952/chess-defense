@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildHighlights } from '../src/render/highlights';
 import { bishopTargets, knightBlastTargets, knightMoves, pawnTargets, queenLines, rookTargets } from '../src/core/patterns';
+import { sameSquare } from '../src/core/grid';
 import type { Interaction } from '../src/ui/drag';
 import type { Piece, PieceType, Square } from '../src/types';
 import { boardPiece, waveState } from './helpers';
@@ -76,7 +77,9 @@ describe('buildHighlights — 폰/비숍/룩 (hover 칸 기준 attackTargets)', 
     const expected = bishopTargets(anchor);   // 자신 칸 포함 14칸
     expect(expected).toHaveLength(14);
     const squares = highlightSquares(hl);
-    // range 하이라이트가 attackTargets 전체를 포함(자신 칸은 origin과 range 양쪽에 겹쳐 그려짐)
+    // range 하이라이트가 attackTargets 전체를 포함한다. attackTargets가 이미 자신 칸을 포함하므로
+    // origin을 별도로 중복 push하지 않는다 (리뷰 Finding 2) — 총 개수는 attackTargets와 정확히 같다.
+    expect(squares).toHaveLength(expected.length);
     for (const t of expected) expect(squares).toContainEqual(t);
     expect(hl.lines).toEqual([]);
   });
@@ -91,6 +94,7 @@ describe('buildHighlights — 폰/비숍/룩 (hover 칸 기준 attackTargets)', 
     const expected = rookTargets(anchor);   // 자신 칸 포함 15칸
     expect(expected).toHaveLength(15);
     const squares = highlightSquares(hl);
+    expect(squares).toHaveLength(expected.length);   // origin 중복 없음 (리뷰 Finding 2)
     for (const t of expected) expect(squares).toContainEqual(t);
   });
 
@@ -165,6 +169,28 @@ describe('buildHighlights — 나이트 (2계층: 이동 칸 + hover 시 폭발 
     expect(squares).toHaveLength(knightMoves({ file: 3, rank: 4 }).length);
   });
 
+  it('점유돼 도달 불가능한 L자 칸을 hover해도 폭발 미리보기가 뜨지 않는다 (리뷰 Finding 1 회귀 방지)', () => {
+    // 이 테스트는 highlights.ts의 hover 일치 판정이 미필터링된 knightMoves() 그대로를 쓰던 시절에는
+    // 실패했다: occupiedDest는 knightMoves()에는 있지만(점유돼 이동 불가) 초록 하이라이트에서는
+    // 제외되는데, hover 판정만은 필터 이전 목록을 참조해 "이동 가능한 칸"으로 오인하고 9칸 폭발
+    // 미리보기를 그렸다 — moveOnBoard가 canPlaceAt에서 거부할 칸에 피해를 약속하는 셈이었다.
+    // 고친 코드는 점유 필터를 거친 legalMoves 하나만 두 곳에 공유하므로, 되돌리면 아래 두 단언이
+    // 모두 깨진다 (occupiedDest가 highlights에 나타나고, 총 길이가 9칸 더 많아짐).
+    const s = waveState();
+    const n = boardPiece('knight', 3, 4);        // d4
+    const occupiedDest = { file: 4, rank: 6 };   // e6 — d4에서 갈 수 있는 L자 칸
+    const blocker = boardPiece('pawn', 4, 6);    // e6을 점유
+    s.pieces.push(n, blocker);
+    expect(knightMoves({ file: 3, rank: 4 })).toContainEqual(occupiedDest);
+
+    const hl = buildHighlights(s, noInteraction({ selectedPieceId: n.id, hoverSquare: occupiedDest }));
+    const squares = highlightSquares(hl);
+
+    expect(squares).not.toContainEqual(occupiedDest);   // 초록 마커도, 폭발 중심도 없다 (blast는 항상 자기 칸 포함)
+    const freeMoves = knightMoves({ file: 3, rank: 4 }).filter(m => !sameSquare(m, occupiedDest));
+    expect(squares).toHaveLength(freeMoves.length);      // 폭발 9칸이 섞여 들어오지 않았다
+  });
+
   it('나이트가 슬롯에서 드래그 중이면(보드 위가 아님) L자 이동 미리보기 대신 hover 칸의 폭발 범위(attackTargets)를 보여준다', () => {
     const s = waveState();
     const n = slotPiece('nk', 'knight', 0);
@@ -172,10 +198,41 @@ describe('buildHighlights — 나이트 (2계층: 이동 칸 + hover 시 폭발 
     const anchor = { file: 4, rank: 4 };
     const hl = buildHighlights(s, noInteraction({ dragging: { pieceId: n.id, from: 'slot' }, hoverSquare: anchor }));
 
-    const blast = knightBlastTargets(anchor);
+    const blast = knightBlastTargets(anchor);   // 3×3 블록은 항상 자기 칸(anchor)을 포함한다
     const squares = highlightSquares(hl);
+    // attackTargets(knight, anchor)가 이미 anchor를 포함하므로 origin이 별도로 중복 push되지
+    // 않는다 (리뷰 Finding 2) — 총 개수는 attackTargets(=blast)와 정확히 같다.
+    expect(squares).toHaveLength(blast.length);
     for (const b of blast) expect(squares).toContainEqual(b);
-    expect(squares).toContainEqual(anchor);   // origin 표시도 포함
+    expect(squares).toContainEqual(anchor);
+  });
+});
+
+describe('buildHighlights — 기준 칸 중복 방지 (리뷰 Finding 2)', () => {
+  it('폰처럼 attackTargets에 자기 칸이 없는 기물은 origin이 정확히 한 번만 추가된다', () => {
+    const s = waveState();
+    const p = slotPiece('p-origin', 'pawn', 0);
+    s.pieces.push(p);
+    const anchor = { file: 3, rank: 4 };
+    const hl = buildHighlights(s, noInteraction({ dragging: { pieceId: p.id, from: 'slot' }, hoverSquare: anchor }));
+    const squares = highlightSquares(hl);
+
+    expect(pawnTargets(anchor).some(t => sameSquare(t, anchor))).toBe(false);   // 전제: 폰은 자기 칸을 공격하지 않음
+    expect(squares.filter(sq => sameSquare(sq, anchor))).toHaveLength(1);        // origin 1회
+    expect(squares).toHaveLength(pawnTargets(anchor).length + 1);
+  });
+
+  it('비숍/룩처럼 attackTargets에 자기 칸이 포함된 기물은 anchor가 정확히 한 번만 나타난다', () => {
+    const s = waveState();
+    const b = slotPiece('b-origin', 'bishop', 0);
+    s.pieces.push(b);
+    const anchor = { file: 3, rank: 4 };
+    const hl = buildHighlights(s, noInteraction({ dragging: { pieceId: b.id, from: 'slot' }, hoverSquare: anchor }));
+    const squares = highlightSquares(hl);
+
+    expect(bishopTargets(anchor).some(t => sameSquare(t, anchor))).toBe(true);   // 전제: 비숍은 자기 칸도 공격
+    expect(squares.filter(sq => sameSquare(sq, anchor))).toHaveLength(1);         // 중복 없음
+    expect(squares).toHaveLength(bishopTargets(anchor).length);
   });
 });
 

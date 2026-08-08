@@ -56,14 +56,21 @@ export function buildHighlights(
     return { highlights, lines };
   }
   if (piece.type === 'knight' && onBoard) {
-    const moves = knightMoves(piece.square!);
-    for (const m of moves) if (!pieceAt(state, m.file, m.rank)) highlights.push({ square: m, color: C.move });
-    if (it.hoverSquare && moves.some(m => sameSquare(m, it.hoverSquare!))) {
+    // 점유 칸을 뺀 "실제로 착지 가능한" 칸 집합 하나만 만들고, 초록 하이라이트와 hover 일치 판정
+    // 양쪽에 동일하게 사용한다 (리뷰 Finding 1 — 이전에는 hover 판정이 미필터링된 knightMoves()를
+    // 써서, 점유돼 이동 불가능한 칸에도 폭발 미리보기가 떴다).
+    const legalMoves = knightMoves(piece.square!).filter(m => !pieceAt(state, m.file, m.rank));
+    for (const m of legalMoves) highlights.push({ square: m, color: C.move });
+    if (it.hoverSquare && legalMoves.some(m => sameSquare(m, it.hoverSquare!))) {
       for (const sq of attackTargets('knight', it.hoverSquare)) highlights.push({ square: sq, color: C.range });
     }
     return { highlights, lines };
   }
-  highlights.push({ square: anchor, color: C.origin });
-  for (const sq of attackTargets(piece.type, anchor)) highlights.push({ square: sq, color: C.range });
+  // 비숍/룩(및 나이트-슬롯의 3×3 폭발)은 attackTargets 자체가 자기 칸을 포함하므로, origin을
+  // 별도로 push하면 같은 칸이 두 번 그려진다 (리뷰 Finding 2). attackTargets 결과에 이미 anchor가
+  // 있는지로 판단해 중복을 피한다 — 폰처럼 자기 칸을 포함하지 않는 패턴에는 origin이 그대로 남는다.
+  const targets = attackTargets(piece.type, anchor);
+  if (!targets.some(sq => sameSquare(sq, anchor))) highlights.push({ square: anchor, color: C.origin });
+  for (const sq of targets) highlights.push({ square: sq, color: C.range });
   return { highlights, lines };
 }
