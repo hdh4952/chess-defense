@@ -27,3 +27,24 @@ body {
 #sell-preview { font-size: 14px; color: #ffd54a; min-height: 18px; }
 #start-wave { padding: 12px; font-size: 16px; }
 canvas { display: block; }
+
+#banner-root { position: fixed; inset: 0; pointer-events: none; z-index: 20; }
+.banner {
+  position: absolute; top: 30%; left: 50%; transform: translateX(-50%);
+  font-size: 42px; font-weight: 800; color: #ff5240;
+  text-shadow: 0 2px 8px #000;
+  animation: banner-fade 2.6s forwards;
+}
+@keyframes banner-fade {
+  0% { opacity: 0; } 8% { opacity: 1; } 77% { opacity: 1; } 100% { opacity: 0; }
+}
+.result-overlay {
+  position: absolute; inset: 0; pointer-events: auto;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex; align-items: center; justify-content: center;
+}
+.result-box {
+  background: #2b2a27; padding: 32px 56px; border-radius: 12px;
+  text-align: center; font-size: 18px;
+}
+.result-box button { margin-top: 16px; padding: 10px 28px; font-size: 16px; }
