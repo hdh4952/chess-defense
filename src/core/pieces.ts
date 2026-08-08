@@ -2,7 +2,7 @@ import { CONFIG } from '../config';
 import type { GameEvent, GameState, Piece, Square } from '../types';
 import { recalcQueenBuffs } from './buff';
 import { applyAttack, pieceDamage } from './combat';
-import { freeSlotIndex } from './economy';
+import { freeSlotIndex, SLOT_CAPACITY } from './economy';
 import { inBoard } from './grid';
 import { knightBlastTargets } from './patterns';
 
@@ -79,7 +79,9 @@ export function recallToSlot(state: GameState, pieceId: string, preferredSlot?: 
   const occupied = new Set(
     state.pieces.filter(x => x.slotIndex !== null).map(x => x.slotIndex as number),
   );
-  const target = preferredSlot !== undefined && !occupied.has(preferredSlot)
+  const target = preferredSlot !== undefined
+    && preferredSlot >= 0 && preferredSlot < SLOT_CAPACITY
+    && !occupied.has(preferredSlot)
     ? preferredSlot
     : freeSlotIndex(state);
   if (target === null) return false;
@@ -92,8 +94,8 @@ export function recallToSlot(state: GameState, pieceId: string, preferredSlot?: 
 /** 슬롯 내 재정렬 — 빈칸 이동 또는 점유자와 맞교환 (스펙 7.2/7.5) */
 export function reorderSlots(state: GameState, pieceId: string, targetIndex: number): boolean {
   const p = findPiece(state, pieceId);
-  if (!p || p.slotIndex === null || state.paused) return false;
-  if (targetIndex < 0 || targetIndex >= CONFIG.slots.rows * CONFIG.slots.cols) return false;
+  if (!p || p.slotIndex === null || !interactable(state)) return false;
+  if (targetIndex < 0 || targetIndex >= SLOT_CAPACITY) return false;
   const occupant = state.pieces.find(x => x.slotIndex === targetIndex);
   if (occupant) occupant.slotIndex = p.slotIndex;
   p.slotIndex = targetIndex;

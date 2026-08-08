@@ -159,3 +159,60 @@ describe('나이트 (스펙 5.3 + 검토 노트 3)', () => {
     expect(e.hp).toBe(4);                       // 3 × 2 = 6 데미지
   });
 });
+
+describe('가드 보강 — 종료 페이즈·텔레포트 방지·범위 검증 (리뷰 조치)', () => {
+  it('종료 페이즈(defeat)에서는 배치/이동/회수/재정렬 모두 불가', () => {
+    const s = waveState();
+    const onBoard = boardPiece('pawn', 2, 3);
+    s.pieces.push(onBoard);
+    const inSlot = slotPiece(s, 'rook', 1);
+    s.phase = 'defeat';
+    expect(placeFromSlot(s, inSlot.id, 4, 4, [])).toBe(false);
+    expect(moveOnBoard(s, onBoard.id, 3, 3, [])).toBe(false);
+    expect(recallToSlot(s, onBoard.id)).toBe(false);
+    expect(reorderSlots(s, inSlot.id, 2)).toBe(false);
+  });
+  it('일시정지 중에는 재정렬도 불가', () => {
+    const s = waveState();
+    const a = slotPiece(s, 'pawn', 0);
+    s.paused = true;
+    expect(reorderSlots(s, a.id, 3)).toBe(false);
+  });
+  it('placeFromSlot: 이미 보드 위인 기물은 재배치할 수 없다 (L자 제한 우회 방지)', () => {
+    const s = waveState();
+    const n = boardPiece('knight', 3, 4);       // 쿨다운 0
+    s.pieces.push(n);
+    const ev: GameEvent[] = [];
+    // (0,1)은 canPlaceAt 자체는 통과하는 빈 칸이지만 (3,4)에서 L자가 아니다 —
+    // 이미 보드 위인 기물은 placeFromSlot으로 재배치할 수 없어야 이 우회가 막힌다.
+    expect(placeFromSlot(s, n.id, 0, 1, ev)).toBe(false);
+    expect(n.square).toEqual({ file: 3, rank: 4 });
+    expect(ev.length).toBe(0);
+  });
+  it('placeFromSlot/moveOnBoard도 8랭크 목적지를 거부한다', () => {
+    const s = waveState();
+    const p = slotPiece(s, 'pawn', 0);
+    expect(placeFromSlot(s, p.id, 3, 8, [])).toBe(false);
+
+    const r = boardPiece('rook', 2, 6);
+    s.pieces.push(r);
+    expect(moveOnBoard(s, r.id, 2, 8, [])).toBe(false);
+
+    const n = boardPiece('knight', 3, 6);       // 쿨다운 0
+    s.pieces.push(n);
+    expect(isKnightMove({ file: 3, rank: 6 }, { file: 4, rank: 8 })).toBe(true); // L자이지만 8랭크
+    expect(moveOnBoard(s, n.id, 4, 8, [])).toBe(false);
+  });
+  it('recallToSlot: 범위를 벗어난 preferredSlot은 무시하고 빈 슬롯에 배정한다', () => {
+    const s = waveState();
+    const p = boardPiece('pawn', 3, 4);
+    s.pieces.push(p);
+    expect(recallToSlot(s, p.id, 999)).toBe(true);
+    expect(p.slotIndex).toBe(0);
+
+    const q = boardPiece('rook', 1, 2);
+    s.pieces.push(q);
+    expect(recallToSlot(s, q.id, -1)).toBe(true);
+    expect(q.slotIndex).toBe(1);
+  });
+});
