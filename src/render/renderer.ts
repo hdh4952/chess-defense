@@ -1,5 +1,6 @@
 import { CONFIG } from '../config';
 import { BOARD_H, BOARD_W, fileCenterX, rankToTopY } from '../core/grid';
+import { ALLY_SPRITE_PX, getAllySprite, getEnemySprite } from './sprites';
 import type { Enemy, GameState, Piece, PieceType, Square } from '../types';
 
 const SQ = CONFIG.board.squarePx;
@@ -83,6 +84,17 @@ function drawBoard(ctx: CanvasRenderingContext2D): void {
   ctx.fillRect(0, 0, BOARD_W, SQ);
 }
 
+/** 바닥 그림자 (진영 색 구분, 스펙 8.1). 글리프 경로와 스프라이트 경로가 동일한 그림자를 쓴다 —
+ * 두 곳에 같은 타원 공식을 따로 두면(중복) 언젠가 하나만 고쳐져 어긋나기 쉽다. */
+function drawGroundShadow(
+  ctx: CanvasRenderingContext2D, x: number, y: number, sizePx: number, shadow: string,
+): void {
+  ctx.fillStyle = shadow;
+  ctx.beginPath();
+  ctx.ellipse(x, y + sizePx * 0.42, sizePx * 0.38, sizePx * 0.14, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
 function drawGlyph(
   ctx: CanvasRenderingContext2D, glyph: string, x: number, y: number,
   sizePx: number, fill: string, stroke: string, shadow: string,
@@ -90,10 +102,7 @@ function drawGlyph(
   ctx.save();
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = shadow;                        // 바닥 그림자 (진영 색 구분, 스펙 8.1)
-  ctx.beginPath();
-  ctx.ellipse(x, y + sizePx * 0.42, sizePx * 0.38, sizePx * 0.14, 0, 0, Math.PI * 2);
-  ctx.fill();
+  drawGroundShadow(ctx, x, y, sizePx, shadow);
   ctx.font = `${sizePx}px "Segoe UI Symbol", "Noto Sans Symbols 2", serif`;
   ctx.lineWidth = 2.5;
   ctx.strokeStyle = stroke;
@@ -106,7 +115,15 @@ function drawGlyph(
 function drawPiece(ctx: CanvasRenderingContext2D, p: Piece): void {
   const x = fileCenterX(p.square!.file);
   const y = rankToTopY(p.square!.rank) + SQ / 2;
-  drawGlyph(ctx, ALLY_GLYPH[p.type], x, y, 52, COLOR.allyFill, COLOR.allyStroke, COLOR.allyShadow);
+  const sprite = getAllySprite(p.type);
+  if (sprite) {
+    ctx.save();
+    drawGroundShadow(ctx, x, y, ALLY_SPRITE_PX, COLOR.allyShadow);
+    ctx.drawImage(sprite, x - ALLY_SPRITE_PX / 2, y - ALLY_SPRITE_PX / 2, ALLY_SPRITE_PX, ALLY_SPRITE_PX);
+    ctx.restore();
+  } else {
+    drawGlyph(ctx, ALLY_GLYPH[p.type], x, y, 52, COLOR.allyFill, COLOR.allyStroke, COLOR.allyShadow);
+  }
   if (p.queenBuffCount > 0) {                    // 버프 뱃지 (스펙 7.7 — 상시 표식)
     ctx.font = 'bold 14px system-ui';
     ctx.fillStyle = '#ffd54a';
@@ -118,8 +135,16 @@ function drawPiece(ctx: CanvasRenderingContext2D, p: Piece): void {
 function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy): void {
   const x = fileCenterX(e.file) + e.jitterX;     // 지터는 렌더 전용 (스펙 7.8)
   const size = CONFIG.enemy.spritePx;
-  drawGlyph(ctx, e.isBoss ? '♚' : '♟', x, e.y, size, COLOR.enemyFill, COLOR.enemyStroke, COLOR.enemyShadow);
-  const w = 40, h = 4;                           // 체력바 상시 표시 (스펙 4.1/7.8)
+  const sprite = getEnemySprite(e.isBoss);
+  if (sprite) {
+    ctx.save();
+    drawGroundShadow(ctx, x, e.y, size, COLOR.enemyShadow);
+    ctx.drawImage(sprite, x - size / 2, e.y - size / 2, size, size);
+    ctx.restore();
+  } else {
+    drawGlyph(ctx, e.isBoss ? '♚' : '♟', x, e.y, size, COLOR.enemyFill, COLOR.enemyStroke, COLOR.enemyShadow);
+  }
+  const w = 40, h = 4;                           // 체력바 상시 표시 (스펙 4.1/7.8) — 스프라이트 유무와 무관
   const top = e.y - size / 2 - 8;
   ctx.fillStyle = COLOR.hpBack;
   ctx.fillRect(x - w / 2, top, w, h);

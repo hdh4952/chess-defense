@@ -1,7 +1,7 @@
 import { CONFIG } from '../config';
 import { BOARD_H, BOARD_W } from '../core/grid';
 import { SLOT_CAPACITY } from '../core/economy';
-import { ALLY_GLYPH } from '../render/renderer';
+import { ALLY_SPRITE_URL } from '../render/sprites';
 import type { PieceType } from '../types';
 
 export interface Layout {
@@ -47,6 +47,12 @@ export function createLayout(app: HTMLElement): Layout {
         <button id="start-wave">웨이브 시작</button>
       </aside>
     </main>
+    <footer id="credit">
+      기물 이미지:
+      <a href="https://commons.wikimedia.org/wiki/Category:SVG_chess_pieces" target="_blank" rel="noopener noreferrer">Cburnett / Wikimedia Commons</a>
+      —
+      <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noopener noreferrer">CC BY-SA 3.0</a>
+    </footer>
     <div id="banner-root"></div>
   `;
 
@@ -64,7 +70,7 @@ export function createLayout(app: HTMLElement): Layout {
     const btn = document.createElement('button');
     btn.className = 'shop-btn';
     btn.dataset.pieceType = type;
-    btn.innerHTML = `<span class="glyph">${ALLY_GLYPH[type]}</span> ${PIECE_NAME[type]}<br><small>${CONFIG.pieces[type].cost}G</small>`;
+    btn.innerHTML = `<img class="piece-icon shop-icon" src="${ALLY_SPRITE_URL[type]}" alt="${PIECE_NAME[type]}" draggable="false"> ${PIECE_NAME[type]}<br><small>${CONFIG.pieces[type].cost}G</small>`;
     shop.appendChild(btn);
     shopButtons.set(type, btn);
   }

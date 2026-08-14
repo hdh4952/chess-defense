@@ -26,6 +26,7 @@ export function makeStubCtx() {
   ctxObj.fill = (): void => record('fill', []);
   ctxObj.strokeText = (text: string, x: number, y: number): void => record('strokeText', [text, x, y]);
   ctxObj.fillText = (text: string, x: number, y: number): void => record('fillText', [text, x, y]);
+  ctxObj.drawImage = (...args: unknown[]): void => record('drawImage', args);
   ctxObj.createRadialGradient = (...args: unknown[]) => { record('createRadialGradient', args); return gradientStub; };
   ctxObj.createLinearGradient = (...args: unknown[]) => { record('createLinearGradient', args); return gradientStub; };
   return { ctx: ctxObj, records, gradientStub };

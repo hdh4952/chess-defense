@@ -12,10 +12,18 @@ body {
   aspect-ratio: 1; background: #35332f; border-radius: 4px;
   display: flex; align-items: center; justify-content: center; font-size: 30px;
 }
-.slot-cell .glyph.ally { color: #fff; text-shadow: 0 0 2px #000, 0 0 2px #000; cursor: grab; }
+
+/* 기물 이미지 공통: 브라우저 기본 HTML5 드래그를 반드시 꺼야 한다 — 그렇지 않으면 네이티브
+   드래그가 시작되며 pointercancel이 발생해 DragController의 포인터 드래그를 조용히 끊어버린다
+   (지난 시도의 회귀). draggable="false" 속성과 이 CSS 둘 다 같은 것을 보장하는 이중 안전장치다. */
+.piece-icon {
+  -webkit-user-drag: none;
+  user-drag: none;
+}
+.slot-icon { width: 78%; height: 78%; object-fit: contain; cursor: grab; }
 #shop { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
 .shop-btn { padding: 6px 2px; font-size: 13px; }
-.shop-btn .glyph { font-size: 20px; }
+.shop-icon { width: 22px; height: 22px; object-fit: contain; vertical-align: middle; }
 .shop-btn:disabled { opacity: 0.4; }
 #board-wrap { position: relative; }   /* 툴팁/고스트 기준점 */
 #sell-slot {
@@ -33,6 +41,20 @@ canvas { display: block; }
   background: #111c; color: #eee; font-size: 12px; line-height: 1.5;
   padding: 6px 10px; border-radius: 6px; border: 1px solid #555;
 }
+
+/* 드래그 고스트: 부모 div 크기만으로는 안전하지 않다 — <img>는 자체 고유 크기를 갖는 replaced
+   element라, 안의 이미지에 이 크기 규칙(.drag-ghost-icon)을 직접 걸지 않으면 SVG 원본이 확대돼
+   뷰포트를 뒤덮는다(지난 시도의 회귀). overflow: hidden은 혹시라도 클래스가 어긋났을 때를 대비한
+   2차 방어선이다. */
+.drag-ghost { width: 48px; height: 48px; overflow: hidden; }
+.drag-ghost-icon { width: 100%; height: 100%; object-fit: contain; }
+
+/* 항상 보이는 저작자 표시줄 (NOTICE.md — CC BY-SA 3.0 이행). HUD와 경쟁하지 않도록 조용한 톤. */
+#credit {
+  text-align: center; font-size: 11px; color: #766f66;
+  padding: 2px 12px 10px;
+}
+#credit a { color: #8f8778; }
 
 #banner-root { position: fixed; inset: 0; pointer-events: none; z-index: 20; }
 .banner {

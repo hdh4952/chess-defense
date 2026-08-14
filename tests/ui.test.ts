@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { CONFIG } from '../src/config';
 import { buyPiece, SLOT_CAPACITY } from '../src/core/economy';
 import { createInitialState } from '../src/core/state';
-import { ALLY_GLYPH } from '../src/render/renderer';
+import { ALLY_SPRITE_URL } from '../src/render/sprites';
 import { createLayout, PIECE_NAME } from '../src/ui/layout';
 import { updateHud } from '../src/ui/hud';
 import { updateShop, wireShop } from '../src/ui/shop';
@@ -164,7 +164,7 @@ describe('updateShop (Task 14) — canBuy 기반 비활성화', () => {
 });
 
 describe('updateSlots (Task 14)', () => {
-  it('두 개 구매 후 처음 두 칸에 글리프/piece id가 표시되고 나머지는 비어있다', () => {
+  it('두 개 구매 후 처음 두 칸에 해당 기물 이미지/piece id가 표시되고 나머지는 비어있다', () => {
     const layout = createLayout(makeApp());
     const state = createInitialState();
     state.gold = CONFIG.pieces.pawn.cost + CONFIG.pieces.knight.cost; // 두 종류 모두 살 만큼
@@ -177,9 +177,13 @@ describe('updateSlots (Task 14)', () => {
 
     const cells = Array.from(layout.slotGrid.children) as HTMLElement[];
     expect(cells[0].dataset.pieceId).toBe(p1!.id);
-    expect(cells[0].innerHTML).toContain(ALLY_GLYPH.pawn);
+    const img0 = cells[0].querySelector('img');
+    expect(img0).not.toBeNull();
+    expect(img0!.getAttribute('src')).toBe(ALLY_SPRITE_URL.pawn); // 폰 칸에는 반드시 폰 스프라이트
     expect(cells[1].dataset.pieceId).toBe(p2!.id);
-    expect(cells[1].innerHTML).toContain(ALLY_GLYPH.knight);
+    const img1 = cells[1].querySelector('img');
+    expect(img1).not.toBeNull();
+    expect(img1!.getAttribute('src')).toBe(ALLY_SPRITE_URL.knight); // 나이트 칸에는 반드시 나이트 스프라이트
 
     for (let i = 2; i < cells.length; i++) {
       expect(cells[i].innerHTML).toBe('');
@@ -202,5 +206,51 @@ describe('wireShop (Task 14) — 실제 클릭 배선 검증', () => {
     expect(pawns).toHaveLength(1);
     expect(pawns[0].slotIndex).toBe(0);
     expect(state.gold).toBe(startGold - CONFIG.pieces.pawn.cost);
+  });
+});
+
+// 지난 SVG 전환 시도에서 <img>에 draggable="false"를 빠뜨려, 브라우저의 네이티브 HTML5 드래그가
+// 시작되며 pointercancel을 발생시켜 DragController의 드래그를 조용히 끊어버린 회귀가 있었다.
+// 상점/트레이 어디서 이미지를 내보내든 이 속성이 반드시 있어야 한다.
+describe('기물 이미지 — draggable="false" 안전장치 (지난 시도 회귀 방지)', () => {
+  it('상점 버튼의 모든 기물 이미지는 draggable="false"를 갖는다', () => {
+    const layout = createLayout(makeApp());
+    expect(layout.shopButtons.size).toBeGreaterThan(0);
+    for (const btn of layout.shopButtons.values()) {
+      const img = btn.querySelector('img');
+      expect(img).not.toBeNull();
+      expect(img!.getAttribute('draggable')).toBe('false');
+    }
+  });
+
+  it('슬롯 트레이에 표시된 기물 이미지도 draggable="false"를 갖는다', () => {
+    const layout = createLayout(makeApp());
+    const state = createInitialState();
+    state.gold = CONFIG.pieces.pawn.cost;
+    expect(buyPiece(state, 'pawn')).not.toBeNull();
+    updateSlots(layout, state);
+
+    const img = layout.slotGrid.querySelector('img');
+    expect(img).not.toBeNull();
+    expect(img!.getAttribute('draggable')).toBe('false');
+  });
+});
+
+describe('저작자 표시줄 (NOTICE.md — CC BY-SA 3.0 이행)', () => {
+  it('결과 화면이 아니라 상시 레이아웃에 크레딧이 있고, 저작자·출처·라이선스 링크를 포함한다', () => {
+    const app = makeApp();
+    createLayout(app);
+
+    const credit = app.querySelector('#credit');
+    expect(credit).not.toBeNull();                 // #main 밖 일회성 오버레이가 아니라 항상 존재하는 요소
+    expect(credit!.textContent).toContain('Cburnett');
+    expect(credit!.textContent).toContain('CC BY-SA 3.0');
+
+    const links = Array.from(credit!.querySelectorAll('a')) as HTMLAnchorElement[];
+    expect(links.length).toBeGreaterThanOrEqual(2);
+    const licenseLink = links.find(a => a.getAttribute('href') === 'https://creativecommons.org/licenses/by-sa/3.0/');
+    expect(licenseLink).toBeDefined();              // 라이선스 원문 링크
+    const sourceLink = links.find(a => (a.getAttribute('href') ?? '').includes('commons.wikimedia.org'));
+    expect(sourceLink).toBeDefined();                // 출처(Wikimedia Commons) 링크
   });
 });

@@ -2,8 +2,8 @@ import { CONFIG } from '../config';
 import { moveOnBoard, pieceAt, placeFromSlot, recallToSlot, reorderSlots, findPiece } from '../core/pieces';
 import { sellPiece, sellPrice } from '../core/economy';
 import type { GameEvent, GameState, Interaction } from '../types';
-import type { Layout } from './layout';
-import { ALLY_GLYPH } from '../render/renderer';
+import { PIECE_NAME, type Layout } from './layout';
+import { ALLY_SPRITE_URL } from '../render/sprites';
 
 export interface RectLike { left: number; top: number; width: number; height: number }
 export interface DropZones { board: RectLike; slots: RectLike[]; sell: RectLike }
@@ -52,6 +52,7 @@ const CLICK_DIST = 6;      // px 미만 이동이면 클릭으로 간주
 export class DragController {
   readonly interaction: Interaction = { dragging: null, selectedPieceId: null, hoverSquare: null };
   private ghost: HTMLDivElement;
+  private ghostImg: HTMLImageElement;
   private downAt: { x: number; y: number } | null = null;
   private cooldownLabel: HTMLDivElement;
   private cooldownTimer: ReturnType<typeof setTimeout> | null = null;
@@ -63,9 +64,19 @@ export class DragController {
     private events: GameEvent[],
   ) {
     this.ghost = document.createElement('div');
+    this.ghost.className = 'drag-ghost';
     this.ghost.style.cssText =
-      'position:fixed;pointer-events:none;font-size:44px;z-index:10;display:none;' +
-      'color:#fff;text-shadow:0 0 3px #000;transform:translate(-50%,-50%)';
+      'position:fixed;pointer-events:none;z-index:10;display:none;transform:translate(-50%,-50%)';
+    // 고스트는 <img> 하나만 담는다. 이미지는 고유 크기를 가진 replaced element라 부모 div만
+    // 크기를 줘 봐야 이미지 자체는 원본(45×45 viewBox → 브라우저 기본 확대) 크기로 그려진다 —
+    // 지난 시도에서 이 클래스가 빠져 고스트가 뷰포트를 뒤덮은 회귀가 있었다. 반드시
+    // .drag-ghost-icon 클래스(style.css의 크기 규칙 대상)를 그대로 유지해야 한다.
+    this.ghostImg = document.createElement('img');
+    this.ghostImg.className = 'drag-ghost-icon';
+    // el.draggable = false만으로는 브라우저 간(그리고 이 저장소의 happy-dom 테스트 환경) 요소
+    // 속성에 반영된다는 보장이 없다 — draggable="false" 속성 자체를 명시적으로 박아 둔다.
+    this.ghostImg.setAttribute('draggable', 'false');
+    this.ghost.appendChild(this.ghostImg);
     document.body.appendChild(this.ghost);
     this.cooldownLabel = document.createElement('div');
     this.cooldownLabel.style.cssText =
@@ -157,7 +168,8 @@ export class DragController {
       return;
     }
     this.interaction.dragging = hit;
-    this.ghost.textContent = ALLY_GLYPH[piece.type];
+    this.ghostImg.src = ALLY_SPRITE_URL[piece.type];
+    this.ghostImg.alt = PIECE_NAME[piece.type];
     this.moveGhost(e);
   };
 

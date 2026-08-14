@@ -757,6 +757,29 @@ describe('DragController — zones() 캐시 (검토 Finding 6, 스펙 9.4)', () 
   });
 });
 
+// 지난 SVG 전환 시도에서 고스트 <img>에 style.css가 크기를 지정하는 클래스가 빠져, 이미지가
+// 자기 고유 크기(45×45 viewBox가 브라우저 기본 배율로 확대된 크기)로 그려지며 드래그 내내
+// 뷰포트를 뒤덮은 회귀가 있었다. 클래스가 실제로 붙어 있는지, draggable="false"도 함께 있는지
+// 매 드래그 시작마다 확인한다.
+describe('DragController — 드래그 고스트 이미지 안전장치 (지난 시도 회귀 방지)', () => {
+  it('드래그 중 고스트는 draggable="false"와 style.css의 크기 클래스(.drag-ghost-icon)를 가진 <img>를 담는다', () => {
+    const { state } = setup('wave');
+    const p = boardPiece('pawn', 2, 2);
+    state.pieces.push(p);
+
+    document.dispatchEvent(pointer('pointerdown', squareCenter(2, 2).x, squareCenter(2, 2).y));
+
+    const ghost = ghostEl();
+    expect(ghost.className).toBe('drag-ghost');           // 부모 컨테이너: overflow:hidden 2차 방어선 대상
+    const img = ghost.querySelector('img');
+    expect(img).not.toBeNull();
+    expect(img!.className).toBe('drag-ghost-icon');       // style.css 크기 규칙이 실제로 이 클래스를 타겟한다
+    expect(img!.getAttribute('draggable')).toBe('false');
+
+    document.dispatchEvent(pointer('pointerup', squareCenter(2, 2).x, squareCenter(2, 2).y));
+  });
+});
+
 describe('DragController — destroy() (검토 Finding 7)', () => {
   it('destroy()는 리스너와 ghost/쿨다운 라벨 DOM을 정리하고, 이후 이벤트를 무시한다', () => {
     const { state, drag } = setup('wave');
