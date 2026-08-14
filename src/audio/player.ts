@@ -50,8 +50,15 @@ export class AudioPlayer {
       const Ctor = getAudioContextCtor()!;
       this.ctx = new Ctor();
       this.master = this.ctx.createGain();
-      this.master.gain.value = this.muted ? 0 : 1;
-      this.master.connect(this.ctx.destination);
+      this.master.gain.value = this.muted ? 0 : AUDIO_TUNING.masterGain;
+      // 마스터 게인 뒤에 컴프레서를 하나 둔다 — 여러 큐가 피크에서 우연히 겹치면(폰은 서로
+      // 안 겹치지만 폰+비숍+룩+나이트가 동시에 울리는 경우는 있다) 합산 게인이 1을 넘어
+      // destination에서 하드클립될 수 있어, 톤을 바꾸려는 목적이 아니라 순수히 그 상황의
+      // 안전판으로 넣었다. Web Audio 기본값(threshold -24dB, knee 30, ratio 12, attack 3ms,
+      // release 250ms)을 그대로 쓴다 — 리미터로만 쓰기에 충분하고 값을 따로 튜닝할 이유가 없다.
+      const compressor = this.ctx.createDynamicsCompressor();
+      this.master.connect(compressor);
+      compressor.connect(this.ctx.destination);
     }
     return this.ctx;
   }
@@ -66,13 +73,21 @@ export class AudioPlayer {
   resumeOnGesture(): void {
     const ctx = this.ensureContext();
     if (ctx && ctx.state === 'suspended') {
-      void ctx.resume();
+      // resume()은 reject될 수 있다(예: 일부 브라우저의 정책 위반) — 실패해도 재생이 조용히
+      // 안 되는 것 이상의 문제는 없으므로(startVoice의 ctx.state 가드가 이미 그 상황을 흡수한다),
+      // 여기서는 unhandled rejection만 막는다.
+      void ctx.resume().catch(() => {});
     }
   }
 
   setMuted(muted: boolean): void {
     this.muted = muted;
-    if (this.master) this.master.gain.value = muted ? 0 : 1;
+    if (this.master && this.ctx) {
+      const target = muted ? 0 : AUDIO_TUNING.masterGain;
+      // .value에 바로 대입하면 재생 중인 소리 한가운데서 계단식으로 끊겨 클릭음이 난다.
+      // setTargetAtTime으로 짧게 램프해 부드럽게 전환한다(AUDIO_TUNING.muteRampSeconds).
+      this.master.gain.setTargetAtTime(target, this.ctx.currentTime, AUDIO_TUNING.muteRampSeconds);
+    }
   }
 
   isMuted(): boolean {
@@ -82,6 +97,12 @@ export class AudioPlayer {
   /** 큐 하나 재생 시도. 컨텍스트가 없거나(비브라우저) 디코드에 실패했으면 조용히 아무 일도 하지 않는다. */
   play(cue: CueKind): void {
     if (!this.ctorAvailable) return;
+    // 이 큐는 이미 디코드 실패가 확정됐다 — 다시 fetch/decode를 시도하지 않는다. 이 가드가
+    // 없으면 pending 맵 항목이 실패할 때마다(.finally에서) 지워져, 다음 play() 호출이 매번
+    // 새 fetch+decodeAudioData를 다시 시작한다. 실패가 영구적이면(예: 구형 Safari의 OGG 미지원,
+    // 배포 경로 오류로 인한 404) 스로틀만으로 제한되는 무한 재시도 스톰이 된다 — failedLogged가
+    // "로그는 한 번만"뿐 아니라 "시도도 한 번만"의 래치 역할을 겸한다.
+    if (this.failedLogged.has(cue)) return;
     const ctx = this.ensureContext();
     if (!ctx || !this.master) return;
 
@@ -125,6 +146,14 @@ export class AudioPlayer {
   }
 
   private startVoice(ctx: AudioContext, cue: CueKind, buffer: AudioBuffer): void {
+    // 컨텍스트가 running이 아니면(대개 suspended — resumeOnGesture 이전이거나, iOS 오디오
+    // 인터럽션/백그라운딩 등으로 브라우저가 다시 정지시킨 경우) 아예 시작하지 않는다. suspended
+    // 상태에서도 start()는 예외 없이 받아들여지지만 실제로는 재생되지 않고 onended도 결코
+    // 발생하지 않는다 — activeVoices가 상한까지 차오른 채 영원히 멈춰(그 뒤로는 매 큐가 조용히
+    // 버려짐) 있다가, resume() 시점에 그동안 쌓인 소리가 전부 한꺼번에 터진다. 헤드리스
+    // 크롬으로 실측 확인: 이 가드 없이는 8개 모두 start()되고 onended가 0회, resume() 후
+    // 8개가 동시에 발화; 가드를 넣으면 suspended 동안은 아무 소스도 만들어지지 않는다.
+    if (ctx.state !== 'running') return;
     // 동시 재생 목소리 상한(AUDIO_TUNING.maxVoices) — 넘으면 이미 재생 중인 소리는 그대로 두고
     // (끊지 않고) 이 최신 요청만 버린다. 재생 중인 소리를 stop()하면 그 소리가 부자연스럽게
     // 뚝 끊기는 게 코일레싱/스로틀보다 더 귀에 거슬리기 때문에 "버리는 쪽"을 최신 쪽으로 정했다.
@@ -145,6 +174,10 @@ export class AudioPlayer {
     this.activeVoices++;
     source.onended = () => {
       this.activeVoices = Math.max(0, this.activeVoices - 1);
+      // GC가 알아서 걷어가긴 하지만(끝난 소스는 회수 가능), 명시적으로 그래프에서 떼어내
+      // 정리 타이밍을 GC에 기대지 않게 한다.
+      source.disconnect();
+      gain.disconnect();
     };
     source.start();
   }

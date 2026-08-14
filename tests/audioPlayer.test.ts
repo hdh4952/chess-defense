@@ -6,14 +6,25 @@ import { AudioPlayer } from '../src/audio/player';
 // 파일의 기본 환경(vitest-environment 주석 없음 = node)에서 두 가지를 검증한다:
 //   1) AudioContext가 아예 없는 환경(이 파일 상단부)에서 조용히 no-op하는지
 //   2) globalThis.AudioContext에 최소한의 가짜 구현을 꽂아 넣었을 때, 보이스 상한·피치
-//      변주·음소거·자동재생 재개·디코드 실패 로깅이 계약대로 동작하는지
+//      변주·음소거·자동재생 재개·디코드 실패 처리가 계약대로 동작하는지
 // sprites.ts가 실제 SVG 래스터화를 검증할 수 없어 setSpriteForTest seam으로 drawImage 호출만
 // 검증하듯, 여기서도 setBufferForTest seam으로 fetch+decodeAudioData 경로를 우회해 재생 로직만
 // 검증한다 — "소리가 실제로 좋게 들리는가"는 헤드리스로도 이 스위트로도 확인할 수 없다.
+//
+// suspended 컨텍스트에서의 목소리 버스트(리뷰 Important 2)는 이 스위트의 페이크로도 재현되지만,
+// 실제 Web Audio 엔진(headless Chrome)으로도 별도 재현해 확인했다 — 보고서 참고.
 
 class FakeGainNode {
-  gain = { value: 1 };
+  gain = {
+    value: 1,
+    // 실제 AudioParam의 지수 램프를 흉내 낼 필요는 없다 — "결국 목표값에 도달했는가"만
+    // 검증하면 되므로, 페이크에서는 즉시 반영한다.
+    setTargetAtTime(target: number): void {
+      this.value = target;
+    },
+  };
   connect(): void {}
+  disconnect(): void {}
 }
 
 class FakeBufferSourceNode {
@@ -22,15 +33,21 @@ class FakeBufferSourceNode {
   onended: (() => void) | null = null;
   started = false;
   connect(): void {}
+  disconnect(): void {}
   start(): void {
     this.started = true;
   }
+}
+
+class FakeCompressorNode {
+  connect(): void {}
 }
 
 class FakeAudioContext {
   static instances: FakeAudioContext[] = [];
   destination = {};
   state: 'running' | 'suspended' = 'running';
+  currentTime = 0;
   resumeCalls = 0;
   createdSources: FakeBufferSourceNode[] = [];
   createdGains: FakeGainNode[] = [];
@@ -47,6 +64,9 @@ class FakeAudioContext {
     const s = new FakeBufferSourceNode();
     this.createdSources.push(s);
     return s;
+  }
+  createDynamicsCompressor(): FakeCompressorNode {
+    return new FakeCompressorNode();
   }
   decodeAudioData(): Promise<unknown> {
     return Promise.resolve({});
@@ -82,7 +102,7 @@ describe('AudioPlayer — AudioContext가 없는 환경(이 파일의 기본 nod
   });
 });
 
-describe('AudioPlayer — 보이스 상한 (스펙 3번째 방어, player.ts가 시행)', () => {
+describe('AudioPlayer — 보이스 상한 (3번째 방어, player.ts가 시행)', () => {
   afterEach(uninstallFakeAudioContext);
 
   it('상한을 넘는 요청은 최신 쪽을 버리고, 만들어진 목소리는 모두 끊기지 않고 시작된다', () => {
@@ -109,6 +129,44 @@ describe('AudioPlayer — 보이스 상한 (스펙 3번째 방어, player.ts가 
     ctx.createdSources[0].onended?.();   // 자연 종료
     player.play('pawn');
     expect(ctx.createdSources).toHaveLength(AUDIO_TUNING.maxVoices + 1);
+  });
+});
+
+describe('AudioPlayer — suspended 컨텍스트에서는 목소리를 시작하지 않는다 (리뷰 Important 2)', () => {
+  afterEach(uninstallFakeAudioContext);
+
+  it('suspended 동안의 play()는 소스를 전혀 만들지 않는다 (목소리 상한이 소진되지 않는다)', () => {
+    installFakeAudioContext();
+    const player = new AudioPlayer();
+    player.setBufferForTest('pawn', {} as AudioBuffer);
+
+    player.resumeOnGesture();                  // 컨텍스트 생성 (running으로 시작)
+    const ctx = FakeAudioContext.instances[0];
+    ctx.state = 'suspended';                    // 브라우저가 다시 정지시킨 상황(백그라운딩 등)을 흉내
+
+    for (let i = 0; i < AUDIO_TUNING.maxVoices + 2; i++) player.play('pawn');
+
+    // 가드가 없으면 여기서 maxVoices개의 소스가 start()된 채 쌓여(onended는 결코 안 옴) 상한이
+    // 영구히 소진된다 — 가드가 있으면 애초에 하나도 만들어지지 않는다.
+    expect(ctx.createdSources).toHaveLength(0);
+  });
+
+  it('suspended 동안 쌓인 요청 없이, resume 이후에는 정상적으로 다시 재생된다 (버스트 없음)', () => {
+    installFakeAudioContext();
+    const player = new AudioPlayer();
+    player.setBufferForTest('pawn', {} as AudioBuffer);
+
+    player.resumeOnGesture();
+    const ctx = FakeAudioContext.instances[0];
+    ctx.state = 'suspended';
+    for (let i = 0; i < AUDIO_TUNING.maxVoices + 2; i++) player.play('pawn'); // 전부 버려짐
+    expect(ctx.createdSources).toHaveLength(0);
+
+    ctx.state = 'running';                      // resume() 완료 상황을 흉내
+    player.play('pawn');
+    // suspended 동안의 요청이 큐잉돼 있다가 한꺼번에 터지는 게 아니라, resume 이후 새로 들어온
+    // 요청 1건만큼만 재생된다.
+    expect(ctx.createdSources).toHaveLength(1);
   });
 });
 
@@ -148,7 +206,7 @@ describe('AudioPlayer — 음소거 (마스터 게인)', () => {
     expect(master.gain.value).toBe(0);
 
     player.setMuted(false);
-    expect(master.gain.value).toBe(1);
+    expect(master.gain.value).toBe(AUDIO_TUNING.masterGain);
   });
 });
 
@@ -169,13 +227,14 @@ describe('AudioPlayer — resumeOnGesture (자동재생 정책 대응)', () => {
   });
 });
 
-describe('AudioPlayer — 디코드 실패', () => {
+describe('AudioPlayer — 디코드 실패 (리뷰 Important 1: 재시도 래치)', () => {
   afterEach(uninstallFakeAudioContext);
 
   it('fetch가 실패해도 던지지 않고, 같은 큐에 대해서는 최초 1회만 콘솔에 로그한다', async () => {
     installFakeAudioContext();
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (() => Promise.reject(new Error('network down'))) as typeof fetch;
+    let fetchCalls = 0;
+    globalThis.fetch = (() => { fetchCalls++; return Promise.reject(new Error('network down')); }) as typeof fetch;
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     try {
@@ -186,6 +245,32 @@ describe('AudioPlayer — 디코드 실패', () => {
       await flushMicrotasks();
 
       expect(errorSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      errorSpy.mockRestore();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('실패가 확정된 뒤에는 다시 fetch를 시도하지 않는다 — 스로틀만으로 제한되는 재시도 스톰 방지', async () => {
+    installFakeAudioContext();
+    const originalFetch = globalThis.fetch;
+    let fetchCalls = 0;
+    globalThis.fetch = (() => { fetchCalls++; return Promise.reject(new Error('network down')); }) as typeof fetch;
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      const player = new AudioPlayer();
+      player.play('rook');
+      await flushMicrotasks();
+      expect(fetchCalls).toBe(1);        // 최초 1회는 실제로 시도한다
+
+      // 실패가 확정된 뒤 여러 번 더 play()해도(예: 초당 몇 회씩, 세션 내내) fetch가 다시
+      // 일어나지 않는다 — 이게 없으면 구형 Safari의 OGG 미지원이나 404 배포 오류에서 스로틀
+      // 상한(초당 최대 몇 회)만큼 fetch+decodeAudioData가 세션 내내 반복된다.
+      for (let i = 0; i < 20; i++) player.play('rook');
+      await flushMicrotasks();
+
+      expect(fetchCalls).toBe(1);
     } finally {
       errorSpy.mockRestore();
       globalThis.fetch = originalFetch;

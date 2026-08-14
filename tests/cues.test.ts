@@ -39,6 +39,12 @@ describe('CueResolver — 큐별 최소 간격 스로틀 (스펙 "2번 방어")'
     expect(resolver.resolve([attackEvent('pawn')], throttleMs - 1, false)).toEqual([]);
     // 윈도우가 정확히 지난 시점 — 다시 허용된다
     expect(resolver.resolve([attackEvent('pawn')], throttleMs, false)).toEqual(['pawn']);
+    // 리뷰 Important 3: 시각을 최초 1회만 기록하고 다시는 갱신하지 않는 구현(예:
+    // `if (!lastPlayedAt.has(cue)) set(...)`)도 위 세 단언은 전부 통과한다 — 그런 구현은 세
+    // 번째 호출 이후 스로틀이 다시는 걸리지 않아 실제 게임에서 60Hz로 매 프레임 재생된다.
+    // 재허용된 이번(throttleMs 시점) 재생이 새 기준 시각으로 다시 스로틀을 거는지까지 확인해야
+    // 이 실패 모드를 잡는다.
+    expect(resolver.resolve([attackEvent('pawn')], throttleMs + 1, false)).toEqual([]);
   });
 
   it('폰의 스로틀은 같은 프레임에 함께 온 룩 큐를 막지 않는다 (전역이 아니라 큐별)', () => {
@@ -75,6 +81,15 @@ describe('CueResolver — 공격이 아닌 이벤트는 무시된다', () => {
       { kind: 'prepareStarted', wave: 2, isBossWave: false },
     ];
     expect(resolver.resolve(events, 0, false)).toEqual([]);
+  });
+
+  it("pieceType이 'queen'이나 'knight'인 attack 이벤트는(실제로는 combat.ts가 만들지 않지만) 아무 큐도 내지 않는다", () => {
+    // combat.ts:49에서 knight/queen은 'attack' 이벤트 자체를 push하지 않는다(퀸은 damage===0,
+    // 나이트는 별도 knightBlast 경로) — 이 테스트는 그 사실에 기대지 않고, ATTACK_CUE_BY_PIECE에
+    // 나중에 누군가 잘못된 매핑을 추가해도 이 계약이 여전히 지켜지는지 독립적으로 확인한다.
+    const resolver = new CueResolver();
+    expect(resolver.resolve([attackEvent('queen')], 0, false)).toEqual([]);
+    expect(resolver.resolve([attackEvent('knight')], 0, false)).toEqual([]);
   });
 });
 
