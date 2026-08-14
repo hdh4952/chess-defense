@@ -33,6 +33,11 @@ export function isKnightMove(a: Square, b: Square): boolean {
  * 착지 가능 판정 — 단일 판정 함수 (검토 Item 1). moveOnBoard/placeFromSlot(실제 규칙)과
  * highlights.ts의 buildHighlights(미리보기)가 반드시 이 함수 하나만 호출하게 해, 미리보기가
  * 실제로는 거부될 이동/배치/폭발을 약속하는 일이 구조적으로 불가능해진다.
+ * 예외 한 가지: moveOnBoard는 제자리(자기 자신의 현재 칸)로의 이동을 이 함수와 무관하게 별도
+ * 가드로 no-op 처리한다(자기 자신과의 "맞교환"은 의미가 없으므로) — canLandAt 자체는 그 칸을
+ * 거부하지 않으므로, 이 한 가지 케이스에 한해 "canLandAt이 참이면 실제로 이동이 일어난다"는
+ * 보장이 깨진다. 미리보기 쪽은 이를 문제 삼지 않는다(제자리 hover는 애초에 "지금 위치"를 보여줄
+ * 뿐 이동 약속이 아니므로).
  *
  * 출발지에 따라 의미가 갈라진다 (게임 규칙 변경 — 점유 칸 맞교환 도입, 사용자 승인):
  * - 트레이의 기물(piece.square === null): canPlaceAt과 동일 — 목적지가 반드시 빈 칸이어야 한다.

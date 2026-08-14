@@ -87,17 +87,22 @@ describe('updateTooltip (스펙 7.7 — 기물 hover 툴팁)', () => {
     expect(pieceDamage(p)).toBe(2);
   });
 
-  it('나이트는 공격 주기 대신 이동 쿨다운으로 표시된다', () => {
+  it('나이트는 공격 주기 대신 이동 쿨다운으로 표시되고, interval 0에서는 "남은 쿨다운" 줄이 억제된다', () => {
     const el = makeEl();
     const state = waveState();
     const p = boardPiece('knight', 1, 1);
+    // 실제 게임플레이에서는 interval 0인 나이트가 양수 cooldown을 가질 수 없다(재무장이 항상
+    // 즉시 0으로 돌아가므로) — 여기서는 억제 여부가 p.cooldown이 아니라 def.interval(config)로
+    // 결정된다는 것 자체를 증명하려고 인위적으로 1.5를 강제한다(리뷰 Minor 3).
     p.cooldown = 1.5;
     state.pieces.push(p);
     updateTooltip(el, state, noInteraction({ hoverSquare: { file: 1, rank: 1 } }), { x: 0, y: 0 });
 
     expect(el.innerHTML).toContain('이동 쿨다운');
-    expect(el.innerHTML).toContain('남은 쿨다운 1.5s');
     expect(el.innerHTML).not.toContain('공격 주기');
+    // "이동 쿨다운 없음" 바로 아래 "남은 쿨다운 0.0s"를 또 보여주면 중복이다 — interval이 0이면
+    // p.cooldown 값과 무관하게 "남은 쿨다운" 줄 자체를 그리지 않는다.
+    expect(el.innerHTML).not.toContain('남은 쿨다운');
   });
 
   it('나이트 이동 쿨다운 수치는 "없음"으로 표시된다 (게임 규칙 변경 — interval 0, 사용자 승인)', () => {
@@ -114,6 +119,7 @@ describe('updateTooltip (스펙 7.7 — 기물 hover 툴팁)', () => {
 
     expect(el.innerHTML).toContain('이동 쿨다운 없음');
     expect(el.innerHTML).not.toContain('이동 쿨다운 0s');
+    expect(el.innerHTML).not.toContain('남은 쿨다운');   // 위와 같은 이유로 중복 줄이 없다 (리뷰 Minor 3)
   });
 
   it('퀸은 공격력을 0인 수치처럼 표기하지 않고 버퍼임을 명시한다', () => {

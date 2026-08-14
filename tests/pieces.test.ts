@@ -153,7 +153,9 @@ describe('나이트 (스펙 5.3 + 검토 노트 3)', () => {
     s.enemies.push(e);
     placeFromSlot(s, n.id, 3, 4, []);           // 폭발 1회 (10 → 7)
     expect(e.hp).toBe(7);
-    expect(n.cooldown).toBe(0);                 // 쿨다운이 즉시 0으로 재무장 — 우회할 쿨다운이 없다
+    // 쿨다운이 즉시 config 값(현재 0)으로 재무장 — 우회할 쿨다운이 없다. 리터럴 대신 config
+    // 참조로 단언해, 값을 되돌려도(스펙 되돌림) 이 줄이 자동으로 맞아떨어지게 한다.
+    expect(n.cooldown).toBe(CONFIG.pieces.knight.interval);
     recallToSlot(s, n.id);
     placeFromSlot(s, n.id, 3, 4, []);           // 재배치 즉시 다시 폭발 (7 → 4)
     expect(e.hp).toBe(4);
@@ -181,7 +183,7 @@ describe('나이트 (스펙 5.3 + 검토 노트 3)', () => {
 
     expect(moveOnBoard(s, n.id, 4, 6, [])).toBe(true);   // 1차 이동+폭발, 쿨 0 → 즉시 재무장
     expect(e1.hp).toBe(7);
-    expect(n.cooldown).toBe(0);
+    expect(n.cooldown).toBe(CONFIG.pieces.knight.interval);
 
     expect(isKnightMove({ file: 4, rank: 6 }, { file: 2, rank: 5 })).toBe(true);
     expect(moveOnBoard(s, n.id, 2, 5, [])).toBe(true);   // 대기 없이 곧바로 2차 L자 이동+폭발
