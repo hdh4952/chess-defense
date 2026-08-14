@@ -51,8 +51,10 @@ const COLOR = {
   // 또렷이 읽히는 것을 확인했다(SVG-report.md 참조).
   spawnOverlay: 'rgba(0, 0, 0, 0.14)',
   spawnBorder: '#C83C32',              // 예전 spawnTint와 같은 RGB(200,60,50)를 불투명 경계선으로 재사용
-  allyFill: '#ffffff', allyStroke: '#2b2b2b', allyShadow: 'rgba(70, 120, 220, 0.35)',
-  enemyFill: '#141414', enemyStroke: '#f2f2f2', enemyShadow: 'rgba(220, 60, 50, 0.35)',
+  // 글리프 폴백 전용 색 (스프라이트가 아직 로드되지 않았거나 브라우저가 아닌 환경). 바닥 그림자
+  // 색은 그림자 자체를 없애면서 함께 제거했다.
+  allyFill: '#ffffff', allyStroke: '#2b2b2b',
+  enemyFill: '#141414', enemyStroke: '#f2f2f2',
   hpBack: '#3a3a3a', hpFill: '#e04b3a',
 };
 
@@ -105,25 +107,18 @@ function drawBoard(ctx: CanvasRenderingContext2D): void {
   ctx.fillRect(0, SQ - SPAWN_BORDER_PX, BOARD_W, SPAWN_BORDER_PX);
 }
 
-/** 바닥 그림자 (진영 색 구분, 스펙 8.1). 글리프 경로와 스프라이트 경로가 동일한 그림자를 쓴다 —
- * 두 곳에 같은 타원 공식을 따로 두면(중복) 언젠가 하나만 고쳐져 어긋나기 쉽다. */
-function drawGroundShadow(
-  ctx: CanvasRenderingContext2D, x: number, y: number, sizePx: number, shadow: string,
-): void {
-  ctx.fillStyle = shadow;
-  ctx.beginPath();
-  ctx.ellipse(x, y + sizePx * 0.42, sizePx * 0.38, sizePx * 0.14, 0, 0, Math.PI * 2);
-  ctx.fill();
-}
+// 바닥 그림자(타원)는 제거했다 (사용자 요청). 스펙 8.1은 이를 진영 구분 단서 중 하나로 들었지만,
+// 그 목록은 기물이 유니코드 글리프이던 시절을 전제로 한 것이다. 지금은 아군이 화이트 세트, 적이
+// 블랙 세트라 아트워크 자체가 진영을 말해 주고, 체력바(적만)와 크기 차이(72px/44px)도 그대로
+// 남아 있어 구분 단서는 충분하다.
 
 function drawGlyph(
   ctx: CanvasRenderingContext2D, glyph: string, x: number, y: number,
-  sizePx: number, fill: string, stroke: string, shadow: string,
+  sizePx: number, fill: string, stroke: string,
 ): void {
   ctx.save();
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  drawGroundShadow(ctx, x, y, sizePx, shadow);
   ctx.font = `${sizePx}px "Segoe UI Symbol", "Noto Sans Symbols 2", serif`;
   ctx.lineWidth = 2.5;
   ctx.strokeStyle = stroke;
@@ -138,12 +133,9 @@ function drawPiece(ctx: CanvasRenderingContext2D, p: Piece): void {
   const y = rankToTopY(p.square!.rank) + SQ / 2;
   const sprite = getAllySprite(p.type);
   if (sprite) {
-    ctx.save();
-    drawGroundShadow(ctx, x, y, ALLY_SPRITE_PX, COLOR.allyShadow);
     ctx.drawImage(sprite, x - ALLY_SPRITE_PX / 2, y - ALLY_SPRITE_PX / 2, ALLY_SPRITE_PX, ALLY_SPRITE_PX);
-    ctx.restore();
   } else {
-    drawGlyph(ctx, ALLY_GLYPH[p.type], x, y, 52, COLOR.allyFill, COLOR.allyStroke, COLOR.allyShadow);
+    drawGlyph(ctx, ALLY_GLYPH[p.type], x, y, 52, COLOR.allyFill, COLOR.allyStroke);
   }
   if (p.queenBuffCount > 0) {                    // 버프 뱃지 (스펙 7.7 — 상시 표식)
     ctx.font = 'bold 14px system-ui';
@@ -158,12 +150,9 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy): void {
   const size = CONFIG.enemy.spritePx;
   const sprite = getEnemySprite(e.isBoss);
   if (sprite) {
-    ctx.save();
-    drawGroundShadow(ctx, x, e.y, size, COLOR.enemyShadow);
     ctx.drawImage(sprite, x - size / 2, e.y - size / 2, size, size);
-    ctx.restore();
   } else {
-    drawGlyph(ctx, e.isBoss ? '♚' : '♟', x, e.y, size, COLOR.enemyFill, COLOR.enemyStroke, COLOR.enemyShadow);
+    drawGlyph(ctx, e.isBoss ? '♚' : '♟', x, e.y, size, COLOR.enemyFill, COLOR.enemyStroke);
   }
   const w = 40, h = 4;                           // 체력바 상시 표시 (스펙 4.1/7.8) — 스프라이트 유무와 무관
   const top = e.y - size / 2 - 8;
