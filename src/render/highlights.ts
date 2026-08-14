@@ -4,7 +4,9 @@ import { sameSquare } from '../core/grid';
 import type { GameState, Interaction, Piece, Square } from '../types';
 import type { ViewState } from './renderer';
 
-const C = {
+// export: 테스트가 하이라이트 색을 좌표 존재 여부뿐 아니라 실제 색상 상수와 비교해 단언할 수
+// 있도록 한다(문자열을 테스트 쪽에 따로 하드코딩해 중복시키지 않기 위함).
+export const HIGHLIGHT_COLORS = {
   range: 'rgba(80, 160, 255, 0.35)',     // 공격 범위 — 보드가 나무색이 된 뒤에도 파랑 vs 황갈색은
                                           // 색상(hue) 차이가 커서 밝은/어두운 칸 모두 또렷하다
                                           // (재검토 Item 5 — 실측 확인, 조정 불필요로 판단).
@@ -16,7 +18,17 @@ const C = {
   // 대비 폭은 되살아난다.
   queenLine: 'rgba(255, 213, 74, 0.70)',
   origin: 'rgba(255, 255, 255, 0.25)',   // 기준 칸
+  // 선택/드래그 중인 기물이 실제로 서 있는 칸(anchor가 아니라 piece.square). 나무색 보드
+  // (#F0D9B5/#B58863, hue≈30°)와 기존 세 하이라이트(range 파랑 hue≈210°, move 초록 hue≈120°,
+  // queenLine 금색 hue≈45°) 모두에서 색상(hue)이 크게 갈라지는 마젠타(hue≈320°)를 골랐다 —
+  // "명도 대비만으로는 나무 보드 위에서 옅어진다"는 함정(스폰 틴트·퀸 라인 둘 다 겪음, 재검토
+  // Item 5)을 hue 거리로 피한다. 헤드리스 스크린샷 합성 + ΔY 실측으로 네 조합 모두 확인:
+  // 밝은 칸 단독 ΔY≈62, 어두운 칸 단독 ΔY≈14, range 위에 겹쳐도 밝은 칸 ΔY≈46 / 어두운 칸
+  // ΔY≈14 — 특히 두 어두운-칸 케이스는 ΔY만 보면 넉넉하지 않지만, hue가 약 100~150° 벌어져
+  // 육안으로는 뚜렷이 갈린다(스크린샷 확인 완료).
+  selected: 'rgba(255, 45, 190, 0.65)',
 };
+const C = HIGHLIGHT_COLORS;   // 내부에서는 짧은 이름으로 사용 (호출부 가독성)
 
 /** 활성 기물: 드래그 중 우선, 없으면 클릭 선택 */
 function activePiece(state: GameState, it: Interaction): Piece | null {
@@ -44,6 +56,18 @@ function queenLineSegments(anchor: Square): { from: Square; to: Square }[] {
   return [...furthest.values()].map(({ sq }) => ({ from: anchor, to: sq }));
 }
 
+/**
+ * 선택/드래그 중인 기물이 실제로 서 있는 칸(anchor가 아니라 piece.square 그 자체)을 표시한다
+ * (사용자 요청 — 클릭-투-무브 중에는 사거리 미리보기가 마우스를 따라가므로, 두 클릭 사이에는
+ * "무엇이 선택됐는지"를 보여줄 게 이 표식뿐이다). 트레이 기물(piece.square === null)은 보드 칸이
+ * 없으므로 아무것도 push하지 않는다. 항상 각 브랜치의 마지막에 호출해야 한다 — render()는 배열
+ * 순서대로 알파 블렌드하므로, range/queenLine 채우기보다 먼저 push되면 그 밑에 묻혀 버린다
+ * (선택 칸은 대개 기물 자신의 사거리 안이기도 하다 — 비숍/룩/퀸 패턴이 자기 칸을 포함하므로).
+ */
+function pushSelected(highlights: ViewState['highlights'], piece: Piece): void {
+  if (piece.square) highlights.push({ square: piece.square, color: C.selected });
+}
+
 export function buildHighlights(
   state: GameState, it: Interaction,
 ): Pick<ViewState, 'highlights' | 'lines'> {
@@ -65,10 +89,14 @@ export function buildHighlights(
     // hoveringOwnSquare 예외가 필요했지만(회귀 1), 이제 canLandAt 자체의 의미 변화에 흡수돼
     // 불필요해졌다 — 지웠는데도 이 브랜치의 세 회귀 1 테스트가 그대로 통과하는 것으로 확인했다.
     if (it.hoverSquare && !canLandAt(state, piece, it.hoverSquare)) {
+      // 착지 불가 hover라 미리보기 전체를 접지만, "무엇이 선택됐는지"는 여기서도 계속 보여야
+      // 한다 — 잘못된 칸에 hover한 순간 선택 표식마저 사라지면 오히려 방향을 잃는다.
+      pushSelected(highlights, piece);
       return { highlights, lines };
     }
     for (const sq of queenLines(anchor)) highlights.push({ square: sq, color: C.queenLine });
     for (const seg of queenLineSegments(anchor)) lines.push({ ...seg, color: C.queenLine });
+    pushSelected(highlights, piece);
     return { highlights, lines };
   }
   if (piece.type === 'knight' && onBoard) {
@@ -85,6 +113,9 @@ export function buildHighlights(
     if (it.hoverSquare && legalMoves.some(m => sameSquare(m, it.hoverSquare!))) {
       for (const sq of attackTargets('knight', it.hoverSquare)) highlights.push({ square: sq, color: C.range });
     }
+    // legalMoves가 쿨다운으로 통째로 비어도(위 쿨다운 케이스) 선택 표식은 그대로 남는다 —
+    // "이동할 수 없다"와 "선택되지 않았다"는 다른 상태이므로.
+    pushSelected(highlights, piece);
     return { highlights, lines };
   }
   // 폰/비숍/룩과 슬롯의 나이트: hover가 실제로 착지 불가능한 칸(8랭크·범위 밖, 그리고 트레이
@@ -95,13 +126,22 @@ export function buildHighlights(
   // 조작(hover가 자기 칸과 같음)도 별도 예외 없이 canLandAt 하나로 자연히 통과한다 — 예전에
   // 필요했던 hoveringOwnSquare 예외(회귀 1)는 canLandAt의 의미 변화에 흡수돼 불필요해졌다.
   if (it.hoverSquare && !canLandAt(state, piece, it.hoverSquare)) {
+    // 착지 불가 hover라 미리보기 전체를 접지만, 선택 표식은 여기서도 유지한다 (퀸 브랜치와 동일한
+    // 이유 — 잘못된 칸에 hover했다고 "무엇이 선택됐는지"까지 사라지면 안 된다).
+    pushSelected(highlights, piece);
     return { highlights, lines };
   }
   // 비숍/룩(및 나이트-슬롯의 3×3 폭발)은 attackTargets 자체가 자기 칸을 포함하므로, origin을
   // 별도로 push하면 같은 칸이 두 번 그려진다 (리뷰 Finding 2). attackTargets 결과에 이미 anchor가
   // 있는지로 판단해 중복을 피한다 — 폰처럼 자기 칸을 포함하지 않는 패턴에는 origin이 그대로 남는다.
+  // anchor가 기물 자신의 칸과 같을 때도 origin을 건너뛴다 — 그 칸은 아래에서 pushSelected가
+  // C.selected로 이미 표시하므로, 흰 반투명 origin까지 얹으면 같은 칸에 두 마커가 겹쳐 찍힌다.
   const targets = attackTargets(piece.type, anchor);
-  if (!targets.some(sq => sameSquare(sq, anchor))) highlights.push({ square: anchor, color: C.origin });
+  const anchorIsOwnSquare = piece.square !== null && sameSquare(anchor, piece.square);
+  if (!targets.some(sq => sameSquare(sq, anchor)) && !anchorIsOwnSquare) {
+    highlights.push({ square: anchor, color: C.origin });
+  }
   for (const sq of targets) highlights.push({ square: sq, color: C.range });
+  pushSelected(highlights, piece);
   return { highlights, lines };
 }
