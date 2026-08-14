@@ -22,7 +22,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # node 20은 2026-04-30에 LTS 유지보수가 끝났다. 또 rollup의 optional 의존성
+          # @napi-rs/lzma-linux-x64-gnu가 node ^22.20 이상을 요구해, ubuntu-x64 러너에서는
+          # node 20이면 엔진 불일치로 조용히 건너뛰어진다(optional이라 설치는 실패하지 않지만
+          # 매번 EBADENGINE 경고가 남는다). 22 LTS로 올려 둘 다 해소한다.
+          node-version: 22
           cache: npm
       - run: npm ci
       - run: npm test
