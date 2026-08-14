@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CONFIG } from '../src/config';
 import { BOARD_H, BOARD_W, fileCenterX, rankToTopY } from '../src/core/grid';
 import { createInitialState } from '../src/core/state';
-import { createFrameView, EMPTY_VIEW, render } from '../src/render/renderer';
+import { createFrameView, EMPTY_VIEW, render, SPAWN_BORDER_PX } from '../src/render/renderer';
 import type { Enemy, Piece } from '../src/types';
 import { makeStubCtx, type Call } from './canvasStub';
 
@@ -59,6 +59,11 @@ describe('render() (Task 7 — 캔버스 렌더러)', () => {
     const [bx, by, bw, bh] = border!.args as number[];
     expect(bx).toBe(0);
     expect(bw).toBe(BOARD_W);
+    // 재검토 Important 1: by>0 && by+bh===SQ만으로는 두께 0(by=SQ, bh=0)짜리 "보이지 않는" 경계선도
+    // 통과한다 — 이 결함을 고치는 커밋의 테스트가 정확히 그 결함을 놓치면 안 된다. SPAWN_BORDER_PX를
+    // 리터럴로 못박아(자기 참조가 아니라 실제 의도한 값 4를 고정) 두께가 실제로 양수임을 보장한다.
+    expect(SPAWN_BORDER_PX).toBe(4);
+    expect(bh).toBe(SPAWN_BORDER_PX);
     expect(by).toBeGreaterThan(0);           // 8랭크 칸(y=0) 내부, 맨 위가 아니라 아래쪽 가장자리
     expect(by + bh).toBe(SQ);                // 경계선 하단이 정확히 7랭크와 맞닿는 지점 — 7랭크를 침범하지 않음
   });

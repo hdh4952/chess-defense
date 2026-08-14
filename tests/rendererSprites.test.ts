@@ -39,6 +39,17 @@ function makePiece(overrides: Partial<Piece>): Piece {
   };
 }
 
+describe('ALLY_SPRITE_PX (재검토 Item 4)', () => {
+  it('보드 칸(CONFIG.board.squarePx)을 넘지 않는다 — 넘으면 이웃 칸을 침범해 그려진다', () => {
+    // 아래 render() 테스트들은 drawImage 호출의 기대 좌표·크기를 전부 ALLY_SPRITE_PX 자신에서
+    // 유도한다(자기 참조) — ALLY_SPRITE_PX를 200으로 바꿔도(80px 칸을 넘어 이웃 칸까지 침범)
+    // 그 테스트들은 여전히 통과한다. 이 테스트만이 상수를 보드 칸 크기라는 외부 기준에 묶어,
+    // 그런 회귀를 실제로 잡는다.
+    expect(ALLY_SPRITE_PX).toBeGreaterThan(0);
+    expect(ALLY_SPRITE_PX).toBeLessThanOrEqual(CONFIG.board.squarePx);
+  });
+});
+
 describe('render() — 이미지 경로 (스프라이트 준비 완료, sprites.ts 테스트 seam으로 주입)', () => {
   beforeEach(() => {
     for (const t of PIECE_TYPES) setSpriteForTest('ally', t, allyStub[t]);

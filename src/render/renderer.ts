@@ -4,7 +4,10 @@ import { ALLY_SPRITE_PX, getAllySprite, getEnemySprite } from './sprites';
 import type { Enemy, GameState, Piece, PieceType, Square } from '../types';
 
 const SQ = CONFIG.board.squarePx;
-const SPAWN_BORDER_PX = 4;   // 8랭크/7랭크 경계선 두께 — 표현(presentation) 값이라 config.ts가 아닌 여기에 둔다
+// 8랭크/7랭크 경계선 두께 — 표현(presentation) 값이라 config.ts가 아닌 여기에 둔다. export하는
+// 이유는 테스트가 이 두께를 리터럴로 못박아, "경계선이 두께 0으로 그려져도 통과하는" 결함
+// (재검토 Important 1)을 재발 방지하기 위함이다.
+export const SPAWN_BORDER_PX = 4;
 
 export interface ViewState {
   highlights: { square: Square; color: string }[];
@@ -26,7 +29,11 @@ export function createFrameView(): ViewState {
   return { highlights: [], lines: [], shake: { x: 0, y: 0 } };
 }
 
-export const ALLY_GLYPH: Record<PieceType, string> = {
+// 글리프 폴백 테이블. 이전에는 DOM 레이어(ui/drag.ts, ui/layout.ts, ui/slots.ts)가 텍스트
+// 글리프를 직접 그리느라 이 모듈에서 가져다 썼지만, 지금은 DOM이 전부 <img>(ALLY_SPRITE_URL,
+// sprites.ts)로 그린다 — 이 상수는 캔버스 글리프 폴백(drawGlyph) 내부용으로만 남아 export를
+// 걷어냈다(재검토 Item 7).
+const ALLY_GLYPH: Record<PieceType, string> = {
   pawn: '♟', knight: '♞', bishop: '♝', rook: '♜', queen: '♛',
 };
 

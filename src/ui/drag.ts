@@ -67,10 +67,12 @@ export class DragController {
     this.ghost.className = 'drag-ghost';
     this.ghost.style.cssText =
       'position:fixed;pointer-events:none;z-index:10;display:none;transform:translate(-50%,-50%)';
-    // 고스트는 <img> 하나만 담는다. 이미지는 고유 크기를 가진 replaced element라 부모 div만
-    // 크기를 줘 봐야 이미지 자체는 원본(45×45 viewBox → 브라우저 기본 확대) 크기로 그려진다 —
-    // 지난 시도에서 이 클래스가 빠져 고스트가 뷰포트를 뒤덮은 회귀가 있었다. 반드시
-    // .drag-ghost-icon 클래스(style.css의 크기 규칙 대상)를 그대로 유지해야 한다.
+    // 고스트는 <img> 하나만 담는다. .drag-ghost-icon 클래스(style.css)가 빠지면 <img>는 SVG의
+    // width/height 속성값 그대로인 45×45로 고정 렌더된다 — 45×45는 부모(.drag-ghost, 48×48)보다
+    // 오히려 작아 뷰포트를 뒤덮는 일은 일어나지 않는다(그건 PNG 시절 얘기고, 45×45 SVG로는
+    // 재검토에서 재현되지 않음을 실측 확인했다). 그래도 클래스를 유지하는 진짜 이유는: 클래스가
+    // 없으면 이미지가 45×45에 고정된 채여서 나중에 .drag-ghost 크기를 바꿔도 따라가지 못하고,
+    // object-fit:contain도 빠져 종횡비 보정이 없어진다 — 반드시 이 클래스를 유지한다.
     this.ghostImg = document.createElement('img');
     this.ghostImg.className = 'drag-ghost-icon';
     // el.draggable = false만으로는 브라우저 간(그리고 이 저장소의 happy-dom 테스트 환경) 요소

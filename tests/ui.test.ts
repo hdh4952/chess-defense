@@ -247,10 +247,14 @@ describe('저작자 표시줄 (NOTICE.md — CC BY-SA 3.0 이행)', () => {
     expect(credit!.textContent).toContain('CC BY-SA 3.0');
 
     const links = Array.from(credit!.querySelectorAll('a')) as HTMLAnchorElement[];
-    expect(links.length).toBeGreaterThanOrEqual(2);
+    expect(links.length).toBeGreaterThanOrEqual(3);
     const licenseLink = links.find(a => a.getAttribute('href') === 'https://creativecommons.org/licenses/by-sa/3.0/');
     expect(licenseLink).toBeDefined();              // 라이선스 원문 링크
     const sourceLink = links.find(a => (a.getAttribute('href') ?? '').includes('commons.wikimedia.org'));
     expect(sourceLink).toBeDefined();                // 출처(Wikimedia Commons) 링크
+    // 재검토 Item 2: NOTICE.md는 dist/에 포함되지 않으므로, 배포된 사이트에서 변경 내역까지
+    // 확인하려면 저장소의 NOTICE.md로 가는 링크가 크레딧 안에 있어야 한다.
+    const noticeLink = links.find(a => (a.getAttribute('href') ?? '').includes('NOTICE.md'));
+    expect(noticeLink).toBeDefined();
   });
 });

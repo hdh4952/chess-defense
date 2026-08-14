@@ -52,6 +52,8 @@ export function createLayout(app: HTMLElement): Layout {
       <a href="https://commons.wikimedia.org/wiki/Category:SVG_chess_pieces" target="_blank" rel="noopener noreferrer">Cburnett / Wikimedia Commons</a>
       —
       <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noopener noreferrer">CC BY-SA 3.0</a>
+      —
+      <a href="https://github.com/hdh4952/chess-defense/blob/main/NOTICE.md" target="_blank" rel="noopener noreferrer">변경 내역(NOTICE.md)</a>
     </footer>
     <div id="banner-root"></div>
   `;
@@ -70,7 +72,10 @@ export function createLayout(app: HTMLElement): Layout {
     const btn = document.createElement('button');
     btn.className = 'shop-btn';
     btn.dataset.pieceType = type;
-    btn.innerHTML = `<img class="piece-icon shop-icon" src="${ALLY_SPRITE_URL[type]}" alt="${PIECE_NAME[type]}" draggable="false"> ${PIECE_NAME[type]}<br><small>${CONFIG.pieces[type].cost}G</small>`;
+    // alt=""(장식용): 아이콘 바로 옆에 PIECE_NAME 텍스트가 보이므로 alt에 같은 이름을 또
+    // 넣으면 스크린 리더가 두 번 읽는다(재검토 Item 7). 슬롯 트레이(slots.ts)의 아이콘은 옆에
+    // 별도 텍스트가 없어 유일한 식별 수단이므로 그쪽은 alt를 그대로 의미 있게 유지한다.
+    btn.innerHTML = `<img class="piece-icon shop-icon" src="${ALLY_SPRITE_URL[type]}" alt="" draggable="false"> ${PIECE_NAME[type]}<br><small>${CONFIG.pieces[type].cost}G</small>`;
     shop.appendChild(btn);
     shopButtons.set(type, btn);
   }

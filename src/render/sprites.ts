@@ -20,7 +20,14 @@ import enemyKingUrl from '../assets/pieces/enemy-king.svg';
  */
 
 /** 80px 칸 위에 그릴 아군 기물 크기(칸 경계와 겹치지 않도록 약간의 여백을 남긴다).
- * 적 크기는 밸런스 값인 CONFIG.enemy.spritePx(44)를 그대로 따르며, 여기서 다시 상수화하지 않는다. */
+ * 적 크기는 밸런스 값인 CONFIG.enemy.spritePx(44)를 그대로 따르며, 여기서 다시 상수화하지 않는다.
+ *
+ * devicePixelRatio 결합 주의(재검토 Item 6): 보드 캔버스(#board)는 CSS 픽셀과 무관하게 고정된
+ * 640×640 백킹 스토어이고 DPR 대응이 없다(이 저장소 기존 설계, 이번 작업 범위 아님). 그래서
+ * 여기서 72/44로 굽는 것이 지금은 맞지만, 이는 벡터 아트를 고정 래스터에 얼려 넣는 것이기도
+ * 하다 — 나중에 캔버스가 DPR을 인식하도록 바뀌면(backing store를 window.devicePixelRatio배로
+ * 키우는 식) 보드의 나머지는 선명해지는데 이 기물 스프라이트만 흐려진다. 그때는 bake() 크기도
+ * 같은 배율로 함께 키워야 한다. */
 export const ALLY_SPRITE_PX = 72;
 const ENEMY_SPRITE_PX = CONFIG.enemy.spritePx;
 
@@ -32,7 +39,9 @@ export const ALLY_SPRITE_URL: Record<PieceType, string> = {
   queen: allyQueenUrl,
 };
 
-export const ENEMY_SPRITE_URL = { normal: enemyPawnUrl, boss: enemyKingUrl } as const;
+// 적은 DOM에 그려지지 않는다(적 이미지는 캔버스 전용) — 이 모듈 안(bake 호출)에서만 쓰이므로
+// export를 걷어냈다(재검토 Item 7).
+const ENEMY_SPRITE_URL = { normal: enemyPawnUrl, boss: enemyKingUrl } as const;
 
 export type Drawable = CanvasImageSource;
 
