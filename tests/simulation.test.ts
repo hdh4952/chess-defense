@@ -167,9 +167,12 @@ describe('전 게임 시뮬레이션', () => {
       boardPiece('pawn', bossFile - 2, 7),
     ]);
 
-    // (c) 룩 단독(보스 파일) / 비숍 단독(보스 경로 대각선) — 혼합 빌드 분석의 개별 기여도 실측
+    // (c) 룩 단독(보스 파일) / 비숍 단독(보스 경로 대각선) — 혼합 빌드 분석의 개별 기여도 실측.
+    // 비숍은 (5,5)를 쓴다 — (4,4)는 우측 추격 폰의 경로 칸(파일4, 랭크1~7)과 겹쳐서, 점유 칸
+    // 맞교환 도입(Change 2) 이후에는 추격 도중 실제로 스왑이 일어나 버린다(별도 "겹침 배치" 리포트
+    // 참고). "개별 기여도"를 순수하게 재려면 애초에 다른 기물과 상호작용하지 않는 좌표가 필요하다.
     const rookOnly = chaseWave5Boss([], [boardPiece('rook', bossFile, 1)]);
-    const bishopOnly = chaseWave5Boss([], [boardPiece('bishop', 4, 4)]);
+    const bishopOnly = chaseWave5Boss([], [boardPiece('bishop', 5, 5)]);
     const additiveEstimate = pawnsOnly.dealt + rookOnly.dealt + bishopOnly.dealt;
 
     console.log(
@@ -185,24 +188,59 @@ describe('전 게임 시뮬레이션', () => {
     expect(threePawns.dealt).toBe(pawnsOnly.dealt);          // 3번째 폰의 기여는 정확히 0 — 재조정에도 불변인 기하학적 사실
     expect(pawnsOnly.dealt).toBeLessThan(pawnsOnly.bossHp);  // 폰만으로는 보스를 잡을 수 없다
 
-    // (d) 브리핑 원안의 혼합 빌드(폰2 추격 + 룩 + 비숍@(4,4)) — 자기 충돌을 포함해 있는 그대로 재현
+    // (d) 브리핑 원안의 혼합 빌드(폰2 추격 + 룩 + 비숍) — 비숍을 (5,5)에 둬 추격 폰의 경로 칸과
+    // 애초에 겹치지 않게 한다. staticPieces로 넘긴 룩·비숍이 시뮬레이션 도중 실제로 정적으로
+    // 남아 있어야 이 측정이 "고정 지원 기물 + 추격 폰 2기"라는 이름값을 한다 — 겹치는 좌표
+    // ((4,4))를 썼을 때 무슨 일이 일어나는지는 바로 아래 "겹침 배치" 리포트가 별도로, 정직하게
+    // 다룬다(점유 칸 맞교환 도입 이후 결과 자체가 뒤바뀐 사례).
     const mixed = chaseWave5Boss(
       [boardPiece('pawn', bossFile - 1, 7), boardPiece('pawn', bossFile + 1, 7)],
-      [boardPiece('rook', bossFile, 1), boardPiece('bishop', 4, 4)],
+      [boardPiece('rook', bossFile, 1), boardPiece('bishop', 5, 5)],
     );
     console.log(`[밸런스 리포트] 웨이브5 보스(${mixed.bossHp}): ${mixed.killed ? '처치 성공' : `누수 — 총 피해 ${mixed.dealt}`}`);
-    // 실측(mixed.dealt)은 가산 추정(additiveEstimate)보다 24(밴드 1회분) 낮다: 비숍(4,4)이 오른쪽
-    // 추격 폰의 경로 칸과 겹쳐, 보스가 그 랭크를 지날 때 moveOnBoard가 점유 칸이라 실패하고 폰이
-    // 한 밴드(6초=24데미지)를 놓친다. 밸런스 결함이 아니라 이 좌표 선택이 만든 자기 방해다(아래
-    // 확장 측정에서 비숍을 (5,5)로 옮겨 충돌 없이 재측정 — 가산 추정에 근접해 처치 성공).
-    console.log(
-      `  → 가산 추정(${additiveEstimate}) 대비 실측(${mixed.dealt}) 차이 ${additiveEstimate - mixed.dealt}: ` +
-      '비숍(4,4)이 우측 추격 폰의 경로와 같은 칸이라 한 밴드(24) 유실 (아래 확장 측정 참고).',
-    );
+    // killed일 때 dealt는 정의상 bossHp로 클램프되므로(위 chaseWave5Boss의 `dealt = killed ? bossHp
+    // : bossHp - bossMinHp`), additiveEstimate와의 차이를 "잃은 데미지"처럼 보도하면 안 된다 — 그건
+    // 누수(killed:false)일 때만 실제 손실을 의미한다. killed일 때는 그 차이를 아예 로그하지 않는다.
+    if (!mixed.killed) {
+      console.log(
+        `  → 가산 추정(${additiveEstimate}) 대비 실측(${mixed.dealt}) 차이 ${additiveEstimate - mixed.dealt} ` +
+        '(누수 — 실제로 놓친 데미지).',
+      );
+    }
     // 엔진 검증 목적의 단언 (밸런스 수치 자체는 단언하지 않음)
     expect(mixed.wave).toBe(6);                              // 처치든 누수든 웨이브는 종료된다 (스펙 4.2)
     expect(mixed.hp).toBe(mixed.killed ? CONFIG.player.startHp : CONFIG.player.startHp - CONFIG.player.hpLossBoss);
     expect(mixed.dealt).toBeGreaterThan(300);                 // 추격 메커니즘이 실제로 동작했는지 하한 확인
+    // 겹치지 않는 좌표에서는 실측상 처치까지 성공한다 (2026-08-14 실측: dealt 420 = bossHp, 가산
+    // 추정 428과의 마진은 8 — 이게 이 프로젝트의 웨이브5 보스 밸런스 헤드라인 수치다).
+    expect(mixed.killed).toBe(true);
+  });
+
+  it('[리포트] 겹침 배치(비숍이 추격 경로를 점유) — 실격이 아니라 맞교환되고, 처치 결과 자체가 뒤바뀐다 (Change 2 결과)', () => {
+    // 브리핑 원안이 실제로 썼던 좌표는 비숍 (4,4)였다 — 우측 추격 폰(파일4)의 경로 칸(파일4,
+    // 랭크1~7)과 정확히 겹친다. 점유 칸 맞교환(Change 2) 도입 *이전*(base 720cf71)에는
+    // moveOnBoard가 이 칸에서 실패해 폰이 밴드 하나(6초=24데미지)를 놓쳤다 — 이 파일이 원래 갖고
+    // 있던 주석과 리뷰어가 720cf71을 직접 체크아웃해 재현한 실측이 일치한다: dealt 404
+    // (가산 추정 428 대비 -24), killed: false(누수). Change 2 도입 이후에는 그 실패가 성공(맞교환)
+    // 으로 바뀌어 폰이 그 밴드를 놓치지 않고, 그 결과 처치 여부 자체가 누수 → 처치 성공으로
+    // 뒤집힌다. 이건 우연한 숫자 일치가 아니라(이전 리포트가 잘못 결론 냈던 부분 — 초기 리포트는
+    // 이 스크립트를 실행하지 않고 코드에 남아 있던 옛 주석 텍스트만 보고 "우연히 같다"고 오판했다)
+    // 실제 게임플레이 결과가 바뀐 사례다.
+    const bossFile = 3;
+    const bishop = boardPiece('bishop', 4, 4);
+    const collision = chaseWave5Boss(
+      [boardPiece('pawn', bossFile - 1, 7), boardPiece('pawn', bossFile + 1, 7)],
+      [boardPiece('rook', bossFile, 1), bishop],
+    );
+    // 맞교환이 실제로 일어났다는 직접 증거 — 비숍은 더 이상 원래 자리(4,4)에 없고, 폰의 이전
+    // 자리(4,5)로 밀려나 있다 (t≈17.98s에 발생, 2026-08-14 실측).
+    expect(bishop.square).toEqual({ file: 4, rank: 5 });
+    console.log(
+      `[밸런스 리포트] 겹침 배치(비숍 (4,4)) 실측: ${collision.killed ? '처치 성공' : `누수 — 총피해 ${collision.dealt}`} ` +
+      `(맞교환으로 비숍이 (4,5)로 밀려남) — base(720cf71) 실측은 dealt 404 / 누수였다.`,
+    );
+    expect(collision.killed).toBe(true);              // base에서는 false였다 — 결과가 실제로 뒤집혔다
+    expect(collision.dealt).toBe(collision.bossHp);   // killed 시 dealt는 정의상 bossHp로 클램프된다
   });
 });
 
@@ -244,8 +282,10 @@ describe('밸런스 확장 측정 — 후반 웨이브 & 보스 게이트 (Task 
 
     const left = boardPiece('pawn', bossFile - 1, 7);
     const right = boardPiece('pawn', bossFile + 1, 7);
-    // 비숍을 (5,5)로 옮겨 추격 폰의 경로 칸(파일 2/4, 랭크 1~7)과 절대 겹치지 않게 한다 —
-    // 바로 위 리포트에서 찾은 자기 충돌을 제거한 "깨끗한" 최선의 혼합 빌드.
+    // 비숍을 (5,5)에 둬 추격 폰의 경로 칸(파일 2/4, 랭크 1~7)과 애초에 겹치지 않게 한다 — 위
+    // "웨이브 5 보스 vs 완벽 폰 추격" 리포트의 (d)와 같은 좌표다. 겹치는 좌표((4,4))를 썼을 때
+    // 무슨 일이 일어나는지는 그 리포트 바로 다음의 "겹침 배치" 테스트가 별도로 다룬다(점유 칸
+    // 맞교환 도입 이후 결과가 누수→처치 성공으로 뒤집힌 사례).
     const build = chaseWave5Boss([left, right], [boardPiece('rook', bossFile, 1), boardPiece('bishop', 5, 5)]);
 
     const descentSeconds = CONFIG.board.ranks * CONFIG.enemy.secondsPerSquare / CONFIG.enemy.bossSpeedMultiplier;
