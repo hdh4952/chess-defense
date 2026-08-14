@@ -4,6 +4,7 @@ import { ALLY_SPRITE_PX, getAllySprite, getEnemySprite } from './sprites';
 import type { Enemy, GameState, Piece, PieceType, Square } from '../types';
 
 const SQ = CONFIG.board.squarePx;
+const SPAWN_BORDER_PX = 4;   // 8랭크/7랭크 경계선 두께 — 표현(presentation) 값이라 config.ts가 아닌 여기에 둔다
 
 export interface ViewState {
   highlights: { square: Square; color: string }[];
@@ -34,7 +35,15 @@ const COLOR = {
   // 값. 리체스·chess.com에서 쓰는 고전적인 나무 톤이라, 흑백 체스 기물이 양쪽 칸 모두에서
   // 또렷하게 읽힌다 — 스펙 8.1이 요구한 진영 구분(아군 화이트 / 적 블랙)의 전제가 된다.
   light: '#F0D9B5', dark: '#B58863',
-  spawnTint: 'rgba(200, 60, 50, 0.10)',
+  // 8랭크(배치 금지 스폰 구역, 스펙 2.1) 표식. 예전 값(옅은 붉은 틴트 rgba(200,60,50,0.10))은
+  // 중립 회색 보드에서는 색상(hue) 변화로 도드라졌지만, 지금의 따뜻한 나무색 보드 위에서는
+  // 대비비(luminance contrast)가 거의 그대로인데도(측정상 old/new 차이 미미) 육안으로는 인접
+  // 랭크와 구분이 안 된다 — 붉은 기 위에 다시 붉은 기를 얹는 것이라 손실이 색상에서만 났기
+  // 때문. 색조가 아니라 명도(어둡게)로 대비를 만들고, 랭크 7 경계에 불투명한 경계선을 더해
+  // 이중으로 표식한다 — 재검토 스크린샷으로 두 랭크가 뚜렷이 갈리고 그 위 적(순검정)도 여전히
+  // 또렷이 읽히는 것을 확인했다(SVG-report.md 참조).
+  spawnOverlay: 'rgba(0, 0, 0, 0.14)',
+  spawnBorder: '#C83C32',              // 예전 spawnTint와 같은 RGB(200,60,50)를 불투명 경계선으로 재사용
   allyFill: '#ffffff', allyStroke: '#2b2b2b', allyShadow: 'rgba(70, 120, 220, 0.35)',
   enemyFill: '#141414', enemyStroke: '#f2f2f2', enemyShadow: 'rgba(220, 60, 50, 0.35)',
   hpBack: '#3a3a3a', hpFill: '#e04b3a',
@@ -80,8 +89,13 @@ function drawBoard(ctx: CanvasRenderingContext2D): void {
       ctx.fillRect(col * SQ, y, SQ, SQ);
     }
   }
-  ctx.fillStyle = COLOR.spawnTint;               // 8랭크 = 배치 불가 스폰 구역
+  // 8랭크(배치 불가 스폰 구역, 스펙 2.1) — 명도 오버레이 + 랭크 7 경계의 불투명 경계선으로
+  // 이중 표식한다(위 COLOR.spawnOverlay/spawnBorder 주석 참조). 경계선은 SQ px인 8랭크 칸의
+  // 하단, 즉 7랭크와 맞닿는 안쪽 가장자리에 그려 7랭크 쪽을 침범하지 않는다.
+  ctx.fillStyle = COLOR.spawnOverlay;
   ctx.fillRect(0, 0, BOARD_W, SQ);
+  ctx.fillStyle = COLOR.spawnBorder;
+  ctx.fillRect(0, SQ - SPAWN_BORDER_PX, BOARD_W, SPAWN_BORDER_PX);
 }
 
 /** 바닥 그림자 (진영 색 구분, 스펙 8.1). 글리프 경로와 스프라이트 경로가 동일한 그림자를 쓴다 —

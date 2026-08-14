@@ -33,16 +33,34 @@ describe('render() (Task 7 — 캔버스 렌더러)', () => {
     expect(squareFills).toHaveLength(64);
   });
 
-  it('8랭크(최상단, y=0)의 스폰 구역에만 옅은 붉은 톤 오버레이가 덮인다', () => {
+  it('8랭크(최상단, y=0)의 스폰 구역에 명도 오버레이 + 7랭크 경계의 불투명 경계선이 이중으로 덮인다', () => {
+    // 재검토 수정: 예전에는 옅은 붉은 틴트(rgba(200,60,50,0.10)) 하나뿐이었는데, 나무색 보드
+    // 위에서는 색상(hue)만 다르고 명도(luminance)는 거의 그대로라 인접 랭크와 육안으로
+    // 구분되지 않는 결함이 있었다(SVG-report.md 참조). 지금은 명도 오버레이 + 불투명 경계선
+    // 두 개의 fillRect로 이중 표식한다 — 이 테스트는 그 두 개가 모두 있는지, 정확한 색상인지,
+    // 경계선이 7랭크를 침범하지 않고 8랭크 칸 안쪽에서 정확히 그 경계에 맞닿는지까지 고정한다.
     const { ctx, records } = makeStubCtx();
     render(ctx as unknown as CanvasRenderingContext2D, createInitialState());
     expect(rankToTopY(8)).toBe(0); // 8랭크가 최상단 행
-    const tint = records.filter(
-      r => r.method === 'fillRect' && r.args[0] === 0 && r.args[1] === 0
-        && r.args[2] === BOARD_W && r.args[3] === SQ,
-    );
-    expect(tint).toHaveLength(1);
-    expect(tint[0].fillStyle).toBe('rgba(200, 60, 50, 0.10)');
+
+    // 보드 폭(BOARD_W) 전체를 가로지르는 fillRect는 이 두 표식뿐이다(개별 64칸은 SQ×SQ,
+    // 보스 비네트는 기본 상태엔 그려지지 않음 — 아래에서 길이 2로 못박아 그 전제를 검증한다).
+    const spawnMarks = records.filter(r => r.method === 'fillRect' && r.args[2] === BOARD_W);
+    expect(spawnMarks).toHaveLength(2);
+
+    const overlay = spawnMarks.find(r => r.args[1] === 0);
+    expect(overlay).toBeDefined();
+    expect(overlay!.args).toEqual([0, 0, BOARD_W, SQ]);
+    expect(overlay!.fillStyle).toBe('rgba(0, 0, 0, 0.14)');
+
+    const border = spawnMarks.find(r => r.args[1] !== 0);
+    expect(border).toBeDefined();
+    expect(border!.fillStyle).toBe('#C83C32');
+    const [bx, by, bw, bh] = border!.args as number[];
+    expect(bx).toBe(0);
+    expect(bw).toBe(BOARD_W);
+    expect(by).toBeGreaterThan(0);           // 8랭크 칸(y=0) 내부, 맨 위가 아니라 아래쪽 가장자리
+    expect(by + bh).toBe(SQ);                // 경계선 하단이 정확히 7랭크와 맞닿는 지점 — 7랭크를 침범하지 않음
   });
 
   it('적마다 체력바(배경+체력, fillRect 2회)가 그려지고 아군 기물에는 체력바가 없다', () => {

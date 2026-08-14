@@ -121,12 +121,13 @@ describe('render() — 이미지 경로 (스프라이트 준비 완료, sprites.
 
     render(ctx as unknown as CanvasRenderingContext2D, state);
 
-    // hp(5) !== maxHp(10)라 체력 막대 너비는 20이지 배경(40)과 같지 않다 — 높이(4)로만 걸러
-    // 두 fillRect(배경+체력)를 모두 잡는다.
-    const hpBars = records.filter(r => r.method === 'fillRect' && r.args[3] === 4);
-    expect(hpBars).toHaveLength(2);
     const size = CONFIG.enemy.spritePx;
     const top = e.y - size / 2 - 8;
+    // hp(5) !== maxHp(10)라 체력 막대 너비는 20이지 배경(40)과 같지 않다 — 너비 대신 y좌표
+    // (top, 이 적의 체력바 고유 위치)로 걸러 두 fillRect(배경+체력)만 잡는다. 높이(4)만으로
+    // 거르면 8랭크 스폰 구역 경계선(재검토 수정, 두께도 4px)까지 함께 잡혀버린다.
+    const hpBars = records.filter(r => r.method === 'fillRect' && r.args[1] === top);
+    expect(hpBars).toHaveLength(2);
     const x = fileCenterX(4) + e.jitterX;
     expect(hpBars[0].args).toEqual([x - 20, top, 40, 4]);                          // 배경
     expect(hpBars[1].args).toEqual([x - 20, top, 40 * (e.hp / e.maxHp), 4]);        // 체력
