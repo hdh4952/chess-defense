@@ -192,10 +192,15 @@ describe('buildHighlights — 나이트 (2계층: 이동 칸 + hover 시 폭발 
     expect(squares).toHaveLength(allMoves.length + blast.length);   // 이동 칸(점유 칸 포함) + 폭발 칸
   });
 
-  it('8랭크로 향하는 L자 칸을 hover해도 폭발 미리보기가 뜨지 않는다 (여전히 착지 불가 — 리뷰 Finding 1 회귀 방지, 점유 칸에서 8랭크로 예시만 교체)', () => {
-    // moveOnBoard가 여전히 거부하는 대상(8랭크, 스폰 구역)으로 Finding 1 회귀 테스트의 보호 취지를
-    // 재조준한다: hover 판정이 필터링 이전 knightMoves()를 참조하는 회귀가 다시 생기면, 8랭크로
-    // 향하는 칸도 "이동 가능"으로 오인해 9칸 폭발 미리보기를 그리게 된다 — 이 테스트가 그것을 잡는다.
+  it('8랭크로 향하는 L자 칸을 hover해도 폭발 미리보기가 뜨지 않는다 (여전히 착지 불가 — 점유 칸에서 8랭크로 예시만 교체)', () => {
+    // moveOnBoard가 여전히 거부하는 대상(8랭크, 스폰 구역)을 hover했을 때 미리보기가 그걸 약속하지
+    // 않는지 확인한다. 단, 이 테스트는 "hover 판정이 필터링 이전 knightMoves()를 참조하는 회귀"는
+    // 잡지 못한다 — knightMoves()(patterns.ts) 자체가 이미 8랭크를 무조건 걸러내므로(스펙 5.3),
+    // (5,8)은 필터 전/후 목록 어느 쪽에도 애초에 없다. 즉 이 케이스에서는 필터링 전후 결과가 같아
+    // 회귀와 정상 동작을 구분하지 못한다(리뷰로 뮤테이션 테스트를 통해 확인됨) — 그 회귀를 실제로
+    // 잡는 유일한 케이스는 바로 아래 "쿨다운 중인 나이트" 테스트다(쿨다운은 knightMoves()가 모르는
+    // 조건이라, 필터 전/후 목록이 거기서는 실제로 달라진다). 이 테스트는 단지 "8랭크는 여전히
+    // 착지 불가"라는 사실 자체를 고정해 둘 뿐이다.
     const s = waveState();
     const n = boardPiece('knight', 3, 7);        // d7
     s.pieces.push(n);
@@ -210,12 +215,21 @@ describe('buildHighlights — 나이트 (2계층: 이동 칸 + hover 시 폭발 
     expect(squares).toHaveLength(knightMoves({ file: 3, rank: 7 }).length);   // 폭발 9칸이 섞여 들어오지 않았다
   });
 
-  it('쿨다운 중인 나이트를 클릭 선택하면 이동 하이라이트도 폭발 미리보기도 뜨지 않는다 (검토 Item 1)', () => {
+  it('쿨다운 중인 나이트를 클릭 선택하면 이동 하이라이트도 폭발 미리보기도 뜨지 않는다 (검토 Item 1 — "필터링 전 knightMoves() 참조" 회귀를 실제로 잡는 유일한 케이스)', () => {
     // drag.ts는 쿨다운 중인 보드 위 나이트의 드래그 "시작"은 거부하지만, onUp이 클릭-투-무브로
     // 새어나가면 selectedPieceId가 채워질 수 있었다. buildHighlights가 canPlaceAt만 보고 쿨다운을
     // 보지 않던 시절에는, 그 상태에서 moveOnBoard가 거부할 이동 전체가 그대로 초록으로 칠해지고
     // hover한 칸에는 일어나지 않을 폭발까지 미리 그렸다. canLandAt으로 통합한 뒤에는 쿨다운 중인
     // 나이트의 모든 후보 칸이 canLandAt에서 걸러져 legalMoves가 통째로 비어야 한다.
+    //
+    // 게임 규칙 변경(점유 칸 맞교환 허용) 이후, "hover 판정이 필터링 전 knightMoves()를 그대로
+    // 참조하는" 회귀를 실제로 검출할 수 있는 유일한 남은 케이스가 바로 이 쿨다운 케이스다 — 아래
+    // dest는 knightMoves()에는 들어 있지만(L자·보드 내) canLandAt은 쿨다운 때문에 거부하는 칸이다.
+    // knightMoves() 자체는 쿨다운을 전혀 모르므로(패턴 계산은 기물 상태와 무관), 필터링 전/후 목록이
+    // 여기서는 실제로 달라진다 — legalMoves.some(...) 대신 knightMoves(...).some(...)으로 되돌리면
+    // (회귀) 쿨다운 중에도 이 dest가 "이동 가능"으로 오인돼 hl.highlights가 비지 않게 된다. 8랭크
+    // 예시(바로 위 테스트)는 knightMoves() 자체가 8랭크를 걸러내므로 이 구분을 못 한다 — 리뷰의
+    // 뮤테이션 테스트로 확인됐다.
     const s = waveState();
     const n = boardPiece('knight', 3, 4);   // d4
     n.cooldown = 1.5;
