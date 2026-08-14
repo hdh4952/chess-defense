@@ -4,18 +4,52 @@ import firePawnUrl from '../assets/sounds/fire-pawn.ogg';
 import fireBishopUrl from '../assets/sounds/fire-bishop.ogg';
 import fireRookUrl from '../assets/sounds/fire-rook.ogg';
 import blastKnightUrl from '../assets/sounds/blast-knight.ogg';
+import enemyDieUrl from '../assets/sounds/enemy-die.ogg';
+import bossDieUrl from '../assets/sounds/boss-die.ogg';
+import enemyLeakUrl from '../assets/sounds/enemy-leak.ogg';
+import bossSpawnUrl from '../assets/sounds/boss-spawn.ogg';
+import waveClearUrl from '../assets/sounds/wave-clear.ogg';
+import victoryUrl from '../assets/sounds/victory.ogg';
+import defeatUrl from '../assets/sounds/defeat.ogg';
+import uiBuyUrl from '../assets/sounds/ui-buy.ogg';
+import uiSellUrl from '../assets/sounds/ui-sell.ogg';
+import uiPlaceUrl from '../assets/sounds/ui-place.ogg';
+import uiPickupUrl from '../assets/sounds/ui-pickup.ogg';
+import uiInvalidUrl from '../assets/sounds/ui-invalid.ogg';
 
 /**
  * Web Audio 래퍼 — "소리를 실제로 낸다"만 담당한다(무엇을 낼지는 cues.ts가 결정). DOM/브라우저
  * API에 의존하므로 src/render/sprites.ts와 같은 이유로 src/audio/(core 밖)에 둔다.
  *
- * Kenney CC0 에셋 4종 (출처·원본 파일명은 NOTICE.md). 에셋 자체는 변경하지 않는다.
+ * Kenney CC0 에셋 16종 (출처·원본 파일명은 NOTICE.md). 에셋 자체는 변경하지 않는다.
+ *
+ * 이 표가 큐↔파일의 유일한 대응 지점이다 — 두 파일을 바꿔 듣고 싶으면(예: victory/defeat 배정이
+ * 실제로 들어보니 이상하면) 이 표의 값 두 줄만 맞바꾸면 된다. 코드 변경도, 다른 파일을 뒤질
+ * 필요도 없다 (AUDIO_TUNING과 동일한 설계 원칙).
+ *
+ * victory/defeat/waveClear/bossSpawn 네 줄은 실제로 들어보지 못한 채 이름만으로 배정한 추정치다
+ * (8비트풍이면 승리/패배, 짧은 피치카토면 소규모 성공, 스팅어면 보스 — README/NOTICE 참고).
+ * 사용자가 직접 들어보고 바꾸고 싶을 가능성이 가장 높은 네 줄이라는 뜻이다.
  */
 const CUE_URL: Record<CueKind, string> = {
   pawn: firePawnUrl,
   bishop: fireBishopUrl,
   rook: fireRookUrl,
   knight: blastKnightUrl,
+
+  enemyDied: enemyDieUrl,
+  bossDied: bossDieUrl,
+  enemyLeaked: enemyLeakUrl,
+  bossSpawn: bossSpawnUrl,   // 추정 배정 — 위 문단 참고
+  waveClear: waveClearUrl,   // 추정 배정
+  victory: victoryUrl,       // 추정 배정
+  defeat: defeatUrl,         // 추정 배정
+
+  uiBuy: uiBuyUrl,
+  uiSell: uiSellUrl,
+  uiPlace: uiPlaceUrl,
+  uiPickup: uiPickupUrl,
+  uiInvalid: uiInvalidUrl,
 };
 
 type AudioContextCtor = new () => AudioContext;

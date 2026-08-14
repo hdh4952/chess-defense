@@ -3,8 +3,22 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { dropAction, DragController, pickDropTarget, type DropZones } from '../src/ui/drag';
 import { createInitialState } from '../src/core/state';
 import { createLayout } from '../src/ui/layout';
+import type { UiAudio } from '../src/audio';
+import type { UiCueKind } from '../src/audio/cues';
 import type { GameEvent, GameState, Piece, PieceType } from '../src/types';
 import { boardPiece, waveState } from './helpers';
+
+/** UiAudio 스텁 — DragController가 어떤 UI 큐를 어떤 순서로 재생 요청했는지만 기록한다.
+ *  (실제 재생/스로틀은 cues.ts/audio/index.ts 쪽 유닛 테스트가 이미 검증한다 — 여기서는
+ *  "DragController가 올바른 지점에서 올바른 큐 이름으로 부르는가"만 본다.) */
+function makeAudioSpy(): UiAudio & { played: UiCueKind[] } {
+  return {
+    played: [],
+    playUi(cue: UiCueKind): void {
+      this.played.push(cue);
+    },
+  };
+}
 
 const zones: DropZones = {
   board: { left: 100, top: 0, width: 640, height: 640 },
@@ -130,7 +144,10 @@ function slotCenter(index: number): { x: number; y: number } {
 
 const SELL_CENTER = { x: SELL_RECT.left + SELL_RECT.width / 2, y: SELL_RECT.top + SELL_RECT.height / 2 };
 
-interface Rig { state: GameState; layout: ReturnType<typeof createLayout>; events: GameEvent[]; drag: DragController }
+interface Rig {
+  state: GameState; layout: ReturnType<typeof createLayout>; events: GameEvent[]; drag: DragController;
+  audio: UiAudio & { played: UiCueKind[] };
+}
 
 // 검토 Finding 7: DragController는 document/window에 리스너를 붙인 채 destroy() 없이는 살아남는다.
 // 매 테스트가 만든 컨트롤러를 추적해 afterEach에서 반드시 정리한다 (같은 파일 안에서 document는
@@ -158,8 +175,9 @@ function setup(phase: GameState['phase'] = 'wave'): Rig {
   const state = createInitialState();
   state.phase = phase;
   const events: GameEvent[] = [];
-  const drag = new DragController(state, layout, events);
-  currentRig = { state, layout, events, drag };
+  const audio = makeAudioSpy();
+  const drag = new DragController(state, layout, events, audio);
+  currentRig = { state, layout, events, drag, audio };
   return currentRig;
 }
 
@@ -796,5 +814,148 @@ describe('DragController — destroy() (검토 Finding 7)', () => {
     drag_(squareCenter(2, 2), squareCenter(4, 4));      // destroy 이후에는 더 이상 반응하지 않는다
     expect(p.square).toEqual({ file: 2, rank: 2 });
     expect(drag.interaction.dragging).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// UI 제스처 사운드 (스펙 §10.1 v1.3) — src/core/에는 대응 GameEvent가 없으므로, DragController가
+// audio(UiAudio)를 올바른 지점에서 올바른 큐로 호출하는지 DOM 레벨에서 직접 확인한다.
+// ---------------------------------------------------------------------------
+describe('DragController — UI 제스처 사운드 (스펙 §10.1 v1.3)', () => {
+  it('드래그가 실제로 시작되면 uiPickup이 울린다', () => {
+    const { state, audio } = setup('wave');
+    const p = boardPiece('pawn', 1, 1);
+    state.pieces.push(p);
+
+    document.dispatchEvent(pointer('pointerdown', squareCenter(1, 1).x, squareCenter(1, 1).y));
+
+    expect(audio.played).toEqual(['uiPickup']);
+  });
+
+  it('쿨다운으로 거부된 나이트 드래그 시작은 uiPickup을 울리지 않는다 (드래그 자체가 시작되지 않았다)', () => {
+    const { state, audio } = setup('wave');
+    const p = boardPiece('knight', 2, 2);
+    p.cooldown = 2.4;
+    state.pieces.push(p);
+
+    document.dispatchEvent(pointer('pointerdown', squareCenter(2, 2).x, squareCenter(2, 2).y));
+
+    expect(audio.played).toEqual([]);
+  });
+
+  it('빈 칸 클릭(선택 없음)은 uiPickup을 울리지 않는다', () => {
+    const { audio } = setup('wave');
+    click(squareCenter(3, 3));   // 빈 칸 — hit 없음
+    expect(audio.played).toEqual([]);
+  });
+
+  it('같은 기물을 다시 클릭해 해제할 때도 uiPickup이 울린다 (onDown이 손을 댄 순간마다 울린다 — 이후 결과가 선택/해제/이동 무엇이든)', () => {
+    const { state, drag, audio } = setup('wave');
+    const p = boardPiece('pawn', 6, 6);
+    state.pieces.push(p);
+
+    click(squareCenter(6, 6));                // 선택 시작 — uiPickup
+    expect(audio.played).toEqual(['uiPickup']);
+
+    click(squareCenter(6, 6));                // 같은 기물 재클릭 = 해제 — 다시 손을 댔으므로 다시 uiPickup
+    expect(audio.played).toEqual(['uiPickup', 'uiPickup']);
+    expect(drag.interaction.selectedPieceId).toBeNull();
+  });
+
+  it('슬롯 → 보드 빈칸 드래그 배치 성공은 uiPlace를 울린다', () => {
+    const { state, audio } = setup('prepare');
+    const p = slotPiece('snd1', 'pawn', 0);
+    state.pieces.push(p);
+
+    drag_(slotCenter(0), squareCenter(2, 3));
+
+    expect(audio.played).toEqual(['uiPickup', 'uiPlace']);
+  });
+
+  it('보드 → 보드 이동 성공(클릭-투-무브)도 uiPlace를 울린다', () => {
+    const { state, audio } = setup('wave');
+    const p = boardPiece('rook', 1, 1);
+    state.pieces.push(p);
+
+    click(squareCenter(1, 1));
+    click(squareCenter(4, 4));
+
+    expect(audio.played).toEqual(['uiPickup', 'uiPlace']);
+  });
+
+  it('보드 → 슬롯 회수 성공은 uiPlace를 울린다', () => {
+    const { state, audio } = setup('wave');
+    const p = boardPiece('rook', 0, 1);
+    state.pieces.push(p);
+
+    drag_(squareCenter(0, 1), slotCenter(2));
+
+    expect(audio.played).toEqual(['uiPickup', 'uiPlace']);
+  });
+
+  it('슬롯 내 재정렬(트레이 → 트레이) 성공은 uiPlace/uiSell 어느 쪽도 울리지 않는다 (스펙 목록에 없음, 의도적 무음)', () => {
+    const { state, audio } = setup('prepare');
+    const p0 = slotPiece('reorder-a', 'pawn', 0);
+    const p1 = slotPiece('reorder-b', 'bishop', 3);
+    state.pieces.push(p0, p1);
+
+    drag_(slotCenter(0), slotCenter(3));
+
+    expect(audio.played).toEqual(['uiPickup']);   // 집기 소리만 나고, 재정렬 자체는 무음
+  });
+
+  it('판매 성공(드래그·클릭 모두)은 uiSell을 울린다', () => {
+    const { state, audio } = setup('prepare');
+    const p = slotPiece('snd-sell', 'rook', 0);
+    state.pieces.push(p);
+
+    drag_(slotCenter(0), SELL_CENTER);
+
+    expect(audio.played).toEqual(['uiPickup', 'uiSell']);
+  });
+
+  it('거부된 드롭(8랭크 등)은 uiInvalid를 울린다 — 게임이 조용히 원위치로 되돌리는 것의 유일한 청각 피드백', () => {
+    const { state, audio } = setup('prepare');
+    const p = slotPiece('snd-invalid', 'pawn', 0);
+    state.pieces.push(p);
+
+    drag_(slotCenter(0), squareCenter(0, 8));   // 8랭크 = 스폰 구역, 배치 불가
+
+    expect(audio.played).toEqual(['uiPickup', 'uiInvalid']);
+  });
+
+  it('거부된 클릭-투-무브도 uiInvalid를 울린다', () => {
+    const { state, audio } = setup('prepare');
+    const p = slotPiece('snd-invalid-click', 'pawn', 0);
+    const occupant = boardPiece('bishop', 4, 4);
+    state.pieces.push(p, occupant);
+
+    click(slotCenter(0));
+    click(squareCenter(4, 4));   // 트레이 → 점유 칸: 여전히 거부(맞교환은 board→board 전용)
+
+    // 두 번째 uiPickup은 (4,4) 클릭의 onDown이 그 칸의 occupant를 다시 "짚었기" 때문이다 — 실제로는
+    // p를 그 칸으로 옮기려는 시도지만, onDown은 그 결과를 아직 모른 채 손이 닿은 기물마다 울린다.
+    expect(audio.played).toEqual(['uiPickup', 'uiPickup', 'uiInvalid']);
+  });
+
+  it('모든 존 바깥으로의 드롭(target=null)도 uiInvalid를 울린다', () => {
+    const { state, audio } = setup('prepare');
+    const p = slotPiece('snd-outside', 'pawn', 0);
+    state.pieces.push(p);
+
+    drag_(slotCenter(0), { x: 5000, y: 5000 });
+
+    expect(audio.played).toEqual(['uiPickup', 'uiInvalid']);
+  });
+
+  it('일시정지 중에는 드래그가 시작되지 않으므로 uiPickup도 울리지 않는다', () => {
+    const { state, audio } = setup('wave');
+    const p = boardPiece('pawn', 1, 1);
+    state.pieces.push(p);
+    state.paused = true;
+
+    document.dispatchEvent(pointer('pointerdown', squareCenter(1, 1).x, squareCenter(1, 1).y));
+
+    expect(audio.played).toEqual([]);
   });
 });

@@ -8,7 +8,19 @@ import { createLayout, PIECE_NAME } from '../src/ui/layout';
 import { updateHud } from '../src/ui/hud';
 import { updateShop, wireShop } from '../src/ui/shop';
 import { updateSlots } from '../src/ui/slots';
+import type { UiAudio } from '../src/audio';
+import type { UiCueKind } from '../src/audio/cues';
 import type { GameState, PieceType } from '../src/types';
+
+/** wireShop 테스트 전용 UiAudio 스텁 — drag.test.ts의 makeAudioSpy와 같은 목적. */
+function makeAudioSpy(): UiAudio & { played: UiCueKind[] } {
+  return {
+    played: [],
+    playUi(cue: UiCueKind): void {
+      this.played.push(cue);
+    },
+  };
+}
 
 const PIECE_TYPES = Object.keys(CONFIG.pieces) as PieceType[];
 
@@ -197,7 +209,7 @@ describe('wireShop (Task 14) — 실제 클릭 배선 검증', () => {
     const layout = createLayout(makeApp());
     const state = createInitialState();
     const startGold = state.gold;
-    wireShop(layout, state);
+    wireShop(layout, state, makeAudioSpy());
 
     const pawnBtn = layout.shopButtons.get('pawn')!;
     pawnBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -206,6 +218,32 @@ describe('wireShop (Task 14) — 실제 클릭 배선 검증', () => {
     expect(pawns).toHaveLength(1);
     expect(pawns[0].slotIndex).toBe(0);
     expect(state.gold).toBe(startGold - CONFIG.pieces.pawn.cost);
+  });
+
+  it('구매 성공 시 uiBuy가 울린다 (스펙 §10.1 v1.3)', () => {
+    const layout = createLayout(makeApp());
+    const state = createInitialState();
+    const audio = makeAudioSpy();
+    wireShop(layout, state, audio);
+
+    layout.shopButtons.get('pawn')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(audio.played).toEqual(['uiBuy']);
+  });
+
+  it('구매 실패(골드 부족)는 uiBuy를 울리지 않는다', () => {
+    const layout = createLayout(makeApp());
+    const state = createInitialState();
+    state.gold = 0;
+    const audio = makeAudioSpy();
+    wireShop(layout, state, audio);
+
+    // 버튼은 updateShop이 매 프레임 비활성화하지만, wireShop 자체의 클릭 핸들러가 buyPiece의
+    // 반환값으로 판정하는지(canBuy 사전 체크에만 기대지 않는지) 여기서 직접 확인한다.
+    layout.shopButtons.get('pawn')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(state.pieces).toHaveLength(0);
+    expect(audio.played).toEqual([]);
   });
 });
 

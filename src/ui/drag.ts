@@ -1,6 +1,7 @@
 import { CONFIG } from '../config';
 import { moveOnBoard, pieceAt, placeFromSlot, recallToSlot, reorderSlots, findPiece } from '../core/pieces';
 import { sellPiece, sellPrice } from '../core/economy';
+import type { UiAudio } from '../audio';
 import type { GameEvent, GameState, Interaction } from '../types';
 import { PIECE_NAME, type Layout } from './layout';
 import { ALLY_SPRITE_URL } from '../render/sprites';
@@ -62,6 +63,7 @@ export class DragController {
     private state: GameState,
     private layout: Layout,
     private events: GameEvent[],
+    private audio: UiAudio,
   ) {
     this.ghost = document.createElement('div');
     this.ghost.className = 'drag-ghost';
@@ -173,6 +175,7 @@ export class DragController {
     this.ghostImg.src = ALLY_SPRITE_URL[piece.type];
     this.ghostImg.alt = PIECE_NAME[piece.type];
     this.moveGhost(e);
+    this.audio.playUi('uiPickup', performance.now());   // 드래그가 실제로 시작될 때만 (거부된 눌림은 위에서 이미 return)
   };
 
   private onMove = (e: PointerEvent): void => {
@@ -203,7 +206,9 @@ export class DragController {
     if (this.state.paused) return;
 
     if (d && !wasClick) {                               // 드래그 드롭
-      dropAction(this.state, d.pieceId, d.from, pickDropTarget(e.clientX, e.clientY, this.zones()), this.events);
+      const target = pickDropTarget(e.clientX, e.clientY, this.zones());
+      const ok = dropAction(this.state, d.pieceId, d.from, target, this.events);
+      this.playDropCue(d.from, target, ok);
       this.interaction.selectedPieceId = null;           // 드래그 후에는 이전 클릭 선택을 남기지 않는다 (검토 Finding 1)
       return;
     }
@@ -215,13 +220,38 @@ export class DragController {
       const piece = findPiece(this.state, sel);
       if (piece) {
         const from: 'slot' | 'board' = piece.square ? 'board' : 'slot';
-        dropAction(this.state, sel, from, pickDropTarget(e.clientX, e.clientY, this.zones()), this.events);
+        const target = pickDropTarget(e.clientX, e.clientY, this.zones());
+        const ok = dropAction(this.state, sel, from, target, this.events);
+        this.playDropCue(from, target, ok);
       }
       this.interaction.selectedPieceId = null;
       return;
     }
+    // uiPickup은 여기서 다시 울리지 않는다 — onDown이 이미 이 정확히 같은 피스에 대해 울렸다
+    // (pieceUnder(x,y)는 좌표만으로 결정되므로, 클릭으로 인정될 만큼 짧게 움직인 경우 onDown 시점의
+    // hit과 여기 hit은 사실상 같은 기물이다). "집기"는 손을 댄 onDown 순간의 감각이지, onUp에서
+    // 선택 상태가 확정되는 순간이 아니다 — 그래서 같은 기물을 다시 눌러 해제하는 경우에도(아래
+    // newSelection === null) onDown에서는 이미 소리가 났다(그리고 그걸로 충분하다, 여기서 또 낼
+    // 필요는 없다).
     this.interaction.selectedPieceId = hit && hit.pieceId !== sel ? hit.pieceId : null;
   };
+
+  /**
+   * 드롭/클릭-투-무브 결과에 맞는 사운드를 재생한다 (스펙 §10.1 v1.3).
+   * - 거부(ok=false): uiInvalid — 게임이 이미 조용히 기물을 원위치로 되돌리는 그 순간의, 유일하게
+   *   들리는 피드백이다.
+   * - 판매(target.kind==='sell'): uiSell.
+   * - 트레이 내 재정렬(from==='slot' && target.kind==='slot'): 스펙이 열거한 세 가지
+   *   (트레이→보드 배치/보드→보드 이동/보드→트레이 회수)에 포함되지 않으므로 의도적으로 무음.
+   * - 그 외 성공(트레이→보드 배치, 보드→보드 이동, 보드→트레이 회수): uiPlace.
+   */
+  private playDropCue(from: 'slot' | 'board', target: DropTarget, ok: boolean): void {
+    if (!ok) { this.audio.playUi('uiInvalid', performance.now()); return; }
+    if (!target) return;   // ok는 target이 있을 때만 true가 될 수 있다 — 타입 좁히기용 방어적 분기
+    if (target.kind === 'sell') { this.audio.playUi('uiSell', performance.now()); return; }
+    if (target.kind === 'slot' && from === 'slot') return;   // 재정렬 — 무음 (위 문서 참고)
+    this.audio.playUi('uiPlace', performance.now());
+  }
 
   /** 포인터 취소(터치 취소 등) — 드롭을 시도하지 않고 진행 중이던 제스처만 정리한다 (검토 Finding 3) */
   private onCancel = (): void => {

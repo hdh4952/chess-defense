@@ -1,4 +1,4 @@
-import type { GameEvent, PieceType } from '../types';
+import type { GameEvent, PieceType, Phase } from '../types';
 
 /**
  * "무엇을 재생할지 결정"하는 정책 계층 — DOM-free, Web Audio 미접촉. render/highlights.ts가
@@ -6,10 +6,29 @@ import type { GameEvent, PieceType } from '../types';
  * src/render/·src/ui/를 import하지 않는다 — 이 파일만 봐도 "무엇이 울리는가"를 전부 검증할 수 있다.
  *
  * 실제 재생(AudioContext/디코딩/보이스 관리)은 src/audio/player.ts가 맡는다.
+ *
+ * v1.3에서 전체 효과음 세트로 확장했다 (스펙 §10.1). 세 가지 트리거 경로가 이 파일 하나에 모인다:
+ *   1) GameEvent → cueForEvent (attack/knightBlast + enemyDied/enemyLeaked/bossSpawned/waveCleared/
+ *      prepareStarted) — resolve()가 소비.
+ *   2) state.phase 전환(victory/defeat) — GameEvent가 아니라 상태값이므로 resolve()가 phase를
+ *      별도 인자로 받아 이전 프레임과 비교한다. cues.ts가 이미 스로틀 상태(lastPlayedAt)를 들고
+ *      있으므로 previousPhase도 여기 두는 것이 일관적이다.
+ *   3) UI 제스처(구매/판매/배치/집기/거부) — core에는 대응하는 GameEvent가 없다(있어서도 안 된다,
+ *      src/core/는 드래그·클릭을 몰라야 한다). ui/가 resolveUi()를 직접 불러 스로틀만 공유해
+ *      받는다.
  */
 
 /** attack 이벤트 중 소리를 내는 기물 3종 + knightBlast. 퀸은 공격하지 않으므로(damage=0) 대상이 아니다. */
-export type CueKind = 'pawn' | 'bishop' | 'rook' | 'knight';
+export type AttackCueKind = 'pawn' | 'bishop' | 'rook' | 'knight';
+
+/** core GameEvent(전투 외)·phase 전환에서 나오는 큐. */
+export type CoreCueKind =
+  | 'enemyDied' | 'bossDied' | 'enemyLeaked' | 'bossSpawn' | 'waveClear' | 'victory' | 'defeat';
+
+/** UI 제스처 전용 큐 — src/core/에는 대응하는 GameEvent가 존재하지 않는다(의도적으로). */
+export type UiCueKind = 'uiBuy' | 'uiSell' | 'uiPlace' | 'uiPickup' | 'uiInvalid';
+
+export type CueKind = AttackCueKind | CoreCueKind | UiCueKind;
 
 export interface CueTuning {
   /** 이 큐가 다시 재생되기까지 최소 간격(ms). 프레임 내 코일레싱 이후에도 남는 스트림(비동기
@@ -47,6 +66,17 @@ export interface CueTuning {
  * 그 대수에서는 포화되지 않으므로, 2배속에서 실제로 정확히 2배 자주 울린다 — 그래서 후반
  * 웨이브·2배속으로 갈수록 믹스가 비숍/룩 쪽으로 기우는 것이 정상이다. 플레이 중 "왜 갑자기
  * 소리가 달라지지" 싶으면 이 문단을 먼저 의심할 것.
+ *
+ * v1.3 추가분 (스펙 §10.1):
+ * - enemyDied는 새로운 "attack"이다 — 룩 일제사격 한 번에 여러 마리가 죽고, 후반 웨이브는 한
+ *   프레임에 수십 마리가 죽는다. pawn과 같은 이유로 throttleMs를 짧게(100ms) 잡고 gain도 낮춘다.
+ *   (resolve()의 프레임 내 코일레싱이 "한 프레임에 여러 마리" 쪽은 이미 처리하므로, 이 스로틀은
+ *   "연속된 여러 프레임에 걸쳐 죽는" 쪽을 억제한다.)
+ * - uiPickup도 짧고 잦다(드래그/클릭 선택은 보스 추격 중 초당 여러 번 발생할 수 있다) — enemyDied와
+ *   같은 이유로 100ms.
+ * - 그 외(bossDied/enemyLeaked/bossSpawn/waveClear/victory/defeat/uiBuy/uiSell/uiPlace/uiInvalid)는
+ *   충분히 드물어 bishop/rook/knight와 같은 기본값(200ms)에서 시작한다 — victory/defeat는 애초에
+ *   게임당 정확히 1회만 나오므로 스로틀 값 자체가 사실상 의미 없다.
  */
 export const AUDIO_TUNING: {
   cues: Record<CueKind, CueTuning>;
@@ -60,6 +90,20 @@ export const AUDIO_TUNING: {
     bishop: { throttleMs: 200, gain: 0.55 },
     rook: { throttleMs: 200, gain: 0.6 },
     knight: { throttleMs: 200, gain: 0.8 },
+
+    enemyDied: { throttleMs: 100, gain: 0.35 },
+    bossDied: { throttleMs: 200, gain: 0.7 },
+    enemyLeaked: { throttleMs: 200, gain: 0.5 },
+    bossSpawn: { throttleMs: 200, gain: 0.75 },
+    waveClear: { throttleMs: 200, gain: 0.6 },
+    victory: { throttleMs: 200, gain: 0.8 },
+    defeat: { throttleMs: 200, gain: 0.8 },
+
+    uiBuy: { throttleMs: 200, gain: 0.4 },
+    uiSell: { throttleMs: 200, gain: 0.4 },
+    uiPlace: { throttleMs: 200, gain: 0.4 },
+    uiPickup: { throttleMs: 100, gain: 0.3 },
+    uiInvalid: { throttleMs: 200, gain: 0.45 },
   },
   maxVoices: 8,
   pitchVariation: 0.05,
@@ -76,11 +120,27 @@ const ATTACK_CUE_BY_PIECE: Partial<Record<PieceType, CueKind>> = {
   // 않음으로써 "attack 이벤트로는 오지 않는 타입"이라는 사실을 이 표 자체가 드러내게 둔다.
 };
 
-/** GameEvent 한 건 → 재생할 큐 종류. 소리를 내지 않는 이벤트는 null. */
+/**
+ * GameEvent 한 건 → 재생할 큐 종류. 소리를 내지 않는 이벤트는 null.
+ *
+ * - enemyDied는 isBoss로 갈라진다(bossDied/enemyDied) — 두 큐 모두 존재해야 보스 처치가 일반
+ *   처치와 다르게 들린다.
+ * - enemyLeaked는 isBoss와 무관하게 항상 같은 큐다(스펙 명시 — 일반/보스 누수를 굳이 나누지
+ *   않는다). isBoss 필드가 있지만 여기서는 읽지 않는다.
+ * - prepareStarted는 isBossWave일 때만 bossSpawn을 낸다 — 스펙 7.9의 2단계 경고(준비 시작 시
+ *   1회 + 실제 스폰 시 1회, 10초 간격) 중 첫 번째. 같은 큐를 재사용하므로 cueForEvent 관점에서는
+ *   bossSpawned와 구별되지 않는다(의도적 — 플레이어에게는 "보스온다" 신호가 같은 소리면 충분하다).
+ */
 function cueForEvent(ev: GameEvent): CueKind | null {
-  if (ev.kind === 'attack') return ATTACK_CUE_BY_PIECE[ev.pieceType] ?? null;
-  if (ev.kind === 'knightBlast') return 'knight';
-  return null;
+  switch (ev.kind) {
+    case 'attack': return ATTACK_CUE_BY_PIECE[ev.pieceType] ?? null;
+    case 'knightBlast': return 'knight';
+    case 'enemyDied': return ev.isBoss ? 'bossDied' : 'enemyDied';
+    case 'enemyLeaked': return 'enemyLeaked';
+    case 'bossSpawned': return 'bossSpawn';
+    case 'waveCleared': return 'waveClear';
+    case 'prepareStarted': return ev.isBossWave ? 'bossSpawn' : null;
+  }
 }
 
 /**
@@ -94,14 +154,34 @@ function cueForEvent(ev: GameEvent): CueKind | null {
  */
 export class CueResolver {
   private lastPlayedAt = new Map<CueKind, number>();
+  /** victory/defeat 전환 감지용. null = 아직 한 번도 resolve()가 불리지 않음. */
+  private previousPhase: Phase | null = null;
 
-  resolve(events: readonly GameEvent[], now: number, paused: boolean): CueKind[] {
-    // 일시정지 중에는 아무것도 재생하지 않는다. stepGame이 paused면 일찍 반환해 attack 이벤트
-    // 자체가 생기지 않으므로 사실상 이 분기에 도달할 events는 비어 있겠지만, 의도를 코드로
-    // 명시하고 호출부 실수(예: 이벤트 배열을 스킵 없이 그대로 넘기는 변경)에도 방어하기 위해
-    // 명시적으로 게이팅한다. 스로틀 상태도 건드리지 않는다 — 일시정지가 스로틀 타이머를
-    // 소모시키면 재개 직후 정상적으로 울려야 할 소리까지 억제될 수 있다.
-    if (paused) return [];
+  /**
+   * phase는 GameEvent가 아니라 상태값이므로 별도 인자로 받는다 — victory/defeat는 "그 순간에
+   * 발생한 이벤트"가 아니라 "그 프레임 이후로 계속 유지되는 상태"라서, 매 프레임 같은 phase를
+   * 다시 넘겨받아도(게임이 멈춘 뒤 main.ts의 requestAnimationFrame은 영원히 계속 돈다) 최초
+   * 전환 프레임에서만 정확히 1회 큐를 낸다.
+   */
+  resolve(events: readonly GameEvent[], now: number, paused: boolean, phase: Phase): CueKind[] {
+    const out: CueKind[] = [];
+
+    // phase 전환 감지는 paused와 무관하게 항상 수행한다 — victory/defeat는 UI 일시정지 여부와
+    // 상관없이 "정확히 한 번" 울려야 하는 종단 상태 전환이지, 매 프레임 재생/억제를 오가는
+    // 스트림이 아니다. (실전에서는 stepGame이 paused 중 phase를 바꾸지 않으므로 이 독립성이
+    // 관측되는 경우는 없지만, paused 게이팅에 우연히 얽히지 않도록 명시적으로 분리해 둔다.)
+    if (phase !== this.previousPhase) {
+      this.previousPhase = phase;
+      if (phase === 'victory') out.push('victory');
+      else if (phase === 'defeat') out.push('defeat');
+    }
+
+    // 일시정지 중에는 이벤트 경로에서는 아무것도 재생하지 않는다. stepGame이 paused면 일찍
+    // 반환해 attack 이벤트 자체가 생기지 않으므로 사실상 이 분기에 도달할 events는 비어
+    // 있겠지만, 의도를 코드로 명시하고 호출부 실수(예: 이벤트 배열을 스킵 없이 그대로 넘기는
+    // 변경)에도 방어하기 위해 명시적으로 게이팅한다. 스로틀 상태도 건드리지 않는다 — 일시정지가
+    // 스로틀 타이머를 소모시키면 재개 직후 정상적으로 울려야 할 소리까지 억제될 수 있다.
+    if (paused) return out;
 
     const present = new Set<CueKind>();
     for (const ev of events) {
@@ -109,7 +189,6 @@ export class CueResolver {
       if (cue) present.add(cue);
     }
 
-    const out: CueKind[] = [];
     for (const cue of present) {
       const last = this.lastPlayedAt.get(cue);
       const throttleMs = AUDIO_TUNING.cues[cue].throttleMs;
@@ -118,5 +197,20 @@ export class CueResolver {
       out.push(cue);
     }
     return out;
+  }
+
+  /**
+   * UI 제스처(구매/판매/배치/집기/거부) 전용 진입점 — 대응하는 GameEvent가 없으므로 resolve()의
+   * events 배열을 거치지 않는다. 프레임 내 코일레싱은 애초에 필요 없다(제스처 1건 = 호출 1건),
+   * 하지만 큐별 최소 간격 스로틀은 resolve()와 동일하게 필요하다(uiPickup은 보스 추격 중 초당
+   * 여러 번 발생할 수 있다) — resolve()와 같은 lastPlayedAt 맵을 공유해 큐 종류별 스로틀 상태를
+   * 하나로 유지한다(UI 큐 이름은 core 큐와 겹치지 않으므로 충돌하지 않는다).
+   */
+  resolveUi(cue: UiCueKind, now: number): CueKind | null {
+    const last = this.lastPlayedAt.get(cue);
+    const throttleMs = AUDIO_TUNING.cues[cue].throttleMs;
+    if (last !== undefined && now - last < throttleMs) return null;
+    this.lastPlayedAt.set(cue, now);
+    return cue;
   }
 }
