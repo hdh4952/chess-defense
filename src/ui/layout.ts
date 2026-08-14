@@ -23,6 +23,19 @@ export const PIECE_NAME: Record<PieceType, string> = {
   pawn: '폰', knight: '나이트', bishop: '비숍', rook: '룩', queen: '퀸',
 };
 
+/** 저작자 표시줄 (NOTICE.md — CC BY-SA 3.0 이행). 게임 화면과 시작 화면 둘 다 같은 Cburnett
+ * 기물 SVG를 보여주므로 두 화면 모두에 떠 있어야 한다 — 한쪽에만 두면 그 화면을 띄운 동안에는
+ * 표시 의무가 지켜지지 않는다. 문구가 갈라지지 않도록 여기 한 곳에서만 정의한다. */
+export const CREDIT_HTML = `
+    <footer id="credit">
+      기물 이미지:
+      <a href="https://commons.wikimedia.org/wiki/Category:SVG_chess_pieces" target="_blank" rel="noopener noreferrer">Cburnett / Wikimedia Commons</a>
+      —
+      <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noopener noreferrer">CC BY-SA 3.0</a>
+      —
+      <a href="https://github.com/hdh4952/chess-defense/blob/main/NOTICE.md" target="_blank" rel="noopener noreferrer">변경 내역(NOTICE.md)</a>
+    </footer>`;
+
 export function createLayout(app: HTMLElement): Layout {
   app.innerHTML = `
     <header id="hud">
@@ -48,14 +61,7 @@ export function createLayout(app: HTMLElement): Layout {
         <button id="start-wave">웨이브 시작</button>
       </aside>
     </main>
-    <footer id="credit">
-      기물 이미지:
-      <a href="https://commons.wikimedia.org/wiki/Category:SVG_chess_pieces" target="_blank" rel="noopener noreferrer">Cburnett / Wikimedia Commons</a>
-      —
-      <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noopener noreferrer">CC BY-SA 3.0</a>
-      —
-      <a href="https://github.com/hdh4952/chess-defense/blob/main/NOTICE.md" target="_blank" rel="noopener noreferrer">변경 내역(NOTICE.md)</a>
-    </footer>
+${CREDIT_HTML}
     <div id="banner-root"></div>
   `;
 

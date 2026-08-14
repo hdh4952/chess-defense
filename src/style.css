@@ -52,6 +52,76 @@ canvas { display: block; }
 .drag-ghost { width: 48px; height: 48px; overflow: hidden; }
 .drag-ghost-icon { width: 100%; height: 100%; object-fit: contain; }
 
+/* ── 시작 화면 (ui/titleScreen.ts) ────────────────────────────────────────────
+   위: 기물 설명 탭 / 아래: BATTLE. 게임 화면과 같은 팔레트를 쓰되, 보드가 없으므로
+   가운데 한 단(min(880px, 화면폭))으로 모아 읽기 좋게 둔다. */
+#title {
+  max-width: 880px; margin: 0 auto; padding: 28px 16px 12px;
+  display: flex; flex-direction: column; justify-content: center; gap: 20px;
+  min-height: 100vh; box-sizing: border-box;
+}
+#title-head { text-align: center; }
+#title-head h1 { margin: 0; font-size: 40px; letter-spacing: 2px; }
+#title-head p { margin: 6px 0 0; color: #9d968a; font-size: 14px; }
+
+#title-guide {
+  background: #2b2a27; border-radius: 12px; padding: 14px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+/* 기물마다 설명 길이가 달라 탭을 옮길 때마다 상자 높이가 튀고, 그때 BATTLE 버튼까지 따라
+   움직여 버린다. 가장 긴 패널(나이트)에 맞춰 바닥을 깔아 두면 탭 전환이 제자리에서 일어난다. */
+#title-panels { min-height: 232px; }
+#title-tabs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.title-tab {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 8px 2px; font-size: 13px; cursor: pointer;
+  background: #35332f; color: #cfc9be; border: 1px solid transparent; border-radius: 6px;
+}
+.title-tab:hover { background: #403d38; }
+.title-tab[aria-selected='true'] { background: #4a463f; color: #ffd54a; border-color: #ffd54a; }
+.tab-icon { width: 30px; height: 30px; object-fit: contain; }
+
+.panel-head { display: flex; align-items: center; gap: 14px; }
+.panel-icon { width: 56px; height: 56px; object-fit: contain; }
+.panel-head h2 { margin: 0; font-size: 22px; }
+.panel-role { margin: 2px 0 0; color: #ffd54a; font-size: 13px; }
+.panel-price { margin: 0 0 0 auto; text-align: right; font-size: 20px; color: #ffd54a; }
+.panel-price small { color: #9d968a; font-size: 12px; }
+
+.panel-body { display: flex; gap: 20px; align-items: flex-start; margin-top: 14px; flex-wrap: wrap; }
+.panel-facts { flex: 1; min-width: 220px; }
+.panel-facts dl {
+  margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: 14px;
+}
+.panel-facts dt { color: #9d968a; }
+.panel-facts dd { margin: 0; }
+.panel-detail { margin: 14px 0 0; font-size: 14px; line-height: 1.6; color: #cfc9be; }
+
+/* 사거리 미리보기 5×5. 칸 색은 보드 하이라이트와 같은 의미로 읽히도록 맞춘다:
+   is-target = 공격(퀸은 버프)이 닿는 칸, is-move = 나이트가 L자로 갈 수 있는 칸. */
+.range-board {
+  display: grid; grid-template-columns: repeat(5, 40px); grid-auto-rows: 40px;
+  gap: 2px; background: #1a1918; padding: 4px; border-radius: 6px;
+}
+.range-cell {
+  background: #4a463f; border-radius: 3px;
+  display: flex; align-items: center; justify-content: center;
+}
+.range-cell.is-target { background: #8a6f2a; }
+.range-cell.is-move { outline: 2px dashed #6fa8dc; outline-offset: -3px; }
+.range-cell.is-self { background: #35332f; }
+.range-icon { width: 80%; height: 80%; object-fit: contain; }
+.range-legend { margin: 6px 0 0; max-width: 216px; font-size: 11px; line-height: 1.5; color: #9d968a; }
+
+#title-foot { text-align: center; }
+#battle {
+  width: 100%; max-width: 420px; padding: 16px; font-size: 22px; font-weight: 800;
+  letter-spacing: 4px; cursor: pointer;
+  background: #b3452f; color: #fff; border: none; border-radius: 8px;
+}
+#battle:hover { background: #cc5136; }
+#title-hint { margin: 10px 0 0; font-size: 12px; color: #9d968a; }
+
 /* 항상 보이는 저작자 표시줄 (NOTICE.md — CC BY-SA 3.0 이행). HUD와 경쟁하지 않도록 조용한 톤. */
 #credit {
   text-align: center; font-size: 11px; color: #766f66;
