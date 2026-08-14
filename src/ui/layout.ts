@@ -9,7 +9,7 @@ export interface Layout {
   hud: {
     hp: HTMLElement; gold: HTMLElement; wave: HTMLElement; remaining: HTMLElement;
     timer: HTMLElement; bossIcon: HTMLElement;
-    pauseBtn: HTMLButtonElement; speedBtn: HTMLButtonElement;
+    pauseBtn: HTMLButtonElement; speedBtn: HTMLButtonElement; muteBtn: HTMLButtonElement;
   };
   slotGrid: HTMLElement;
   shopButtons: Map<PieceType, HTMLButtonElement>;
@@ -33,6 +33,7 @@ export function createLayout(app: HTMLElement): Layout {
       <span>⏱<b id="hud-timer"></b><b id="hud-boss-icon" hidden> ♚보스!</b></span>
       <button id="hud-pause">⏸</button>
       <button id="hud-speed">▶▶1x</button>
+      <button id="hud-mute" aria-pressed="false">🔊</button>
     </header>
     <main id="main">
       <aside id="left">
@@ -87,6 +88,7 @@ export function createLayout(app: HTMLElement): Layout {
       hp: q('#hud-hp'), gold: q('#hud-gold'), wave: q('#hud-wave'),
       remaining: q('#hud-remaining'), timer: q('#hud-timer'), bossIcon: q('#hud-boss-icon'),
       pauseBtn: q<HTMLButtonElement>('#hud-pause'), speedBtn: q<HTMLButtonElement>('#hud-speed'),
+      muteBtn: q<HTMLButtonElement>('#hud-mute'),
     },
     slotGrid,
     shopButtons,

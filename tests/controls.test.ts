@@ -5,7 +5,7 @@ import { createEnemy } from '../src/core/enemy';
 import { stepGame } from '../src/core/step';
 import { createInitialState } from '../src/core/state';
 import { createLayout } from '../src/ui/layout';
-import { wireControls } from '../src/ui/controls';
+import { wireControls, wireMuteButton, type MuteControllable } from '../src/ui/controls';
 import type { GameEvent, GameState } from '../src/types';
 import { boardPiece } from './helpers';
 
@@ -99,6 +99,44 @@ describe('wireControls — 탭 이탈 자동 일시정지 (Task 16, 스펙 7.7)'
     setDocumentHidden(false);
     document.dispatchEvent(new Event('visibilitychange'));
     expect(state.paused).toBe(true);   // 여전히 일시정지 — 자동 해제는 스펙 위반
+  });
+});
+
+describe('wireMuteButton — 음소거 버튼 (스펙 7.6/§10.1 v1.2, 공격 사운드 첫 슬라이스)', () => {
+  function fakeAudio(): MuteControllable & { muted: boolean } {
+    return {
+      muted: false,
+      isMuted() { return this.muted; },
+      setMuted(v: boolean) { this.muted = v; },
+    };
+  }
+
+  it('HUD에 음소거 버튼이 존재한다', () => {
+    const layout = createLayout(makeApp());
+    expect(layout.hud.muteBtn).toBeInstanceOf(HTMLButtonElement);
+  });
+
+  it('클릭하면 audio.setMuted가 토글되고, 다시 클릭하면 되돌아온다', () => {
+    const layout = createLayout(makeApp());
+    const audio = fakeAudio();
+    wireMuteButton(layout, audio);
+
+    expect(audio.isMuted()).toBe(false);
+    layout.hud.muteBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(audio.isMuted()).toBe(true);
+    layout.hud.muteBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(audio.isMuted()).toBe(false);
+  });
+
+  it('버튼 라벨과 aria-pressed가 음소거 상태를 반영한다', () => {
+    const layout = createLayout(makeApp());
+    const audio = fakeAudio();
+    wireMuteButton(layout, audio);
+
+    expect(layout.hud.muteBtn.getAttribute('aria-pressed')).toBe('false');
+    layout.hud.muteBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(layout.hud.muteBtn.getAttribute('aria-pressed')).toBe('true');
+    expect(layout.hud.muteBtn.textContent).toBe('🔇');
   });
 });
 

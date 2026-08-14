@@ -4,11 +4,12 @@ import { createInitialState } from './core/state';
 import { stepGame } from './core/step';
 import { createTicker } from './core/ticker';
 import { startWave } from './core/wave';
+import { createAudioController } from './audio';
 import { Effects } from './render/effects';
 import { buildHighlights } from './render/highlights';
 import { createFrameView, render } from './render/renderer';
 import { Banners } from './ui/banners';
-import { wireControls } from './ui/controls';
+import { wireControls, wireMuteButton } from './ui/controls';
 import { updateHud } from './ui/hud';
 import { createLayout } from './ui/layout';
 import { updateShop, wireShop } from './ui/shop';
@@ -31,6 +32,15 @@ layout.startBtn.addEventListener('click', () => { if (!state.paused) startWave(s
 const drag = new DragController(state, layout, events);
 const banners = new Banners(layout);
 const fx = new Effects();   // 속성별 공격 이펙트 + 화면 진동, 렌더 전용 (스펙 8.2, Task 19)
+
+// 공격 사운드 — 첫 슬라이스(웨이브/보스/승리 사운드 없음, 스펙 §10.1 v1.2). 코일레싱·스로틀·
+// 보이스 상한 튜닝값은 src/audio/cues.ts의 AUDIO_TUNING 표 하나에 모여 있다.
+const audio = createAudioController();
+wireMuteButton(layout, audio);
+// 자동재생 정책: 사용자 제스처 전에는 AudioContext가 절대 소리를 내지 않는다 — 아무 에러 없이
+// 그냥 조용하다. 이 게임은 드래그 기반이라 pointerdown이 자연스러운 첫 제스처이므로 여기서
+// 컨텍스트를 생성/재개한다. 매 pointerdown마다 불러도 안전하다(resumeOnGesture는 idempotent).
+document.addEventListener('pointerdown', () => audio.unlock());
 
 const tooltip = document.createElement('div');   // 사거리 미리보기·툴팁 (스펙 7.7, Task 18)
 tooltip.id = 'tooltip';
@@ -84,6 +94,9 @@ function frame(now: number): void {
     tick(realDt, dt => stepGame(state, dt * state.speedMultiplier, events));
 
     for (const ev of events) { banners.onEvent(ev); fx.onEvent(ev); }
+    // paused는 명시적으로 넘긴다 — stepGame이 일시정지 중 일찍 반환해 attack 이벤트 자체가
+    // 생기지 않으므로 사실상 이미 조용하지만, cues.ts가 그 사실에만 기대지 않도록 방어한다.
+    audio.onFrame(events, now, state.paused);
     banners.update(state, realDt);
     // 일시정지 중에는 이펙트도 멈춘다 — 그렇지 않으면 게임 상태는 얼어있는데 폭발/광선 페이드와
     // 화면 진동만 벽시계 기준으로 계속 진행돼 버린다 (banners.bossFlash의 Task 17 리뷰 수정과 동일한 사유).
