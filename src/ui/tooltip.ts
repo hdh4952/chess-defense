@@ -19,7 +19,12 @@ export function updateTooltip(
     ? ['공격력 — (버퍼)', `버프 효과: 겹치는 퀸마다 +100% (8방향 직선)`]
     : [
         `기본 공격력 ${def.damage} · 배율 ×${1 + p.queenBuffCount} · 최종 ${pieceDamage(p)}`,
-        p.type === 'knight' ? `이동 쿨다운 ${def.interval}s` : `공격 주기 ${def.interval}s`,
+        // 나이트는 이동 쿨다운을 표기한다. def.interval은 config 값 그대로이므로, 0(현재 설정 —
+        // 게임 규칙 변경으로 나이트 쿨다운이 폐지됨)이면 "0s"처럼 거짓 정보를 주는 대신 쿨다운이
+        // 없다는 사실을 그대로 알린다. interval을 config에서 되돌리면 문구도 자동으로 복원된다.
+        p.type === 'knight'
+          ? (def.interval > 0 ? `이동 쿨다운 ${def.interval}s` : '이동 쿨다운 없음')
+          : `공격 주기 ${def.interval}s`,
         `남은 쿨다운 ${p.cooldown.toFixed(1)}s`,
       ];
   el.innerHTML = `<b>${PIECE_NAME[p.type]}</b><br>${rows.join('<br>')}<br>판매가 ${sellPrice(p.type)}G`;

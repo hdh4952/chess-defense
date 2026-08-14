@@ -27,7 +27,10 @@ export const CONFIG = {
 
   pieces: {
     pawn:   { cost: 100, damage: 2, interval: 0.5 },
-    knight: { cost: 300, damage: 3, interval: 3.0 },  // 이동 쿨다운
+    // 이동 쿨다운 없음 (게임 규칙 변경, 사용자 승인) — 나이트는 배치·이동마다 매번 폭발한다.
+    // 게이트(canLandAt/tryKnightBlast/drag.ts)는 그대로 남아 있으므로 3.0 등으로 되돌리면
+    // 옛 쿨다운 동작이 코드 변경 없이 복원된다.
+    knight: { cost: 300, damage: 3, interval: 0 },
     bishop: { cost: 300, damage: 3, interval: 3.0 },
     rook:   { cost: 500, damage: 5, interval: 3.0 },
     queen:  { cost: 900, damage: 0, interval: 0   },

@@ -47,7 +47,9 @@ function interactable(state: GameState): boolean {
 }
 
 /**
- * 나이트 폭발 — 쿨다운 0일 때만 발동하고 쿨다운 3초 재시작 (검토 노트 3).
+ * 나이트 폭발 — 쿨다운 0일 때만 발동하고 CONFIG.pieces.knight.interval로 쿨다운을 재시작한다
+ * (검토 노트 3). 현재 설정값은 0이라(게임 규칙 변경, 사용자 승인) 사실상 매번 발동하고 매번
+ * 즉시 재무장한다 — 값을 되돌리면 옛 쿨다운 동작이 코드 변경 없이 복원된다.
  * 호출 전에 recalcQueenBuffs가 끝나 있어야 한다 (폭발 시점 버프, 스펙 5.6).
  */
 function tryKnightBlast(state: GameState, piece: Piece, events: GameEvent[]): void {

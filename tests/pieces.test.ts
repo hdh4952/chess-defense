@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { updateCombat } from '../src/core/combat';
+import { CONFIG } from '../src/config';
 import {
   canPlaceAt, isKnightMove, moveOnBoard, pieceAt, placeFromSlot, recallToSlot, reorderSlots,
 } from '../src/core/pieces';
@@ -101,7 +101,7 @@ describe('나이트 (스펙 5.3 + 검토 노트 3)', () => {
     expect(isKnightMove({ file: 3, rank: 4 }, { file: 3, rank: 5 })).toBe(false);
     expect(isKnightMove({ file: 3, rank: 4 }, { file: 5, rank: 6 })).toBe(false);
   });
-  it('최초 배치: 9칸 폭발 + 쿨다운 3초 시작', () => {
+  it('최초 배치: 9칸 폭발 + 쿨다운 재시작 (config 값 그대로 — 현재 0이라 즉시 재무장, 스펙 변경)', () => {
     const s = waveState();
     const n = slotPiece(s, 'knight', 0);
     const e = enemyAt(1, 4, 5);
@@ -109,7 +109,10 @@ describe('나이트 (스펙 5.3 + 검토 노트 3)', () => {
     const ev: GameEvent[] = [];
     expect(placeFromSlot(s, n.id, 3, 4, ev)).toBe(true);
     expect(e.hp).toBe(7);                       // 3 데미지
-    expect(n.cooldown).toBe(3.0);
+    // 이전: interval이 3.0이라 쿨다운도 3.0으로 재시작했다. 이제 CONFIG.pieces.knight.interval이
+    // 0이므로(게임 규칙 변경, 사용자 승인) 쿨다운은 즉시 0으로 재무장한다 — 리터럴 대신 config
+    // 값으로 단언해 되돌림에도 이 테스트가 자동으로 맞아떨어지게 한다.
+    expect(n.cooldown).toBe(CONFIG.pieces.knight.interval);
     expect(ev.some(x => x.kind === 'knightBlast')).toBe(true);
   });
   it('쿨다운 중 보드 이동 불가, L자 아니면 불가, 점유 칸 불가', () => {
@@ -122,7 +125,7 @@ describe('나이트 (스펙 5.3 + 검토 노트 3)', () => {
     expect(moveOnBoard(s, n.id, 3, 5, [])).toBe(false);  // L자 아님
     expect(moveOnBoard(s, n.id, 4, 6, [])).toBe(false);  // 점유 칸
     expect(moveOnBoard(s, n.id, 5, 5, [])).toBe(true);   // 정상 L자
-    expect(n.cooldown).toBe(3.0);                        // 이동 후 재시작
+    expect(n.cooldown).toBe(CONFIG.pieces.knight.interval);   // 이동 후 재시작 (config 값 — 현재 0)
   });
   it('이동 완료 시 새 위치에서 폭발', () => {
     const s = waveState();
@@ -133,21 +136,25 @@ describe('나이트 (스펙 5.3 + 검토 노트 3)', () => {
     moveOnBoard(s, n.id, 5, 5, []);
     expect(e.hp).toBe(7);
   });
-  it('회수→재배치로 폭발 반복 불가 (쿨다운 우회 차단, 스펙 5.1)', () => {
+  it('회수→재배치로 폭발이 반복된다 (쿨다운 폐지로 안티파밍 규칙 삭제 — 게임 규칙 변경, 사용자 승인)', () => {
+    // 이전에는 이 테스트가 "회수→재배치로 쿨다운을 우회해 폭발을 반복할 수 없다"를 검증했다
+    // (스펙 5.1의 안티파밍 규칙). CONFIG.pieces.knight.interval이 0으로 바뀌면서 나이트는 애초에
+    // 쿨다운이 존재하지 않으므로 우회할 쿨다운 자체가 없다 — 회수 없이 그 자리에 다시 배치하기만
+    // 해도 매번 폭발한다. 이 스펙 조항은 사용자가 명시적으로 승인하고 폐기했다.
     const s = waveState();
     const n = slotPiece(s, 'knight', 0);
     const e = enemyAt(1, 4, 5);
     s.enemies.push(e);
-    placeFromSlot(s, n.id, 3, 4, []);           // 폭발 1회, 쿨 3초
+    placeFromSlot(s, n.id, 3, 4, []);           // 폭발 1회 (10 → 7)
     expect(e.hp).toBe(7);
+    expect(n.cooldown).toBe(0);                 // 쿨다운이 즉시 0으로 재무장 — 우회할 쿨다운이 없다
     recallToSlot(s, n.id);
-    placeFromSlot(s, n.id, 3, 4, []);           // 쿨다운 중 재배치 — 배치는 허용, 폭발 없음
-    expect(e.hp).toBe(7);
-    expect(n.square).toEqual({ file: 3, rank: 4 });
-    updateCombat(s, 3.0, []);                   // 쿨다운 소진
-    recallToSlot(s, n.id);
-    placeFromSlot(s, n.id, 3, 4, []);           // 쿨 0 → 다시 폭발
+    placeFromSlot(s, n.id, 3, 4, []);           // 재배치 즉시 다시 폭발 (7 → 4)
     expect(e.hp).toBe(4);
+    expect(n.square).toEqual({ file: 3, rank: 4 });
+    recallToSlot(s, n.id);
+    placeFromSlot(s, n.id, 3, 4, []);           // 몇 번이든 반복된다 (4 → 1)
+    expect(e.hp).toBe(1);
   });
   it('폭발 데미지는 폭발 시점 버프로 계산 (스펙 5.6)', () => {
     const s = waveState();
@@ -157,6 +164,22 @@ describe('나이트 (스펙 5.3 + 검토 노트 3)', () => {
     s.enemies.push(e);
     placeFromSlot(s, n.id, 3, 4, []);           // 배치 → 버프 재계산 → 폭발
     expect(e.hp).toBe(4);                       // 3 × 2 = 6 데미지
+  });
+  it('쿨다운 대기 없이 연속으로 L자 이동해도 매번 폭발한다 (게임 규칙 변경 — interval 0, 사용자 승인)', () => {
+    const s = waveState();
+    const n = boardPiece('knight', 3, 4);       // d4
+    s.pieces.push(n);
+    const e1 = enemyAt(1, 4, 6);                // e6 — 1차 목적지 (4,6)의 3×3 폭발 범위 안
+    const e2 = enemyAt(1, 2, 4);                // c4 — 2차 목적지 (2,5)의 3×3 폭발 범위 안
+    s.enemies.push(e1, e2);
+
+    expect(moveOnBoard(s, n.id, 4, 6, [])).toBe(true);   // 1차 이동+폭발, 쿨 0 → 즉시 재무장
+    expect(e1.hp).toBe(7);
+    expect(n.cooldown).toBe(0);
+
+    expect(isKnightMove({ file: 4, rank: 6 }, { file: 2, rank: 5 })).toBe(true);
+    expect(moveOnBoard(s, n.id, 2, 5, [])).toBe(true);   // 대기 없이 곧바로 2차 L자 이동+폭발
+    expect(e2.hp).toBe(7);
   });
 });
 

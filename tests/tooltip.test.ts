@@ -100,6 +100,22 @@ describe('updateTooltip (스펙 7.7 — 기물 hover 툴팁)', () => {
     expect(el.innerHTML).not.toContain('공격 주기');
   });
 
+  it('나이트 이동 쿨다운 수치는 "없음"으로 표시된다 (게임 규칙 변경 — interval 0, 사용자 승인)', () => {
+    // 이전: CONFIG.pieces.knight.interval이 3.0이라 "이동 쿨다운 3s"처럼 실제 값을 그대로 보여줬다.
+    // 이제 interval이 0이므로, def.interval을 그대로 보간해 "이동 쿨다운 0s"라고 표시하면 마치
+    // "0초만 기다리면 된다"는 거짓 정보가 된다 — updateTooltip은 이 경우 "없음"으로 대체해야 한다.
+    // 이 문구는 def.interval 값으로 분기하므로(하드코딩이 아니므로), CONFIG를 되돌리면 문구도
+    // 자동으로 원래대로 돌아온다.
+    const el = makeEl();
+    const state = waveState();
+    const p = boardPiece('knight', 1, 1);
+    state.pieces.push(p);
+    updateTooltip(el, state, noInteraction({ hoverSquare: { file: 1, rank: 1 } }), { x: 0, y: 0 });
+
+    expect(el.innerHTML).toContain('이동 쿨다운 없음');
+    expect(el.innerHTML).not.toContain('이동 쿨다운 0s');
+  });
+
   it('퀸은 공격력을 0인 수치처럼 표기하지 않고 버퍼임을 명시한다', () => {
     const el = makeEl();
     const state = waveState();
