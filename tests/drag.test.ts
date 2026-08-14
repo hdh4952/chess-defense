@@ -818,21 +818,23 @@ describe('DragController — destroy() (검토 Finding 7)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// UI 제스처 사운드 (스펙 §10.1 v1.3) — src/core/에는 대응 GameEvent가 없으므로, DragController가
-// audio(UiAudio)를 올바른 지점에서 올바른 큐로 호출하는지 DOM 레벨에서 직접 확인한다.
+// UI 제스처 사운드 (스펙 §10.1 v1.3, uiPickup 제거는 v1.4) — src/core/에는 대응 GameEvent가
+// 없으므로, DragController가 audio(UiAudio)를 올바른 지점에서 올바른 큐로 호출하는지 DOM
+// 레벨에서 직접 확인한다. v1.4: 집기/선택 시작(uiPickup)은 사용자가 실제로 들어보고 무음이
+// 낫다고 판단해 완전히 제거됐다 — 아래 스위트는 "소리가 안 난다"를 적극적으로 고정한다.
 // ---------------------------------------------------------------------------
-describe('DragController — UI 제스처 사운드 (스펙 §10.1 v1.3)', () => {
-  it('드래그가 실제로 시작되면 uiPickup이 울린다', () => {
+describe('DragController — UI 제스처 사운드 (스펙 §10.1 v1.3/v1.4)', () => {
+  it('드래그가 실제로 시작돼도 아무 소리도 나지 않는다 (v1.4 — uiPickup 제거)', () => {
     const { state, audio } = setup('wave');
     const p = boardPiece('pawn', 1, 1);
     state.pieces.push(p);
 
     document.dispatchEvent(pointer('pointerdown', squareCenter(1, 1).x, squareCenter(1, 1).y));
 
-    expect(audio.played).toEqual(['uiPickup']);
+    expect(audio.played).toEqual([]);
   });
 
-  it('쿨다운으로 거부된 나이트 드래그 시작은 uiPickup을 울리지 않는다 (드래그 자체가 시작되지 않았다)', () => {
+  it('쿨다운으로 거부된 나이트 드래그 시작도 여전히 아무 소리도 내지 않는다', () => {
     const { state, audio } = setup('wave');
     const p = boardPiece('knight', 2, 2);
     p.cooldown = 2.4;
@@ -843,33 +845,34 @@ describe('DragController — UI 제스처 사운드 (스펙 §10.1 v1.3)', () =>
     expect(audio.played).toEqual([]);
   });
 
-  it('빈 칸 클릭(선택 없음)은 uiPickup을 울리지 않는다', () => {
+  it('빈 칸 클릭(선택 없음)은 아무 소리도 내지 않는다', () => {
     const { audio } = setup('wave');
     click(squareCenter(3, 3));   // 빈 칸 — hit 없음
     expect(audio.played).toEqual([]);
   });
 
-  it('같은 기물을 다시 클릭해 해제할 때도 uiPickup이 울린다 (onDown이 손을 댄 순간마다 울린다 — 이후 결과가 선택/해제/이동 무엇이든)', () => {
+  it('클릭으로 기물을 선택하거나, 같은 기물을 다시 클릭해 해제해도 아무 소리도 나지 않는다 (v1.4 — uiPickup 제거)', () => {
     const { state, drag, audio } = setup('wave');
     const p = boardPiece('pawn', 6, 6);
     state.pieces.push(p);
 
-    click(squareCenter(6, 6));                // 선택 시작 — uiPickup
-    expect(audio.played).toEqual(['uiPickup']);
+    click(squareCenter(6, 6));                // 선택 시작 — 무음
+    expect(drag.interaction.selectedPieceId).toBe(p.id);
+    expect(audio.played).toEqual([]);
 
-    click(squareCenter(6, 6));                // 같은 기물 재클릭 = 해제 — 다시 손을 댔으므로 다시 uiPickup
-    expect(audio.played).toEqual(['uiPickup', 'uiPickup']);
+    click(squareCenter(6, 6));                // 같은 기물 재클릭 = 해제 — 여전히 무음
     expect(drag.interaction.selectedPieceId).toBeNull();
+    expect(audio.played).toEqual([]);
   });
 
-  it('슬롯 → 보드 빈칸 드래그 배치 성공은 uiPlace를 울린다', () => {
+  it('슬롯 → 보드 빈칸 드래그 배치 성공은 uiPlace를 울린다 (집기 소리 없이 이 한 건만)', () => {
     const { state, audio } = setup('prepare');
     const p = slotPiece('snd1', 'pawn', 0);
     state.pieces.push(p);
 
     drag_(slotCenter(0), squareCenter(2, 3));
 
-    expect(audio.played).toEqual(['uiPickup', 'uiPlace']);
+    expect(audio.played).toEqual(['uiPlace']);
   });
 
   it('보드 → 보드 이동 성공(클릭-투-무브)도 uiPlace를 울린다', () => {
@@ -880,7 +883,7 @@ describe('DragController — UI 제스처 사운드 (스펙 §10.1 v1.3)', () =>
     click(squareCenter(1, 1));
     click(squareCenter(4, 4));
 
-    expect(audio.played).toEqual(['uiPickup', 'uiPlace']);
+    expect(audio.played).toEqual(['uiPlace']);
   });
 
   it('보드 → 슬롯 회수 성공은 uiPlace를 울린다', () => {
@@ -890,10 +893,10 @@ describe('DragController — UI 제스처 사운드 (스펙 §10.1 v1.3)', () =>
 
     drag_(squareCenter(0, 1), slotCenter(2));
 
-    expect(audio.played).toEqual(['uiPickup', 'uiPlace']);
+    expect(audio.played).toEqual(['uiPlace']);
   });
 
-  it('슬롯 내 재정렬(트레이 → 트레이) 성공은 uiPlace/uiSell 어느 쪽도 울리지 않는다 (스펙 목록에 없음, 의도적 무음)', () => {
+  it('슬롯 내 재정렬(트레이 → 트레이) 성공은 아무 소리도 내지 않는다 (스펙 목록에 없음, 의도적 무음)', () => {
     const { state, audio } = setup('prepare');
     const p0 = slotPiece('reorder-a', 'pawn', 0);
     const p1 = slotPiece('reorder-b', 'bishop', 3);
@@ -901,7 +904,7 @@ describe('DragController — UI 제스처 사운드 (스펙 §10.1 v1.3)', () =>
 
     drag_(slotCenter(0), slotCenter(3));
 
-    expect(audio.played).toEqual(['uiPickup']);   // 집기 소리만 나고, 재정렬 자체는 무음
+    expect(audio.played).toEqual([]);
   });
 
   it('판매 성공(드래그·클릭 모두)은 uiSell을 울린다', () => {
@@ -911,7 +914,7 @@ describe('DragController — UI 제스처 사운드 (스펙 §10.1 v1.3)', () =>
 
     drag_(slotCenter(0), SELL_CENTER);
 
-    expect(audio.played).toEqual(['uiPickup', 'uiSell']);
+    expect(audio.played).toEqual(['uiSell']);
   });
 
   it('거부된 드롭(8랭크 등)은 uiInvalid를 울린다 — 게임이 조용히 원위치로 되돌리는 것의 유일한 청각 피드백', () => {
@@ -921,7 +924,7 @@ describe('DragController — UI 제스처 사운드 (스펙 §10.1 v1.3)', () =>
 
     drag_(slotCenter(0), squareCenter(0, 8));   // 8랭크 = 스폰 구역, 배치 불가
 
-    expect(audio.played).toEqual(['uiPickup', 'uiInvalid']);
+    expect(audio.played).toEqual(['uiInvalid']);
   });
 
   it('거부된 클릭-투-무브도 uiInvalid를 울린다', () => {
@@ -933,9 +936,7 @@ describe('DragController — UI 제스처 사운드 (스펙 §10.1 v1.3)', () =>
     click(slotCenter(0));
     click(squareCenter(4, 4));   // 트레이 → 점유 칸: 여전히 거부(맞교환은 board→board 전용)
 
-    // 두 번째 uiPickup은 (4,4) 클릭의 onDown이 그 칸의 occupant를 다시 "짚었기" 때문이다 — 실제로는
-    // p를 그 칸으로 옮기려는 시도지만, onDown은 그 결과를 아직 모른 채 손이 닿은 기물마다 울린다.
-    expect(audio.played).toEqual(['uiPickup', 'uiPickup', 'uiInvalid']);
+    expect(audio.played).toEqual(['uiInvalid']);
   });
 
   it('모든 존 바깥으로의 드롭(target=null)도 uiInvalid를 울린다', () => {
@@ -945,10 +946,10 @@ describe('DragController — UI 제스처 사운드 (스펙 §10.1 v1.3)', () =>
 
     drag_(slotCenter(0), { x: 5000, y: 5000 });
 
-    expect(audio.played).toEqual(['uiPickup', 'uiInvalid']);
+    expect(audio.played).toEqual(['uiInvalid']);
   });
 
-  it('일시정지 중에는 드래그가 시작되지 않으므로 uiPickup도 울리지 않는다', () => {
+  it('일시정지 중에는 드래그가 시작되지 않으므로 아무 소리도 나지 않는다', () => {
     const { state, audio } = setup('wave');
     const p = boardPiece('pawn', 1, 1);
     state.pieces.push(p);

@@ -13,9 +13,10 @@ import type { GameEvent, PieceType, Phase } from '../types';
  *   2) state.phase 전환(victory/defeat) — GameEvent가 아니라 상태값이므로 resolve()가 phase를
  *      별도 인자로 받아 이전 프레임과 비교한다. cues.ts가 이미 스로틀 상태(lastPlayedAt)를 들고
  *      있으므로 previousPhase도 여기 두는 것이 일관적이다.
- *   3) UI 제스처(구매/판매/배치/집기/거부) — core에는 대응하는 GameEvent가 없다(있어서도 안 된다,
+ *   3) UI 제스처(구매/판매/배치/거부) — core에는 대응하는 GameEvent가 없다(있어서도 안 된다,
  *      src/core/는 드래그·클릭을 몰라야 한다). ui/가 resolveUi()를 직접 불러 스로틀만 공유해
- *      받는다.
+ *      받는다. (v1.4에서 집기/선택 시작은 무음으로 확정돼 uiPickup 큐 자체가 사라졌다 — 아래
+ *      참고.)
  */
 
 /** attack 이벤트 중 소리를 내는 기물 3종 + knightBlast. 퀸은 공격하지 않으므로(damage=0) 대상이 아니다. */
@@ -25,8 +26,12 @@ export type AttackCueKind = 'pawn' | 'bishop' | 'rook' | 'knight';
 export type CoreCueKind =
   | 'enemyDied' | 'bossDied' | 'enemyLeaked' | 'bossSpawn' | 'waveClear' | 'victory' | 'defeat';
 
-/** UI 제스처 전용 큐 — src/core/에는 대응하는 GameEvent가 존재하지 않는다(의도적으로). */
-export type UiCueKind = 'uiBuy' | 'uiSell' | 'uiPlace' | 'uiPickup' | 'uiInvalid';
+/**
+ * UI 제스처 전용 큐 — src/core/에는 대응하는 GameEvent가 존재하지 않는다(의도적으로).
+ * uiPickup(집기/선택 시작)은 v1.3에 있었으나 v1.4에서 사용자 요청으로 완전히 제거했다 — 게인을
+ * 0으로 낮춰 무음화한 게 아니라 큐 자체가 없다(에셋도 삭제, `src/ui/drag.ts` 호출부도 삭제).
+ */
+export type UiCueKind = 'uiBuy' | 'uiSell' | 'uiPlace' | 'uiInvalid';
 
 export type CueKind = AttackCueKind | CoreCueKind | UiCueKind;
 
@@ -72,11 +77,13 @@ export interface CueTuning {
  *   프레임에 수십 마리가 죽는다. pawn과 같은 이유로 throttleMs를 짧게(100ms) 잡고 gain도 낮춘다.
  *   (resolve()의 프레임 내 코일레싱이 "한 프레임에 여러 마리" 쪽은 이미 처리하므로, 이 스로틀은
  *   "연속된 여러 프레임에 걸쳐 죽는" 쪽을 억제한다.)
- * - uiPickup도 짧고 잦다(드래그/클릭 선택은 보스 추격 중 초당 여러 번 발생할 수 있다) — enemyDied와
- *   같은 이유로 100ms.
  * - 그 외(bossDied/enemyLeaked/bossSpawn/waveClear/victory/defeat/uiBuy/uiSell/uiPlace/uiInvalid)는
  *   충분히 드물어 bishop/rook/knight와 같은 기본값(200ms)에서 시작한다 — victory/defeat는 애초에
  *   게임당 정확히 1회만 나오므로 스로틀 값 자체가 사실상 의미 없다.
+ *
+ * v1.4: uiPickup(집기/선택 시작)을 완전히 제거했다(사용자 요청 — 무음이 맞는 느낌이었다). 그
+ * 자리를 대신하던 짧은 select_001 샘플은 이제 uiPlace가 물려받는다(배치/이동/회수 성공음 —
+ * 기존 drop_002는 폐기, NOTICE.md 참고). uiPlace의 throttleMs/gain 값 자체는 그대로다.
  */
 export const AUDIO_TUNING: {
   cues: Record<CueKind, CueTuning>;
@@ -102,7 +109,6 @@ export const AUDIO_TUNING: {
     uiBuy: { throttleMs: 200, gain: 0.4 },
     uiSell: { throttleMs: 200, gain: 0.4 },
     uiPlace: { throttleMs: 200, gain: 0.4 },
-    uiPickup: { throttleMs: 100, gain: 0.3 },
     uiInvalid: { throttleMs: 200, gain: 0.45 },
   },
   maxVoices: 8,
@@ -200,11 +206,11 @@ export class CueResolver {
   }
 
   /**
-   * UI 제스처(구매/판매/배치/집기/거부) 전용 진입점 — 대응하는 GameEvent가 없으므로 resolve()의
+   * UI 제스처(구매/판매/배치/거부) 전용 진입점 — 대응하는 GameEvent가 없으므로 resolve()의
    * events 배열을 거치지 않는다. 프레임 내 코일레싱은 애초에 필요 없다(제스처 1건 = 호출 1건),
-   * 하지만 큐별 최소 간격 스로틀은 resolve()와 동일하게 필요하다(uiPickup은 보스 추격 중 초당
-   * 여러 번 발생할 수 있다) — resolve()와 같은 lastPlayedAt 맵을 공유해 큐 종류별 스로틀 상태를
-   * 하나로 유지한다(UI 큐 이름은 core 큐와 겹치지 않으므로 충돌하지 않는다).
+   * 하지만 큐별 최소 간격 스로틀은 resolve()와 동일하게 필요하다(예: 상점 버튼 연타) —
+   * resolve()와 같은 lastPlayedAt 맵을 공유해 큐 종류별 스로틀 상태를 하나로 유지한다(UI 큐
+   * 이름은 core 큐와 겹치지 않으므로 충돌하지 않는다).
    */
   resolveUi(cue: UiCueKind, now: number): CueKind | null {
     const last = this.lastPlayedAt.get(cue);

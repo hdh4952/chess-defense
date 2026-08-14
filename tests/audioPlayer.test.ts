@@ -117,12 +117,12 @@ describe('AudioPlayer — 보이스 상한 (3번째 방어, player.ts가 시행)
     expect(ctx.createdSources.every(s => s.started)).toBe(true);
   });
 
-  it('v1.3에서 추가된 UI 큐(uiPickup)도 동일한 보이스 상한을 따른다 — 4종 attack 큐 전용이 아니다', () => {
+  it('v1.3에서 추가된 UI 큐(uiInvalid)도 동일한 보이스 상한을 따른다 — 4종 attack 큐 전용이 아니다', () => {
     installFakeAudioContext();
     const player = new AudioPlayer();
-    player.setBufferForTest('uiPickup', {} as AudioBuffer);
+    player.setBufferForTest('uiInvalid', {} as AudioBuffer);
 
-    for (let i = 0; i < AUDIO_TUNING.maxVoices + 3; i++) player.play('uiPickup');
+    for (let i = 0; i < AUDIO_TUNING.maxVoices + 3; i++) player.play('uiInvalid');
 
     const ctx = FakeAudioContext.instances[0];
     expect(ctx.createdSources).toHaveLength(AUDIO_TUNING.maxVoices);

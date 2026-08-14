@@ -66,13 +66,13 @@ describe('AudioController.onFrame — cues.ts와 player.ts를 잇는 이음매',
   it('playUi는 큐별 스로틀 윈도우 안의 재호출을 무시한다', () => {
     const player = makeStubPlayer();
     const controller = new AudioController(new CueResolver(), player);
-    const throttleMs = AUDIO_TUNING.cues.uiPickup.throttleMs;
+    const throttleMs = AUDIO_TUNING.cues.uiInvalid.throttleMs;
 
-    controller.playUi('uiPickup', 0);
-    controller.playUi('uiPickup', throttleMs - 1);   // 윈도우 안 — 무시
-    controller.playUi('uiPickup', throttleMs);       // 윈도우 통과 — 재생
+    controller.playUi('uiInvalid', 0);
+    controller.playUi('uiInvalid', throttleMs - 1);   // 윈도우 안 — 무시
+    controller.playUi('uiInvalid', throttleMs);       // 윈도우 통과 — 재생
 
-    expect(player.played).toEqual(['uiPickup', 'uiPickup']);
+    expect(player.played).toEqual(['uiInvalid', 'uiInvalid']);
   });
 
   it('unlock()은 player.resumeOnGesture()를 호출한다 (자동재생 정책 대응 배선)', () => {

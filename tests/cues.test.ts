@@ -203,30 +203,39 @@ describe('CueResolver — phase 전환(victory/defeat), 스펙 §10.1 v1.3', () 
   });
 });
 
-describe('CueResolver — resolveUi (UI 제스처 전용 스로틀, 스펙 §10.1 v1.3)', () => {
+describe('CueResolver — resolveUi (UI 제스처 전용 스로틀, 스펙 §10.1 v1.3/v1.4)', () => {
   it('첫 호출은 큐를 그대로 돌려주고, 스로틀 윈도우 안의 두 번째 호출은 null을 돌려준다', () => {
     const resolver = new CueResolver();
-    const throttleMs = AUDIO_TUNING.cues.uiPickup.throttleMs;
+    const throttleMs = AUDIO_TUNING.cues.uiInvalid.throttleMs;
 
-    expect(resolver.resolveUi('uiPickup', 0)).toBe('uiPickup');
-    expect(resolver.resolveUi('uiPickup', throttleMs - 1)).toBeNull();
-    expect(resolver.resolveUi('uiPickup', throttleMs)).toBe('uiPickup');
+    expect(resolver.resolveUi('uiInvalid', 0)).toBe('uiInvalid');
+    expect(resolver.resolveUi('uiInvalid', throttleMs - 1)).toBeNull();
+    expect(resolver.resolveUi('uiInvalid', throttleMs)).toBe('uiInvalid');
   });
 
   it('서로 다른 UI 큐는 독립적인 스로틀 윈도우를 갖는다', () => {
     const resolver = new CueResolver();
     expect(resolver.resolveUi('uiBuy', 0)).toBe('uiBuy');
-    // uiBuy가 막 스로틀을 걸었어도 uiSell/uiPlace/uiPickup/uiInvalid는 독립적으로 허용된다.
+    // uiBuy가 막 스로틀을 걸었어도 uiSell/uiPlace/uiInvalid는 독립적으로 허용된다.
     expect(resolver.resolveUi('uiSell', 0)).toBe('uiSell');
     expect(resolver.resolveUi('uiPlace', 0)).toBe('uiPlace');
-    expect(resolver.resolveUi('uiPickup', 0)).toBe('uiPickup');
     expect(resolver.resolveUi('uiInvalid', 0)).toBe('uiInvalid');
   });
 
   it('resolveUi와 resolve()의 이벤트 경로는 같은 lastPlayedAt 상태를 공유하지만 큐 이름이 겹치지 않아 서로 간섭하지 않는다', () => {
     const resolver = new CueResolver();
     resolver.resolve([attackEvent('pawn')], 0, false, WAVE);   // pawn 큐 스로틀 시작
-    // uiPickup은 별개의 큐 이름이므로 pawn의 스로틀과 무관하게 즉시 허용된다.
-    expect(resolver.resolveUi('uiPickup', 0)).toBe('uiPickup');
+    // uiPlace는 별개의 큐 이름이므로 pawn의 스로틀과 무관하게 즉시 허용된다.
+    expect(resolver.resolveUi('uiPlace', 0)).toBe('uiPlace');
+  });
+});
+
+describe('CueResolver — uiPickup 제거 (v1.4)', () => {
+  it("UiCueKind에서 uiPickup이 사라졌다 — AUDIO_TUNING.cues에도 해당 키가 없다", () => {
+    // 타입 시스템이 이미 컴파일 타임에 uiPickup 참조를 막아 주지만(그게 이 변경의 요지),
+    // 런타임 표에도 남은 잔재가 없는지 별도로 확인한다 — 예를 들어 AUDIO_TUNING 리터럴에
+    // 실수로 여분의 키를 남겨 둬도 타입 에러 없이 통과할 수 있는 경우(구조적 타이핑의 초과 프로퍼티는
+    // 리터럴 대입 시에만 걸린다)를 이 런타임 체크가 잡는다.
+    expect(Object.keys(AUDIO_TUNING.cues)).not.toContain('uiPickup');
   });
 });

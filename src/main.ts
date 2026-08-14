@@ -28,8 +28,9 @@ const tick = createTicker();
 
 // 공격 사운드로 시작해 v1.3에서 전체 효과음 세트로 확장했다 (스펙 §10.1). 코일레싱·스로틀·
 // 보이스 상한 튜닝값은 src/audio/cues.ts의 AUDIO_TUNING 표 하나에 모여 있다. wireShop/DragController
-// 보다 먼저 만들어야 두 곳에 UI 제스처 사운드(uiBuy/uiSell/uiPlace/uiPickup/uiInvalid)를 배선할 수
-// 있다 — 이 다섯 큐는 core에 대응 GameEvent가 없으므로 audio 인스턴스를 직접 주입받는다.
+// 보다 먼저 만들어야 두 곳에 UI 제스처 사운드(uiBuy/uiSell/uiPlace/uiInvalid)를 배선할 수 있다 —
+// 이 네 큐는 core에 대응 GameEvent가 없으므로 audio 인스턴스를 직접 주입받는다. (v1.4: 집기/선택
+// 시작(uiPickup)은 무음이 맞다는 사용자 판단으로 완전히 제거됐다 — src/ui/drag.ts 참고.)
 const audio = createAudioController();
 
 wireShop(layout, state, audio);

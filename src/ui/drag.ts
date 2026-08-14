@@ -175,7 +175,8 @@ export class DragController {
     this.ghostImg.src = ALLY_SPRITE_URL[piece.type];
     this.ghostImg.alt = PIECE_NAME[piece.type];
     this.moveGhost(e);
-    this.audio.playUi('uiPickup', performance.now());   // 드래그가 실제로 시작될 때만 (거부된 눌림은 위에서 이미 return)
+    // 집기/선택 시작(uiPickup)은 소리를 내지 않는다 — v1.3에서는 짧은 틱음을 냈지만, 사용자가
+    // 실제로 들어보고 무음이 낫다고 판단해 v1.4에서 큐 자체를 제거했다(게인 0이 아니라 삭제).
   };
 
   private onMove = (e: PointerEvent): void => {
@@ -227,12 +228,7 @@ export class DragController {
       this.interaction.selectedPieceId = null;
       return;
     }
-    // uiPickup은 여기서 다시 울리지 않는다 — onDown이 이미 이 정확히 같은 피스에 대해 울렸다
-    // (pieceUnder(x,y)는 좌표만으로 결정되므로, 클릭으로 인정될 만큼 짧게 움직인 경우 onDown 시점의
-    // hit과 여기 hit은 사실상 같은 기물이다). "집기"는 손을 댄 onDown 순간의 감각이지, onUp에서
-    // 선택 상태가 확정되는 순간이 아니다 — 그래서 같은 기물을 다시 눌러 해제하는 경우에도(아래
-    // newSelection === null) onDown에서는 이미 소리가 났다(그리고 그걸로 충분하다, 여기서 또 낼
-    // 필요는 없다).
+    // 새 선택이든 해제든 소리는 나지 않는다(v1.4 — 위 onDown 주석 참고).
     this.interaction.selectedPieceId = hit && hit.pieceId !== sel ? hit.pieceId : null;
   };
 
