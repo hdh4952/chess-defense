@@ -61,10 +61,27 @@ describe('dropAction (스펙 7.5 동작표)', () => {
     expect(dropAction(s, p.id, 'board', { kind: 'sell' }, [])).toBe(true);
     expect(s.gold).toBe(gold + 250);
   });
-  it('무효 드롭(8랭크/점유/null)은 false — 원위치 복귀 의미', () => {
+  it('보드 → 점유된 보드 칸 = 맞교환 (게임 규칙 변경, 사용자 승인)', () => {
+    const s = waveState();
+    const p = boardPiece('rook', 0, 1);
+    const occupant = boardPiece('bishop', 5, 5);
+    s.pieces.push(p, occupant);
+    expect(dropAction(s, p.id, 'board', { kind: 'square', file: 5, rank: 5 }, [])).toBe(true);
+    expect(p.square).toEqual({ file: 5, rank: 5 });
+    expect(occupant.square).toEqual({ file: 0, rank: 1 });
+  });
+  it('무효 드롭(8랭크/null)은 false — 원위치 복귀 의미', () => {
     const { s } = withSlotPiece();
     expect(dropAction(s, 'x', 'slot', { kind: 'square', file: 0, rank: 8 }, [])).toBe(false);
     expect(dropAction(s, 'x', 'slot', null, [])).toBe(false);
+  });
+  it('슬롯 → 점유된 보드 칸은 여전히 false (스왑은 board→board 전용, 트레이엔 밀려날 상대가 없다)', () => {
+    const { s, p } = withSlotPiece();
+    const occupant = boardPiece('bishop', 4, 4);
+    s.pieces.push(occupant);
+    expect(dropAction(s, p.id, 'slot', { kind: 'square', file: 4, rank: 4 }, [])).toBe(false);
+    expect(p.square).toBeNull();
+    expect(occupant.square).toEqual({ file: 4, rank: 4 });
   });
 });
 
@@ -271,7 +288,7 @@ describe('DragController — 드래그 제스처 (스펙 7.5 동작표 7행, 자
     expect(drag.interaction.dragging).toBeNull();
   });
 
-  it('7. 무효 드롭(8랭크/점유 칸/모든 존 바깥)은 상태를 전혀 바꾸지 않고 고스트/프리뷰를 정리한다', () => {
+  it('7. 무효 드롭(8랭크/트레이발 점유 칸/모든 존 바깥)은 상태를 전혀 바꾸지 않고 고스트/프리뷰를 정리한다', () => {
     const { state, layout, drag, events } = setup('prepare');
     const p = slotPiece('d7', 'pawn', 0);
     state.pieces.push(p);
@@ -285,7 +302,9 @@ describe('DragController — 드래그 제스처 (스펙 7.5 동작표 7행, 자
 
     const occupant = boardPiece('bishop', 4, 4);
     state.pieces.push(occupant);
-    drag_(slotCenter(0), squareCenter(4, 4));            // 이미 점유된 칸
+    // p는 슬롯(트레이)에서 드래그되는 중이다 — 점유 칸으로의 맞교환은 board→board에만 허용되고
+    // (게임 규칙 변경, 트레이엔 밀려날 상대가 없다), 트레이 → 점유 칸은 여전히 거부된다.
+    drag_(slotCenter(0), squareCenter(4, 4));            // 트레이 → 이미 점유된 칸: 여전히 거부
     expect(p.square).toBeNull();
     expect(p.slotIndex).toBe(0);
     expect(occupant.square).toEqual({ file: 4, rank: 4 });
@@ -299,6 +318,19 @@ describe('DragController — 드래그 제스처 (스펙 7.5 동작표 7행, 자
     expect(drag.interaction.dragging).toBeNull();
     expect(ghostEl().style.display).toBe('none');
     expect(events).toHaveLength(0);                      // 거부된 동작은 이벤트도 발생시키지 않는다 (Finding 9)
+  });
+
+  it('8. 보드 → 점유된 보드 칸 드래그 드롭 = 두 기물이 서로 자리를 맞바꾼다 (게임 규칙 변경, 사용자 승인)', () => {
+    const { state, drag } = setup('wave');
+    const mover = boardPiece('rook', 0, 1);
+    const occupant = boardPiece('bishop', 5, 5);
+    state.pieces.push(mover, occupant);
+
+    drag_(squareCenter(0, 1), squareCenter(5, 5));
+
+    expect(mover.square).toEqual({ file: 5, rank: 5 });
+    expect(occupant.square).toEqual({ file: 0, rank: 1 });
+    expect(drag.interaction.dragging).toBeNull();
   });
 });
 
@@ -384,7 +416,7 @@ describe('DragController — 클릭-투-무브 (스펙 7.5 동작표 7행, 자�
     expect(state.gold).toBe(goldBefore + 150);            // bishop 300 * 0.5
   });
 
-  it('7. 무효 대상(8랭크/점유 칸) 클릭은 상태를 바꾸지 않고 선택을 해제한다', () => {
+  it('7. 무효 대상(8랭크/트레이발 점유 칸) 클릭은 상태를 바꾸지 않고 선택을 해제한다', () => {
     const { state, drag, events } = setup('prepare');
     const p = slotPiece('c7', 'pawn', 0);
     state.pieces.push(p);
@@ -396,7 +428,9 @@ describe('DragController — 클릭-투-무브 (스펙 7.5 동작표 7행, 자�
     expect(p.slotIndex).toBe(0);
     expect(drag.interaction.selectedPieceId).toBeNull();
 
-    const occupant = boardPiece('bishop', 4, 4);          // 점유 칸 케이스도 함께 확인 (Finding 9)
+    // p는 슬롯(트레이)에서 선택된 상태다 — 트레이 → 점유 칸은 게임 규칙 변경 후에도 여전히
+    // 거부된다(맞교환은 board→board 전용, Finding 9도 함께 확인).
+    const occupant = boardPiece('bishop', 4, 4);
     state.pieces.push(occupant);
     click(slotCenter(0));
     click(squareCenter(4, 4));
@@ -406,6 +440,21 @@ describe('DragController — 클릭-투-무브 (스펙 7.5 동작표 7행, 자�
     expect(occupant.square).toEqual({ file: 4, rank: 4 });
     expect(drag.interaction.selectedPieceId).toBeNull();
     expect(events).toHaveLength(0);
+  });
+
+  it('8. 보드 → 점유된 보드 칸 클릭-투-무브 = 두 기물이 서로 자리를 맞바꾼다 (게임 규칙 변경, 사용자 승인)', () => {
+    const { state, drag } = setup('wave');
+    const mover = boardPiece('rook', 1, 1);
+    const occupant = boardPiece('bishop', 4, 4);
+    state.pieces.push(mover, occupant);
+
+    click(squareCenter(1, 1));
+    expect(drag.interaction.selectedPieceId).toBe(mover.id);
+    click(squareCenter(4, 4));
+
+    expect(mover.square).toEqual({ file: 4, rank: 4 });
+    expect(occupant.square).toEqual({ file: 1, rank: 1 });
+    expect(drag.interaction.selectedPieceId).toBeNull();
   });
 
   it('같은 기물을 두 번 클릭하면 선택이 해제된다', () => {

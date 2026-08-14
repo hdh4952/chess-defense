@@ -49,22 +49,15 @@ export function buildHighlights(
   const anchor: Square | null = it.hoverSquare ?? piece.square;   // 미리보기 기준 칸
   if (!anchor) return { highlights, lines };
 
-  // hover 칸이 "지금 이 기물이 서 있는 바로 그 칸"인 경우는 착지 제안이 아니라 지금 위치를 다시
-  // 가리키고 있을 뿐이다 — 이동해도 아무 일도 일어나지 않는 자기 자신에게의 이동(no-op)이므로
-  // canLandAt이 이를 "거부될 이동"으로 취급할 이유가 없다. canPlaceAt(→pieceAt)은 이 칸을 자기
-  // 자신이 "점유 중"이라고 판정해 항상 false를 주는데, 그건 배치/이동 규칙 입장에서는 맞는
-  // 말이지만(제자리 이동은 애초에 의미 없는 연산이라 moveOnBoard/placeFromSlot이 신경 쓸 필요가
-  // 없다) 미리보기 입장에서는 다르다 — 지금 보여주고 있는 건 "여기로 이동하면"이 아니라 "지금 여기
-  // 있으면"의 사거리이므로 사실 그대로다. 실제 배치/이동 판정(moveOnBoard/placeFromSlot)에는 이
-  // 예외를 넣지 않는다 — 그쪽은 규칙 자체가 이미 옳고(이 칸은 애초에 "이동"으로 호출되지도 않는다),
-  // canLandAt의 의미를 흐리는 대신 미리보기 레이어에서만 별도로 가려낸다 (회귀 1 수정).
-  const hoveringOwnSquare = onBoard && it.hoverSquare !== null && sameSquare(it.hoverSquare, piece.square!);
-
   if (piece.type === 'queen') {
-    // hover가 실제 착지 제안일 때만(그리고 자기 자신의 현재 칸이 아닐 때만) canLandAt으로
-    // 검증한다 — hover가 없어 anchor가 퀸의 현재 칸으로 대체된 경우와, hover가 있지만 그 칸이
-    // 결국 퀸의 현재 칸과 같은 경우 둘 다 "제안"이 아니므로 검증 대상에서 제외한다.
-    if (it.hoverSquare && !hoveringOwnSquare && !canLandAt(state, piece, it.hoverSquare)) {
+    // hover가 실제 착지 제안일 때만 canLandAt으로 검증한다 — hover가 없어 anchor가 퀸의 현재 칸으로
+    // 대체된 경우는 "제안"이 아니므로 검증 대상에서 제외한다. hover가 퀸 자신의 현재 칸을 가리키는
+    // 경우도 별도 예외 없이 canLandAt이 자연히 통과시킨다 — 점유 칸이 더 이상 착지 실격 사유가
+    // 아니게 되면서(게임 규칙 변경: 보드 위 기물은 점유 칸도 맞교환 대상), "자기 자신이 점유한
+    // 칸"이라는 이유로 거부될 일 자체가 없어졌다. 예전에는 이 자기 칸 케이스만 따로 가려내는
+    // hoveringOwnSquare 예외가 필요했지만(회귀 1), 이제 canLandAt 자체의 의미 변화에 흡수돼
+    // 불필요해졌다 — 지웠는데도 이 브랜치의 세 회귀 1 테스트가 그대로 통과하는 것으로 확인했다.
+    if (it.hoverSquare && !canLandAt(state, piece, it.hoverSquare)) {
       return { highlights, lines };
     }
     for (const sq of queenLines(anchor)) highlights.push({ square: sq, color: C.queenLine });
@@ -72,11 +65,12 @@ export function buildHighlights(
     return { highlights, lines };
   }
   if (piece.type === 'knight' && onBoard) {
-    // canLandAt 하나로 점유 필터 + L자 + 이동 쿨다운 게이트를 함께 적용한다 (검토 Item 1 — 이전에는
-    // pieceAt만으로 점유만 걸렀을 뿐 쿨다운을 전혀 보지 않아, 쿨다운 중인 나이트를 클릭 선택하면
-    // moveOnBoard가 거부할 이동 전체가 그대로 초록으로 칠해졌다). 쿨다운 중에는 어떤 후보 칸도
-    // canLandAt을 통과하지 못해 legalMoves가 통째로 비고, 초록 하이라이트도 폭발 미리보기도 뜨지
-    // 않는다 — moveOnBoard가 실제로 거부하는 것과 정확히 일치한다.
+    // canLandAt 하나로 L자 + 이동 쿨다운 게이트를 적용한다 (검토 Item 1). 점유 칸은 더 이상 착지
+    // 실격 사유가 아니다 (게임 규칙 변경, 사용자 승인 — 보드 위 기물은 점유 칸도 맞교환 대상) — 그
+    // 결과 legalMoves는 점유된 L자 칸도 그대로 포함하고, 그 칸에 hover하면 폭발 미리보기가 뜬다
+    // (moveOnBoard도 실제로 그 칸에서 스왑 후 폭발한다 — 미리보기와 실제 규칙이 어긋나지 않는다).
+    // 쿨다운 중에는 여전히 어떤 후보 칸도 canLandAt을 통과하지 못해 legalMoves가 통째로 비고, 초록
+    // 하이라이트도 폭발 미리보기도 뜨지 않는다 — moveOnBoard가 실제로 거부하는 것과 정확히 일치한다.
     // 초록 하이라이트와 hover 일치 판정 양쪽에 이 legalMoves 하나만 동일하게 사용한다 (리뷰 Finding 1
     // — 이전에는 hover 판정이 미필터링된 knightMoves()를 써서, 착지 불가능한 칸에도 폭발 미리보기가 떴다).
     const legalMoves = knightMoves(piece.square!).filter(m => canLandAt(state, piece, m));
@@ -86,14 +80,14 @@ export function buildHighlights(
     }
     return { highlights, lines };
   }
-  // 폰/비숍/룩과 슬롯의 나이트: hover가 실제로 착지 불가능한 칸(점유/8랭크/범위 밖)이면 moveOnBoard/
-  // placeFromSlot이 거부할 이동·배치·폭발을 미리 약속하지 않도록 미리보기 자체를 그리지 않는다
-  // (검토 Item 1 — 예: 8랭크나 점유 칸에 hover해도 전체 사거리가 그대로 칠해지던 문제). 단, hover
-  // 칸이 기물 자신의 현재 칸이면 "거부될 이동"이 아니라 "지금 위치"이므로 이 가드에서 제외한다
-  // (회귀 1 — 그렇지 않으면 보드 위 기물을 클릭/드래그로 선택하는 순간, 커서가 바로 그 칸 위에
-  // 있다는 이유만으로 사거리 미리보기 전체가 사라진다. 이는 예외적 상황이 아니라 "기물을 클릭해
-  // 사거리를 확인한다"는 가장 흔한 조작 그 자체다).
-  if (it.hoverSquare && !hoveringOwnSquare && !canLandAt(state, piece, it.hoverSquare)) {
+  // 폰/비숍/룩과 슬롯의 나이트: hover가 실제로 착지 불가능한 칸(8랭크·범위 밖, 그리고 트레이
+  // 기물이라면 점유 칸까지)이면 moveOnBoard/placeFromSlot이 거부할 이동·배치·폭발을 미리 약속하지
+  // 않도록 미리보기 자체를 그리지 않는다 (검토 Item 1). 보드 위 기물이 점유 칸(자기 자신의 현재
+  // 칸 포함)에 hover하는 경우는 canLandAt이 더 이상 거부하지 않는다 — 점유 칸도 맞교환 대상으로
+  // 허용되기 때문이다(게임 규칙 변경). 그 결과 "기물을 클릭해 사거리를 확인한다"는 가장 흔한
+  // 조작(hover가 자기 칸과 같음)도 별도 예외 없이 canLandAt 하나로 자연히 통과한다 — 예전에
+  // 필요했던 hoveringOwnSquare 예외(회귀 1)는 canLandAt의 의미 변화에 흡수돼 불필요해졌다.
+  if (it.hoverSquare && !canLandAt(state, piece, it.hoverSquare)) {
     return { highlights, lines };
   }
   // 비숍/룩(및 나이트-슬롯의 3×3 폭발)은 attackTargets 자체가 자기 칸을 포함하므로, origin을

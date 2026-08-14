@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG } from '../src/config';
+import { recalcQueenBuffs } from '../src/core/buff';
 import {
   canPlaceAt, isKnightMove, moveOnBoard, pieceAt, placeFromSlot, recallToSlot, reorderSlots,
 } from '../src/core/pieces';
@@ -115,17 +116,22 @@ describe('나이트 (스펙 5.3 + 검토 노트 3)', () => {
     expect(n.cooldown).toBe(CONFIG.pieces.knight.interval);
     expect(ev.some(x => x.kind === 'knightBlast')).toBe(true);
   });
-  it('쿨다운 중 보드 이동 불가, L자 아니면 불가, 점유 칸 불가', () => {
+  it('쿨다운 중 보드 이동 불가, L자 아니면 불가, 점유 칸은 맞교환으로 허용 (스펙 변경)', () => {
     const s = waveState();
     const n = boardPiece('knight', 3, 4);
     n.cooldown = 1.0;
-    s.pieces.push(n, boardPiece('pawn', 4, 6));
+    const occupant = boardPiece('pawn', 4, 6);
+    s.pieces.push(n, occupant);
     expect(moveOnBoard(s, n.id, 5, 5, [])).toBe(false);  // 쿨다운 중
     n.cooldown = 0;
     expect(moveOnBoard(s, n.id, 3, 5, [])).toBe(false);  // L자 아님
-    expect(moveOnBoard(s, n.id, 4, 6, [])).toBe(false);  // 점유 칸
-    expect(moveOnBoard(s, n.id, 5, 5, [])).toBe(true);   // 정상 L자
-    expect(n.cooldown).toBe(CONFIG.pieces.knight.interval);   // 이동 후 재시작 (config 값 — 현재 0)
+    // 이전: 점유 칸이라 거부됐다. 이제 보드 위 기물에게 점유 칸은 실격 사유가 아니라 맞교환
+    // 대상이다 — 나이트는 여전히 L자(여기서는 (3,4)→(4,6))를 만족해야 하지만, 통과하면 점유자와
+    // 자리를 맞바꾸고 새 위치에서 폭발한다.
+    expect(moveOnBoard(s, n.id, 4, 6, [])).toBe(true);
+    expect(n.square).toEqual({ file: 4, rank: 6 });
+    expect(occupant.square).toEqual({ file: 3, rank: 4 });   // 점유자는 나이트의 이전 자리로 밀려난다
+    expect(n.cooldown).toBe(CONFIG.pieces.knight.interval);  // 이동 후 재시작 (config 값)
   });
   it('이동 완료 시 새 위치에서 폭발', () => {
     const s = waveState();
@@ -180,6 +186,97 @@ describe('나이트 (스펙 5.3 + 검토 노트 3)', () => {
     expect(isKnightMove({ file: 4, rank: 6 }, { file: 2, rank: 5 })).toBe(true);
     expect(moveOnBoard(s, n.id, 2, 5, [])).toBe(true);   // 대기 없이 곧바로 2차 L자 이동+폭발
     expect(e2.hp).toBe(7);
+  });
+});
+
+describe('보드 위 기물 맞교환 — 점유 칸으로의 이동은 스왑이다 (게임 규칙 변경, 사용자 승인)', () => {
+  it('점유된 칸으로 이동하면 두 기물이 서로 자리를 맞바꾼다', () => {
+    const s = waveState();
+    const a = boardPiece('rook', 0, 1);
+    const b = boardPiece('bishop', 5, 5);
+    s.pieces.push(a, b);
+    expect(moveOnBoard(s, a.id, 5, 5, [])).toBe(true);
+    expect(a.square).toEqual({ file: 5, rank: 5 });
+    expect(b.square).toEqual({ file: 0, rank: 1 });
+  });
+
+  it('맞교환 후에도 두 기물의 쿨다운은 각자 정확히 그대로 유지된다 (쿨다운은 칸이 아니라 기물에 묶여 있다)', () => {
+    const s = waveState();
+    const a = boardPiece('rook', 0, 1);
+    a.cooldown = 1.3;
+    const b = boardPiece('bishop', 5, 5);
+    b.cooldown = 2.7;
+    s.pieces.push(a, b);
+    expect(moveOnBoard(s, a.id, 5, 5, [])).toBe(true);
+    expect(a.cooldown).toBe(1.3);
+    expect(b.cooldown).toBe(2.7);
+  });
+
+  it('퀸과 맞교환하면 양쪽 위치 기준으로 버프가 재계산된다', () => {
+    const s = waveState();
+    const q = boardPiece('queen', 0, 1);                // a1
+    const oldFileObserver = boardPiece('rook', 0, 4);   // a4 — 퀸의 이전 자리(a1)와 같은 파일
+    const newFileObserver = boardPiece('bishop', 5, 4); // f4 — 퀸이 이동해 갈 자리(f3)와 같은 파일
+    const swapTarget = boardPiece('pawn', 5, 3);        // f3 — 퀸이 맞교환할 대상
+    s.pieces.push(q, oldFileObserver, newFileObserver, swapTarget);
+    recalcQueenBuffs(s);
+    expect(oldFileObserver.queenBuffCount).toBe(1);   // 퀸 원래 자리와 같은 파일 → 버프
+    expect(newFileObserver.queenBuffCount).toBe(0);   // 아직 퀸이 그 파일에 없음
+
+    expect(moveOnBoard(s, q.id, 5, 3, [])).toBe(true);  // 퀸이 f3의 폰과 맞교환
+    expect(q.square).toEqual({ file: 5, rank: 3 });
+    expect(swapTarget.square).toEqual({ file: 0, rank: 1 });   // 폰은 퀸의 이전 자리로
+
+    expect(oldFileObserver.queenBuffCount).toBe(0);   // 퀸이 떠나 더 이상 버프 없음 — 재계산 증거
+    expect(newFileObserver.queenBuffCount).toBe(1);   // 퀸이 도착한 파일이라 새로 버프 — 재계산 증거
+  });
+
+  it('나이트가 점유된 L자 칸으로 맞교환 이동하면 자신만 폭발하고, 밀려난 기물이 나이트여도 폭발하지 않는다', () => {
+    const s = waveState();
+    const mover = boardPiece('knight', 3, 4);       // d4
+    const displaced = boardPiece('knight', 4, 6);   // e6 — d4에서 L자로 도달 가능한 점유 칸, 자신도 나이트
+    s.pieces.push(mover, displaced);
+    const e = enemyAt(1, 4, 5);   // mover의 새 위치(4,6) 3×3 폭발 범위 안
+    s.enemies.push(e);
+    const ev: GameEvent[] = [];
+
+    expect(moveOnBoard(s, mover.id, 4, 6, ev)).toBe(true);
+    expect(mover.square).toEqual({ file: 4, rank: 6 });
+    expect(displaced.square).toEqual({ file: 3, rank: 4 });   // 밀려난 나이트는 mover의 이전 자리로
+
+    expect(e.hp).toBe(7);                                      // mover의 폭발 데미지(3)만 적용
+    const blastEvents = ev.filter(x => x.kind === 'knightBlast');
+    expect(blastEvents).toHaveLength(1);                        // 폭발은 정확히 1회 — mover만, displaced는 없음
+    expect(blastEvents[0]).toEqual({ kind: 'knightBlast', square: { file: 4, rank: 6 } });
+  });
+
+  it('제자리로의 이동은 아무 일도 하지 않고 false를 반환한다 (no-op)', () => {
+    const s = waveState();
+    const p = boardPiece('rook', 3, 4);
+    p.cooldown = 1.5;
+    s.pieces.push(p);
+    const ev: GameEvent[] = [];
+    expect(moveOnBoard(s, p.id, 3, 4, ev)).toBe(false);
+    expect(p.square).toEqual({ file: 3, rank: 4 });
+    expect(p.cooldown).toBe(1.5);
+    expect(ev.length).toBe(0);
+  });
+
+  it('나이트의 제자리 이동도 no-op이다 (애초에 L자가 아니라 canLandAt에서도 걸러진다)', () => {
+    const s = waveState();
+    const n = boardPiece('knight', 3, 4);
+    s.pieces.push(n);
+    expect(moveOnBoard(s, n.id, 3, 4, [])).toBe(false);
+  });
+
+  it('트레이 → 점유된 보드 칸은 여전히 거부된다 (스왑은 board→board 전용, 트레이엔 밀려날 상대가 없다)', () => {
+    const s = waveState();
+    const occupant = boardPiece('bishop', 3, 4);
+    const p = slotPiece(s, 'pawn', 0);
+    s.pieces.push(occupant);
+    expect(placeFromSlot(s, p.id, 3, 4, [])).toBe(false);
+    expect(p.square).toBeNull();
+    expect(occupant.square).toEqual({ file: 3, rank: 4 });
   });
 });
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildHighlights } from '../src/render/highlights';
 import { bishopTargets, knightBlastTargets, knightMoves, pawnTargets, queenLines, rookTargets } from '../src/core/patterns';
+import { isKnightMove } from '../src/core/pieces';
 import { sameSquare } from '../src/core/grid';
 import type { Interaction, Piece, PieceType, Square } from '../src/types';
 import { boardPiece, waveState } from './helpers';
@@ -110,7 +111,10 @@ describe('buildHighlights — 폰/비숍/룩 (hover 칸 기준 attackTargets)', 
 });
 
 describe('buildHighlights — 나이트 (2계층: 이동 칸 + hover 시 폭발 미리보기)', () => {
-  it('보드 위 나이트 선택: 점유되지 않은 L자 이동 칸만 초록으로 표시된다', () => {
+  it('보드 위 나이트 선택: 점유된 L자 칸도 이제 이동(맞교환) 대상으로 포함된다 (게임 규칙 변경 — 점유 칸은 더 이상 실격 사유가 아니다)', () => {
+    // 이전에는 점유된 L자 칸(e6)이 초록 하이라이트에서 제외됐다(moveOnBoard가 거부했으므로). 이제
+    // moveOnBoard는 점유 칸으로의 이동을 맞교환으로 허용하므로, 미리보기도 그 칸을 정상 이동 칸으로
+    // 그대로 보여줘야 한다 — 그러지 않으면 미리보기가 실제로 가능한 이동을 숨기게 된다.
     const s = waveState();
     const n = boardPiece('knight', 3, 4);   // d4
     const blocker = boardPiece('pawn', 4, 6);   // d4에서 나이트 이동 가능한 칸 중 하나(e6)를 점유
@@ -122,10 +126,9 @@ describe('buildHighlights — 나이트 (2계층: 이동 칸 + hover 시 폭발 
     const hl = buildHighlights(s, noInteraction({ selectedPieceId: n.id }));
     const squares = highlightSquares(hl);
 
-    const freeMoves = allMoves.filter(m => !(m.file === 4 && m.rank === 6));
-    expect(squares).toHaveLength(freeMoves.length);
-    for (const m of freeMoves) expect(squares).toContainEqual(m);
-    expect(squares).not.toContainEqual({ file: 4, rank: 6 });   // 점유 칸은 제외
+    expect(squares).toHaveLength(allMoves.length);            // 점유 칸을 빼지 않은 전체 L자 칸
+    for (const m of allMoves) expect(squares).toContainEqual(m);
+    expect(squares).toContainEqual({ file: 4, rank: 6 });      // 점유 칸도 더 이상 제외되지 않는다
     expect(hl.lines).toEqual([]);
   });
 
@@ -168,13 +171,11 @@ describe('buildHighlights — 나이트 (2계층: 이동 칸 + hover 시 폭발 
     expect(squares).toHaveLength(knightMoves({ file: 3, rank: 4 }).length);
   });
 
-  it('점유돼 도달 불가능한 L자 칸을 hover해도 폭발 미리보기가 뜨지 않는다 (리뷰 Finding 1 회귀 방지)', () => {
-    // 이 테스트는 highlights.ts의 hover 일치 판정이 미필터링된 knightMoves() 그대로를 쓰던 시절에는
-    // 실패했다: occupiedDest는 knightMoves()에는 있지만(점유돼 이동 불가) 초록 하이라이트에서는
-    // 제외되는데, hover 판정만은 필터 이전 목록을 참조해 "이동 가능한 칸"으로 오인하고 9칸 폭발
-    // 미리보기를 그렸다 — moveOnBoard가 canPlaceAt에서 거부할 칸에 피해를 약속하는 셈이었다.
-    // 고친 코드는 점유 필터를 거친 legalMoves 하나만 두 곳에 공유하므로, 되돌리면 아래 두 단언이
-    // 모두 깨진다 (occupiedDest가 highlights에 나타나고, 총 길이가 9칸 더 많아짐).
+  it('점유된 L자 칸을 hover하면 이제 폭발 미리보기가 뜬다 (게임 규칙 변경 — 점유 칸도 맞교환 대상)', () => {
+    // 이 테스트는 원래 "점유돼 도달 불가능한 L자 칸을 hover해도 폭발 미리보기가 뜨지 않는다"였다
+    // (리뷰 Finding 1 회귀 방지). 점유 칸이 moveOnBoard에서 실격 사유였던 시절에는 옳은 단언이었지만,
+    // 이제 점유 칸은 맞교환 대상으로 허용되므로 이 hover에서 폭발 미리보기가 뜨는 쪽이 실제 규칙과
+    // 맞다 — 뜨지 않으면 오히려 미리보기가 실제로 가능한 이동/폭발을 숨기는 셈이 된다.
     const s = waveState();
     const n = boardPiece('knight', 3, 4);        // d4
     const occupiedDest = { file: 4, rank: 6 };   // e6 — d4에서 갈 수 있는 L자 칸
@@ -185,9 +186,28 @@ describe('buildHighlights — 나이트 (2계층: 이동 칸 + hover 시 폭발 
     const hl = buildHighlights(s, noInteraction({ selectedPieceId: n.id, hoverSquare: occupiedDest }));
     const squares = highlightSquares(hl);
 
-    expect(squares).not.toContainEqual(occupiedDest);   // 초록 마커도, 폭발 중심도 없다 (blast는 항상 자기 칸 포함)
-    const freeMoves = knightMoves({ file: 3, rank: 4 }).filter(m => !sameSquare(m, occupiedDest));
-    expect(squares).toHaveLength(freeMoves.length);      // 폭발 9칸이 섞여 들어오지 않았다
+    const blast = knightBlastTargets(occupiedDest);
+    for (const b of blast) expect(squares).toContainEqual(b);   // 3×3 폭발 미리보기가 그려진다
+    const allMoves = knightMoves({ file: 3, rank: 4 });
+    expect(squares).toHaveLength(allMoves.length + blast.length);   // 이동 칸(점유 칸 포함) + 폭발 칸
+  });
+
+  it('8랭크로 향하는 L자 칸을 hover해도 폭발 미리보기가 뜨지 않는다 (여전히 착지 불가 — 리뷰 Finding 1 회귀 방지, 점유 칸에서 8랭크로 예시만 교체)', () => {
+    // moveOnBoard가 여전히 거부하는 대상(8랭크, 스폰 구역)으로 Finding 1 회귀 테스트의 보호 취지를
+    // 재조준한다: hover 판정이 필터링 이전 knightMoves()를 참조하는 회귀가 다시 생기면, 8랭크로
+    // 향하는 칸도 "이동 가능"으로 오인해 9칸 폭발 미리보기를 그리게 된다 — 이 테스트가 그것을 잡는다.
+    const s = waveState();
+    const n = boardPiece('knight', 3, 7);        // d7
+    s.pieces.push(n);
+    const rank8Dest = { file: 5, rank: 8 };      // d7에서 L자 관계이지만 8랭크라 여전히 착지 불가
+    expect(isKnightMove({ file: 3, rank: 7 }, rank8Dest)).toBe(true);
+    expect(knightMoves({ file: 3, rank: 7 })).not.toContainEqual(rank8Dest);   // 8랭크라 애초에 제외
+
+    const hl = buildHighlights(s, noInteraction({ selectedPieceId: n.id, hoverSquare: rank8Dest }));
+    const squares = highlightSquares(hl);
+
+    expect(squares).not.toContainEqual(rank8Dest);
+    expect(squares).toHaveLength(knightMoves({ file: 3, rank: 7 }).length);   // 폭발 9칸이 섞여 들어오지 않았다
   });
 
   it('쿨다운 중인 나이트를 클릭 선택하면 이동 하이라이트도 폭발 미리보기도 뜨지 않는다 (검토 Item 1)', () => {
@@ -253,11 +273,16 @@ describe('buildHighlights — 착지 불가능한 hover 칸은 미리보기를 �
 });
 
 describe('buildHighlights — hover 칸이 기물 자신의 현재 칸이면 미리보기가 사라지지 않는다 (회귀 1)', () => {
-  // canLandAt은 pieceAt을 통해 "자기 자신이 점유한 칸"도 점유 칸으로 판정해 거부한다. 그런데
-  // DragController.onMove는 커서 아래 칸을 그대로 hoverSquare에 넣고, 클릭 선택/드래그 시작
-  // 모두 기물이 서 있는 바로 그 칸 위에서 일어난다 — 즉 "기물을 클릭해서 사거리를 본다"는 가장
-  // 흔한 조작에서 hoverSquare가 항상 자기 자신의 칸과 같다. Item 1의 가드가 이 경우까지
-  // canLandAt으로 걸러 버리면, 기물을 선택하는 그 순간 미리보기가 통째로 사라진다.
+  // canLandAt이 예전에는 pieceAt을 통해 "자기 자신이 점유한 칸"도 점유 칸으로 판정해 거부했다.
+  // DragController.onMove는 커서 아래 칸을 그대로 hoverSquare에 넣고, 클릭 선택/드래그 시작 모두
+  // 기물이 서 있는 바로 그 칸 위에서 일어난다 — 즉 "기물을 클릭해서 사거리를 본다"는 가장 흔한
+  // 조작에서 hoverSquare가 항상 자기 자신의 칸과 같다. Item 1의 가드가 이 경우까지 canLandAt으로
+  // 걸러 버리면, 기물을 선택하는 그 순간 미리보기가 통째로 사라진다 — 그래서 당시 highlights.ts는
+  // hoveringOwnSquare라는 별도 예외로 이 케이스를 가려냈다.
+  // 게임 규칙 변경(점유 칸 맞교환 허용) 이후에는 canLandAt 자체가 보드 위 기물에게 점유 칸을 더
+  // 이상 실격 사유로 보지 않으므로 — "자기 자신이 점유한 칸"도 예외 없이 통과한다 — 저 예외가
+  // 필요 없어졌다. highlights.ts에서 hoveringOwnSquare를 지웠는데도 아래 테스트들이 그대로 통과하는
+  // 것으로 이를 확인한다 (즉, 이 describe 블록이 지금은 canLandAt 자체의 새 의미를 검증하는 셈이다).
   it('보드 위 룩을 클릭 선택하고 커서가 그 칸 위에 그대로 있으면 사거리 15칸이 그대로 보인다', () => {
     const s = waveState();
     const p = boardPiece('rook', 2, 2);
@@ -303,13 +328,30 @@ describe('buildHighlights — hover 칸이 기물 자신의 현재 칸이면 미
 
   it('다른 칸으로 hover를 옮기면(자기 칸이 아님) 여전히 착지 불가 검증이 적용된다', () => {
     // 회귀 수정이 "자기 자신의 칸일 때만" 예외이지 canLandAt 검증 자체를 무력화한 게 아님을 확인한다.
+    // 예전에는 점유 칸(다른 기물이 있는 칸)을 "여전히 착지 불가"한 예시로 썼지만, 게임 규칙 변경으로
+    // 보드 위 기물에게 점유 칸은 더 이상 착지 실격 사유가 아니다(맞교환 대상) — 그래서 그 예시로는
+    // 이 단언이 더 이상 성립하지 않는다. 여전히 착지 불가능한 8랭크(스폰 구역)로 예시를 교체한다.
+    const s = waveState();
+    const p = boardPiece('rook', 2, 2);
+    s.pieces.push(p);
+    const hl = buildHighlights(s, noInteraction({ selectedPieceId: p.id, hoverSquare: { file: 4, rank: 8 } }));
+    expect(hl.highlights).toEqual([]);
+    expect(hl.lines).toEqual([]);
+  });
+
+  it('점유된 칸으로 hover를 옮기면(자기 칸이 아님) 이제 그 칸 기준 사거리가 그대로 보인다 (게임 규칙 변경 — 맞교환 대상)', () => {
+    // 위 테스트가 예시를 8랭크로 교체하며 잃은 커버리지를 보충한다: 점유 칸은 더 이상 미리보기를
+    // 지우는 사유가 아니라는 것 자체를 별도로 고정해 둔다.
     const s = waveState();
     const p = boardPiece('rook', 2, 2);
     const blocker = boardPiece('pawn', 4, 4);
     s.pieces.push(p, blocker);
     const hl = buildHighlights(s, noInteraction({ selectedPieceId: p.id, hoverSquare: { file: 4, rank: 4 } }));
-    expect(hl.highlights).toEqual([]);
-    expect(hl.lines).toEqual([]);
+
+    const expected = rookTargets({ file: 4, rank: 4 });
+    const squares = highlightSquares(hl);
+    expect(squares).toHaveLength(expected.length);
+    for (const t of expected) expect(squares).toContainEqual(t);
   });
 });
 
