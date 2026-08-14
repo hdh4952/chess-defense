@@ -29,7 +29,10 @@ export const ALLY_GLYPH: Record<PieceType, string> = {
 };
 
 const COLOR = {
-  light: '#e8e6e0', dark: '#77756e',
+  // react-chessboard의 기본 보드 색(customLightSquareStyle / customDarkSquareStyle)과 동일한
+  // 값. 리체스·chess.com에서 쓰는 고전적인 나무 톤이라, 흑백 체스 기물이 양쪽 칸 모두에서
+  // 또렷하게 읽힌다 — 스펙 8.1이 요구한 진영 구분(아군 화이트 / 적 블랙)의 전제가 된다.
+  light: '#F0D9B5', dark: '#B58863',
   spawnTint: 'rgba(200, 60, 50, 0.10)',
   allyFill: '#ffffff', allyStroke: '#2b2b2b', allyShadow: 'rgba(70, 120, 220, 0.35)',
   enemyFill: '#141414', enemyStroke: '#f2f2f2', enemyShadow: 'rgba(220, 60, 50, 0.35)',
