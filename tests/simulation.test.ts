@@ -86,7 +86,7 @@ describe('전 게임 시뮬레이션', () => {
       ev.length = 0;
     }
     expect(s.wave).toBe(2);
-    expect(s.hp).toBe(30);
+    expect(s.hp).toBe(CONFIG.player.startHp);
     expect(s.stats.totalKills).toBe(10);
   });
 
@@ -95,15 +95,19 @@ describe('전 게임 시뮬레이션', () => {
     for (let f = 0; f < 8; f++) {
       s.pieces.push(boardPiece('rook', f, 1), boardPiece('rook', f, 2));
     }
+    // 이 테스트가 보는 것은 엔진 무결성(전멸·누수·골드 정산이 20웨이브 내내 일관된가)이지 이
+    // 빌드가 현재 밸런스에서 살아남는가가 아니다. 보스 누수 4회 = -20이라 startHp(10)로는 웨이브10
+    // 에서 defeat로 끊겨 풀런 자체를 관측할 수 없으므로, 체력만 넉넉히 올려 20웨이브를 완주시킨다.
+    s.hp = 100;
     // 룩 2개/파일(랭크 1·2에 8파일 전부) — 파일 커버만 보면 종주당 80이지만, 이 배치는 랭크 1과
     // 랭크 2를 8개 룩이 각각 전부 공유하므로(아래 확장 측정이 다루는 랭크 관통 시너지) 보스에게는
-    // 실제로 그보다 훨씬 큰 피해(대략 300 안팎)를 준다. 그래도 최댓값 보스 체력(420~1470)에는
-    // 못 미쳐 매 보스 웨이브 1회씩(총 4회) 누수한다. 일반 적 최댓값 체력은 웨이브19의 46이며
+    // 실제로 그보다 훨씬 큰 피해(대략 300 안팎)를 준다. 그래도 최댓값 보스 체력(420~1770)에는
+    // 못 미쳐 매 보스 웨이브 1회씩(총 4회) 누수한다. 일반 적 최댓값 체력은 웨이브19의 55이며
     // (웨이브20은 보스 전용이라 일반 적이 없다), 파일 커버 화력(80)만으로도 충분히 웃돌아 일반
     // 적은 전멸한다.
     run(s, 60 * 60, cycleRng());
     expect(s.phase).toBe('victory');
-    expect(s.hp).toBe(CONFIG.player.startHp - 4 * CONFIG.player.hpLossBoss);
+    expect(s.hp).toBe(100 - 4 * CONFIG.player.hpLossBoss);
 
     const bossWaveCount = Math.floor(CONFIG.wave.total / CONFIG.wave.bossEvery);
     const bossWaves = Array.from({ length: bossWaveCount }, (_, i) => (i + 1) * CONFIG.wave.bossEvery);

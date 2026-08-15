@@ -1,7 +1,7 @@
 export const CONFIG = {
   board: { files: 8, ranks: 8, squarePx: 80 },
 
-  player: { startHp: 30, startGold: 300, hpLossNormal: 1, hpLossBoss: 5 },
+  player: { startHp: 10, startGold: 300, hpLossNormal: 1, hpLossBoss: 5 },
 
   wave: {
     total: 20,
@@ -16,7 +16,7 @@ export const CONFIG = {
   enemy: {
     hpBase: 10,
     hpPerWaveEarly: 1,      // w <= 10
-    hpPerWaveLate: 3,       // w >= 11
+    hpPerWaveLate: 4,       // w >= 11
     hpScalingBreakpoint: 10,
     secondsPerSquare: 3.0,
     bossHpMultiplier: 30,

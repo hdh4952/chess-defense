@@ -7,17 +7,17 @@ describe('enemyHp (스펙 4.3 / 4.5)', () => {
     expect(enemyHp(5)).toBe(14);
     expect(enemyHp(10)).toBe(19);
   });
-  it('웨이브 11~20은 19 + 3*(w-10)', () => {
-    expect(enemyHp(11)).toBe(22);
-    expect(enemyHp(15)).toBe(34);
-    expect(enemyHp(20)).toBe(49);
+  it('웨이브 11~20은 19 + 4*(w-10)', () => {
+    expect(enemyHp(11)).toBe(23);
+    expect(enemyHp(15)).toBe(39);
+    expect(enemyHp(20)).toBe(59);
   });
-  it('보스 체력 = 일반 체력 × 30 (스펙 4.5: 420/570/1020/1470)', () => {
+  it('보스 체력 = 일반 체력 × 30 (420/570/1170/1770)', () => {
     const m = CONFIG.enemy.bossHpMultiplier;
     expect(enemyHp(5) * m).toBe(420);
     expect(enemyHp(10) * m).toBe(570);
-    expect(enemyHp(15) * m).toBe(1020);
-    expect(enemyHp(20) * m).toBe(1470);
+    expect(enemyHp(15) * m).toBe(1170);
+    expect(enemyHp(20) * m).toBe(1770);
   });
 });
 

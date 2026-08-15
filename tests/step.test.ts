@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { CONFIG, enemyCount } from '../src/config';
 import { createInitialState } from '../src/core/state';
 import { stepGame } from '../src/core/step';
 import type { GameEvent } from '../src/types';
@@ -17,10 +18,11 @@ describe('stepGame (스펙 10.2)', () => {
     expect(s.phase).toBe('wave');
     expect(s.spawnedCount).toBeGreaterThanOrEqual(1);
   });
-  it('기물이 없으면 적 10마리 전부 통과 → 체력 20, 웨이브 2 준비', () => {
+  it('기물이 없으면 적 10마리 전부 통과 → 웨이브 2 준비', () => {
     const s = createInitialState();
+    s.hp = 100;               // 통과 10회를 견디게 — 확인 대상은 웨이브 종료 판정이지 체력 잔량이 아니다
     run(s, 10 + 10 + 24 + 1); // 준비 + 스폰 + 종주 + 여유
-    expect(s.hp).toBe(20);
+    expect(s.hp).toBe(100 - enemyCount(1) * CONFIG.player.hpLossNormal);
     expect(s.wave).toBe(2);
     expect(s.phase).toBe('prepare');
   });

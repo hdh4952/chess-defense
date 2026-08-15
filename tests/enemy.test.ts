@@ -6,9 +6,9 @@ import { createInitialState } from '../src/core/state';
 import type { GameEvent } from '../src/types';
 
 describe('createInitialState (스펙 3)', () => {
-  it('골드 300, 체력 30, 기물 0개, 웨이브 1 준비 10초', () => {
+  it('골드 300, 체력 = startHp, 기물 0개, 웨이브 1 준비 10초', () => {
     const s = createInitialState();
-    expect(s.hp).toBe(30);
+    expect(s.hp).toBe(CONFIG.player.startHp);
     expect(s.gold).toBe(300);
     expect(s.wave).toBe(1);
     expect(s.phase).toBe('prepare');
@@ -65,7 +65,7 @@ describe('이동과 1랭크 통과 (스펙 3/9.1)', () => {
     const ev: GameEvent[] = [];
     processLeaks(s, ev);
     expect(s.enemies).toHaveLength(0);
-    expect(s.hp).toBe(29);
+    expect(s.hp).toBe(CONFIG.player.startHp - CONFIG.player.hpLossNormal);
     expect(ev).toEqual([{ kind: 'enemyLeaked', enemyId: 'e-1', file: 2, isBoss: false }]);
   });
   it('보스 통과: 체력 −5', () => {
@@ -74,7 +74,7 @@ describe('이동과 1랭크 통과 (스펙 3/9.1)', () => {
     b.y = BOARD_H;
     s.enemies.push(b);
     processLeaks(s, []);
-    expect(s.hp).toBe(25);
+    expect(s.hp).toBe(CONFIG.player.startHp - CONFIG.player.hpLossBoss);
   });
   it('체력 0 도달 → 즉시 defeat, 같은 프레임 나머지 처리 중단 (스펙 10.5)', () => {
     const s = waveState();
@@ -96,6 +96,6 @@ describe('이동과 1랭크 통과 (스펙 3/9.1)', () => {
     s.enemies.push(e);
     processLeaks(s, []);
     expect(s.enemies).toHaveLength(1);
-    expect(s.hp).toBe(30);
+    expect(s.hp).toBe(CONFIG.player.startHp);
   });
 });
