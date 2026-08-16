@@ -1,4 +1,4 @@
-import { CONFIG, TRAITS } from '../config';
+import { CONFIG, hasMoveCooldown } from '../config';
 import { moveOnBoard, pieceAt, placeFromSlot, recallToSlot, reorderSlots, findPiece } from '../core/pieces';
 import { sellPiece, sellPrice } from '../core/economy';
 import type { UiAudio } from '../audio';
@@ -172,7 +172,7 @@ export class DragController {
     const hit = this.pieceUnder(e.clientX, e.clientY);
     if (!hit) return;
     const piece = findPiece(this.state, hit.pieceId)!;
-    if (TRAITS[piece.type].blast && hit.from === 'board' && piece.cooldown > 0) {
+    if (hasMoveCooldown(piece.type) && hit.from === 'board' && piece.cooldown > 0) {
       this.showCooldown(e, piece.cooldown);            // 쿨다운 중: 시작 거부 + 표시 (스펙 5.3)
       // downAt을 비워 onUp이 "클릭"으로 오인하지 않게 한다 (검토 Item 1) — 그렇지 않으면 드래그
       // 시작이 거부된 이 눌림이 onUp에서 클릭-투-무브로 새어나가 쿨다운 중인 나이트가 그대로

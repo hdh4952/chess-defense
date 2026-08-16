@@ -1,4 +1,4 @@
-import { CONFIG, TRAITS } from '../config';
+import { CONFIG, TRAITS, hasMoveCooldown } from '../config';
 import type { GameEvent, GameState, Piece, PieceType, Square } from '../types';
 import { recalcQueenBuffs } from './buff';
 import { applyAttack, pieceDamage } from './combat';
@@ -82,7 +82,7 @@ export function resolveLanding(
     // 두 게이트는 근거가 다르므로 술어도 분리한다. 쿨다운은 "미리보기가 약속한 폭발이 실제로
     // 터지게" 하는 장치(blast)이고, L자는 행마 규칙(moveL)이다. 지금은 나이트가 둘 다 참이라
     // 같은 블록처럼 보이지만, 폭발만 하고 자유 이동하는 기물이 생기면 즉시 갈라진다.
-    if (TRAITS[piece.type].blast && piece.cooldown > 0) return reject(null, 'knightCooldown');
+    if (hasMoveCooldown(piece.type) && piece.cooldown > 0) return reject(null, 'knightCooldown');
     if (TRAITS[piece.type].moveL && !isKnightMove(piece.square!, square)) {
       return reject(null, 'knightPattern');
     }
@@ -109,7 +109,7 @@ export function resolveLanding(
       // tryKnightBlast가 `if (cooldown > 0) return`에 걸려 조용히 폭발을 삼킨다 — 미리보기가
       // 그린 3×3이 실제로는 0회가 되는, 이 파일이 막으려는 바로 그 상황이다. 현재 나이트의
       // interval이 0이라 늘 통과하지만, 되돌리는 순간 코드 변경 없이 실전화된다.
-      if (TRAITS[occupant.type].blast && occupant.cooldown > 0) {
+      if (hasMoveCooldown(occupant.type) && occupant.cooldown > 0) {
         return reject(occupant, 'knightCooldown');
       }
       // 동종은 티어가 한 단계 오르고, 이종은 **티어가 그대로**다. 융합은 등급 상승이 아니라

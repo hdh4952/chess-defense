@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
-import { CONFIG, TRAITS, tierMultiplier } from '../src/config';
+import { CONFIG, TRAITS, hasMoveCooldown, tierMultiplier } from '../src/config';
 import { recalcQueenBuffs } from '../src/core/buff';
-import { pieceDamage } from '../src/core/combat';
+import { pieceDamage, updateCombat } from '../src/core/combat';
 import { sellPrice } from '../src/core/economy';
 import { FUSION_RECIPES, fusionResult } from '../src/core/fusion';
 import { moveOnBoard, placeFromSlot, resolveLanding } from '../src/core/pieces';
@@ -307,5 +307,48 @@ describe('융합 기물 툴팁 (S4c)', () => {
 
   it('아치비숍은 비숍의 골드 수입 줄을 유지한다', () => {
     expect(tip('archbishop')).toContain(`공격당 +${CONFIG.pieces.archbishop.goldPerAttack}G`);
+  });
+});
+
+describe('★ 공격 쿨다운이 이동을 막지 않는다 (S4 회귀)', () => {
+  // 같은 `interval` 필드가 기물에 따라 다른 뜻을 갖는 데서 온 버그였다. 나이트에게는 이동
+  // 쿨다운이지만 겸업 기물에게는 공격 주기인데, 게이트가 둘을 구분하지 않아 아치비숍·챈슬러가
+  // 자동 공격을 할 때마다 3초씩 이동이 잠겼다 — 사거리에 적이 있는 동안 사실상 못 움직였다.
+  const BLASTERS = ['knight', 'archbishop', 'chancellor', 'amazon'] as const;
+
+  it('주기 공격 직후에도 폭발 기물을 옮길 수 있다', () => {
+    for (const type of BLASTERS) {
+      const s = waveState();
+      const p = boardPiece(type, 3, 4);
+      s.pieces.push(p);
+      s.enemies.push(enemyAt(1, 3, 4), enemyAt(1, 5, 6));
+      updateCombat(s, 1 / 60, []);
+      // 나이트류(L자)는 L자 칸으로, 나머지는 아무 칸으로.
+      const dest = TRAITS[type].moveL ? { file: 4, rank: 6 } : { file: 6, rank: 2 };
+      expect(resolveLanding(s, p, dest, false).kind, `${type} (쿨다운 ${p.cooldown})`).not.toBe('reject');
+    }
+  });
+
+  it('막히는 것은 이동이 아니라 폭발이다 — 쿨다운 중 이동하면 터지지 않는다', () => {
+    const s = waveState();
+    const p = boardPiece('chancellor', 3, 4);
+    p.cooldown = 2.0;
+    s.pieces.push(p);
+    const e = enemyAt(1, 6, 2);
+    s.enemies.push(e);
+    const hp0 = e.hp;
+    const ev: GameEvent[] = [];
+
+    expect(moveOnBoard(s, p.id, 6, 2, ev, false)).toBe(true);   // 이동은 된다
+    expect(ev.some(x => x.kind === 'knightBlast')).toBe(false); // 폭발은 안 한다
+    expect(e.hp).toBe(hp0);
+    expect(p.cooldown).toBeCloseTo(2.0);                        // 쿨다운도 그대로
+  });
+
+  it('이동 쿨다운을 갖는 기물은 주기 공격이 없는 폭발 기물뿐이다', () => {
+    for (const type of Object.keys(TRAITS) as PieceType[]) {
+      const t = TRAITS[type];
+      expect(hasMoveCooldown(type), type).toBe(t.blast && t.pattern === 'none');
+    }
   });
 });

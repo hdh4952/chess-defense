@@ -252,6 +252,22 @@ export function enemyCount(wave: number): number {
 
 
 /**
+ * 이 기물의 `interval`이 **이동 쿨다운**을 뜻하는가.
+ *
+ * 같은 필드가 기물에 따라 다른 뜻을 갖는다. 나이트처럼 주기 공격이 없는 폭발 기물에게
+ * interval은 "다음 이동(=다음 폭발)까지 기다리는 시간"이지만, 겸업 기물(아치비숍·챈슬러)
+ * 에게는 **공격 주기**다. 둘을 구분하지 않으면 겸업 기물이 자동 공격을 할 때마다 이동이
+ * 3초씩 잠긴다 — 사거리에 적이 있는 동안 사실상 못 움직인다.
+ *
+ * 폭발 자체는 여전히 쿨다운의 제약을 받는다(tryKnightBlast가 cooldown > 0이면 건너뛴다).
+ * 막히는 것은 이동이 아니라 폭발이고, 그게 원래 의도였다.
+ */
+export function hasMoveCooldown(type: PieceType): boolean {
+  const t = TRAITS[type];
+  return t.blast && t.pattern === 'none';
+}
+
+/**
  * 스폰되는 적의 유형 — **rng를 소비하지 않는 결정론적 쿼터**다.
  *
  * 확률 추첨을 쓰지 않는 이유가 둘이다. ① 스폰 파일 추첨은 rng 호출 "순서"에만 의존하므로,
