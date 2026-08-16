@@ -4,6 +4,9 @@ import type { PieceType } from '../types';
 import allyPawnUrl from '../assets/pieces/ally-pawn.svg';
 import allyKnightUrl from '../assets/pieces/ally-knight.svg';
 import allyBishopUrl from '../assets/pieces/ally-bishop.svg';
+import allyArchbishopUrl from '../assets/pieces/ally-archbishop.svg';
+import allyChancellorUrl from '../assets/pieces/ally-chancellor.svg';
+import allyAmazonUrl from '../assets/pieces/ally-amazon.svg';
 import allyRookUrl from '../assets/pieces/ally-rook.svg';
 import allyQueenUrl from '../assets/pieces/ally-queen.svg';
 import enemyPawnUrl from '../assets/pieces/enemy-pawn.svg';
@@ -35,6 +38,9 @@ export const ALLY_SPRITE_URL: Record<PieceType, string> = {
   pawn: allyPawnUrl,
   knight: allyKnightUrl,
   bishop: allyBishopUrl,
+  archbishop: allyArchbishopUrl,
+  chancellor: allyChancellorUrl,
+  amazon: allyAmazonUrl,
   rook: allyRookUrl,
   queen: allyQueenUrl,
 };

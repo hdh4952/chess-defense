@@ -3,6 +3,7 @@ import { CONFIG, TRAITS } from '../src/config';
 import { updateCombat } from '../src/core/combat';
 import { attackTargets, blastTargets, knightBlastTargets } from '../src/core/patterns';
 import { placeFromSlot } from '../src/core/pieces';
+import { buyPiece, canBuy } from '../src/core/economy';
 import type { GameEvent, PieceType } from '../src/types';
 import { boardPiece, enemyAt, waveState } from './helpers';
 
@@ -56,15 +57,22 @@ describe('TRAITS — 전수성과 일관성', () => {
     }
   });
 
-  it('버프 계수가 0이 아닌 기물은 퀸뿐이다 (지금은)', () => {
-    const buffers = ALL.filter(t => TRAITS[t].buffFactor > 0);
-    expect(buffers).toEqual(['queen']);
+  it('버프를 주는 기물은 퀸과 아마존뿐이고, 아마존 계수는 퀸의 절반이다', () => {
+    // 퀸의 티어는 보드 전체 화력의 지수라, 버프를 겸하는 기물이 늘면 그 배율이 곱으로 겹친다.
+    const buffers = ALL.filter(t => TRAITS[t].buffFactor > 0).sort();
+    expect(buffers).toEqual(['amazon', 'queen']);
+    expect(TRAITS.amazon.buffFactor).toBe(TRAITS.queen.buffFactor / 2);
   });
 
-  it('구매 불가 기물은 canBuy를 통과하지 못한다', () => {
-    // 지금은 5종 전부 구매 가능하다. 이 단언은 purchasable 플래그가 실제로 소비되는지를
-    // 고정한다 — 소비되지 않으면 나중에 "상점에 없어야 할 기물"이 조용히 팔린다.
-    expect(ALL.every(t => TRAITS[t].purchasable)).toBe(true);
+  it('★ 구매 불가 기물은 canBuy를 통과하지 못한다 — 융합물이 상점에 새지 않는다', () => {
+    const nonPurchasable = ALL.filter(t => !TRAITS[t].purchasable);
+    expect(nonPurchasable.length).toBeGreaterThan(0);
+    for (const type of nonPurchasable) {
+      const s = waveState();
+      s.gold = 999999;
+      expect(canBuy(s, type), type).toBe(false);
+      expect(buyPiece(s, type), type).toBeNull();
+    }
   });
 });
 
@@ -84,5 +92,15 @@ describe('★ 폭발 쿨다운은 그 기물 자신의 interval을 읽는다 (�
     }
   });
 
-  it.todo('폭발 기물이 둘 이상이 되면 서로 다른 interval을 갖는지 확인할 것 — 지금은 나이트뿐이라 이 단언이 공허하다');
+  it('★ 폭발 기물이 여럿이고 서로 다른 interval을 갖는다 — 위 단언이 더 이상 공허하지 않다', () => {
+    // 나이트 하나뿐일 때는 하드코딩과 올바른 구현의 결과가 같아 테스트가 아무것도 증명하지
+    // 못했다. 융합물이 생기면서 비로소 구분된다 — 챈슬러가 나이트의 interval 0을 물려받았다면
+    // 드래그 반복만으로 무제한 폭발하는 기물이 됐을 것이다.
+    const blasters = ALL.filter(t => TRAITS[t].blast);
+    expect(blasters.length).toBeGreaterThan(1);
+    const intervals = new Set(blasters.map(t => CONFIG.pieces[t].interval));
+    expect(intervals.size).toBeGreaterThan(1);
+    expect(CONFIG.pieces.chancellor.interval).toBeGreaterThan(0);
+    expect(CONFIG.pieces.knight.interval).toBe(0);
+  });
 });

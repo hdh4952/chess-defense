@@ -1,4 +1,4 @@
-import { CONFIG } from '../config';
+import { CONFIG, TRAITS } from '../config';
 import { BOARD_H, BOARD_W } from '../core/grid';
 import { SLOT_CAPACITY } from '../core/economy';
 import { ALLY_SPRITE_URL } from '../render/sprites';
@@ -18,9 +18,13 @@ export interface Layout {
   bannerRoot: HTMLElement;
 }
 
-const SHOP_ORDER: PieceType[] = ['pawn', 'knight', 'bishop', 'rook', 'queen'];
+/** 상점 노출 순서. 목록을 손으로 유지하지 않고 TRAITS에서 유도한다 — 융합물처럼 구매할 수
+ *  없는 기물이 늘어도 상점이 저절로 맞는다. */
+const SHOP_ORDER: PieceType[] = (Object.keys(TRAITS) as PieceType[])
+  .filter(t => TRAITS[t].purchasable);
 export const PIECE_NAME: Record<PieceType, string> = {
   pawn: '폰', knight: '나이트', bishop: '비숍', rook: '룩', queen: '퀸',
+  archbishop: '아치비숍', chancellor: '챈슬러', amazon: '아마존',
 };
 
 /** 저작자 표시줄 (NOTICE.md — CC BY-SA 3.0 이행). 게임 화면과 시작 화면 둘 다 같은 Cburnett

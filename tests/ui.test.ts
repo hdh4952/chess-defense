@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
-import { CONFIG } from '../src/config';
+import { CONFIG, TRAITS } from '../src/config';
 import { buyPiece, SLOT_CAPACITY } from '../src/core/economy';
 import { createInitialState } from '../src/core/state';
 import { ALLY_SPRITE_URL } from '../src/render/sprites';
@@ -40,11 +40,14 @@ describe('createLayout (Task 14 — UI 셸)', () => {
     });
   });
 
-  it('상점 버튼은 기물 종류당 1개(총 5개), 각각 CONFIG의 가격이 라벨에 표시된다', () => {
+  it('상점 버튼은 구매 가능한 기물당 1개, 각각 CONFIG의 가격이 라벨에 표시된다', () => {
+    // 융합물이 생기면서 "기물 종류 수 = 상점 버튼 수"가 더 이상 성립하지 않는다.
+    // 상점은 구매 가능한 것만 보여준다.
     const layout = createLayout(makeApp());
-    expect(layout.shopButtons.size).toBe(5);
-    expect(PIECE_TYPES).toHaveLength(5);
-    for (const type of PIECE_TYPES) {
+    const purchasable = PIECE_TYPES.filter(t => TRAITS[t].purchasable);
+    expect(layout.shopButtons.size).toBe(purchasable.length);
+    expect(purchasable).toHaveLength(5);
+    for (const type of purchasable) {
       const btn = layout.shopButtons.get(type);
       expect(btn).toBeInstanceOf(HTMLButtonElement);
       expect(btn!.textContent).toContain(String(CONFIG.pieces[type].cost));

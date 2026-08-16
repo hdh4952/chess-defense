@@ -132,6 +132,11 @@ const ATTACK_CUE_BY_PIECE: Record<PieceType, CueKind | null> = {
   rook: 'rook',
   knight: null,
   queen: null,
+  // 융합물은 재료의 주기 공격 소리를 그대로 쓴다 — 새 에셋이 필요 없고, "이 기물은 무엇에서
+  // 왔는가"가 소리로도 드러난다. 아마존은 주기 공격이 없어 null이다(폭발은 knightBlast로 난다).
+  archbishop: 'bishop',
+  chancellor: 'rook',
+  amazon: null,
 };
 
 /**

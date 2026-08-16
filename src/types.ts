@@ -1,4 +1,10 @@
-export type PieceType = 'pawn' | 'knight' | 'bishop' | 'rook' | 'queen';
+/**
+ * 아군 기물. 뒤 세 종(아치비숍·챈슬러·아마존)은 **융합으로만 얻는다** — 상점에 없고
+ * 뽑기에도 나오지 않는다(TRAITS[·].purchasable = false).
+ */
+export type PieceType =
+  | 'pawn' | 'knight' | 'bishop' | 'rook' | 'queen'
+  | 'archbishop' | 'chancellor' | 'amazon';
 
 /** file 0(a)~7(h), rank 1~8 */
 export interface Square { file: number; rank: number }

@@ -49,6 +49,9 @@ export function createFrameView(): ViewState {
 // 걷어냈다(재검토 Item 7).
 const ALLY_GLYPH: Record<PieceType, string> = {
   pawn: '♟', knight: '♞', bishop: '♝', rook: '♜', queen: '♛',
+  // 융합물은 유니코드에 대응 글리프가 없다. 스프라이트가 로드되지 않은 아주 짧은 순간에만
+  // 쓰이는 폴백이므로, 재료 중 주기 공격을 담당하는 쪽의 글리프를 빌려 쓴다.
+  archbishop: '♝', chancellor: '♜', amazon: '♛',
 };
 
 const COLOR = {

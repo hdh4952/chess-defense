@@ -62,6 +62,19 @@ export const CONFIG = {
     bishop: { cost: 200, damage: 1, interval: 3.0, goldPerAttack: 10 },
     rook:   { cost: 500, damage: 5, interval: 3.0, goldPerAttack: 0  },
     queen:  { cost: 900, damage: 0, interval: 0,   goldPerAttack: 0  },
+
+    // ── 융합 기물 (v1.9) — 상점에 없고 뽑기에도 안 나온다. 같은 티어 재료 둘을 겹쳐야 나온다.
+    //
+    // 능력치는 **재료 합**이다. 그래야 §5.4의 골드 중립성과 판매가 불변식(원가 × 2^(t−1) × 0.5)이
+    // 그대로 성립한다 — cost도 재료 원가의 합으로 둔 이유가 그것이다. 융합은 "더 세지는" 것이
+    // 아니라 **역할을 겸업시키는** 것이다: 나이트는 자동 공격이 없어 칸값을 못 하는데, 융합물은
+    // 재료의 주기 공격 + 나이트의 이동 폭발을 한 칸에서 겸한다.
+    //
+    // interval은 나이트 것(0)을 물려받지 않고 **주기 공격을 담당하는 재료의 것**을 쓴다.
+    // 나이트의 interval 0을 상속하면 드래그 반복만으로 무제한 폭발하는 기물이 된다.
+    archbishop: { cost: 500,  damage: 4, interval: 3.0, goldPerAttack: 10 },  // 비숍(200)+나이트(300)
+    chancellor: { cost: 800,  damage: 8, interval: 3.0, goldPerAttack: 0  },  // 룩(500)+나이트(300)
+    amazon:     { cost: 1200, damage: 3, interval: 0,   goldPerAttack: 0  },  // 퀸(900)+나이트(300)
   },
 
   /**
@@ -91,7 +104,13 @@ export const CONFIG = {
    * 공격력 160 × 65 = 10,400이 된다(w20 보스 HP 1,770의 5.9배를 한 발에). 밸런스가 무너지면
    * 여기 queen만 3으로 되돌리는 것이 가장 국소적인 처방이고, 그러면 T3가 상한이 된다.
    */
-  merge: { maxTier: { pawn: 6, knight: 6, bishop: 6, rook: 6, queen: 6 } },
+  merge: {
+    maxTier: {
+      pawn: 6, knight: 6, bishop: 6, rook: 6, queen: 6,
+      // 융합물도 같은 상한을 쓴다 — 같은 종류·같은 티어끼리 다시 합칠 수 있다.
+      archbishop: 6, chancellor: 6, amazon: 6,
+    },
+  },
 
   /**
    * 적 유형 — 웨이브가 진행되며 섞여 들어오는 세 가지 정체성.
@@ -167,6 +186,15 @@ export const TRAITS: Record<PieceType, PieceTraits> = {
   bishop: { pattern: 'bishop', blast: false, moveL: false, buffFactor: 0, purchasable: true },
   rook:   { pattern: 'rook',   blast: false, moveL: false, buffFactor: 0, purchasable: true },
   queen:  { pattern: 'none',   blast: false, moveL: false, buffFactor: 1, purchasable: true },
+
+  // 융합물은 재료 둘의 특성을 겸한다. **moveL은 물려받지 않는다** — 나이트의 L자 제약을
+  // 상속하면 융합물이 인접 칸으로 한 칸 미는 조작조차 못 하게 되어, 룩보다 기동성이
+  // *낮아진다*(룩은 이미 보드 위 아무 칸으로나 순간이동한다). 폭발 능력만 물려받는다.
+  archbishop: { pattern: 'bishop', blast: true, moveL: false, buffFactor: 0, purchasable: false },
+  chancellor: { pattern: 'rook',   blast: true, moveL: false, buffFactor: 0, purchasable: false },
+  // 아마존은 퀸의 버프를 물려받되 계수를 절반으로 둔다 — 퀸의 티어는 보드 전체 화력의
+  // 지수라(§5.4) 버프를 겸하는 기물이 늘면 그 지수가 곱으로 겹친다.
+  amazon:     { pattern: 'none',   blast: true, moveL: false, buffFactor: 0.5, purchasable: false },
 };
 
 /**
