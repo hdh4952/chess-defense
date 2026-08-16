@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { dropAction, DragController, pickDropTarget, type DropZones } from '../src/ui/drag';
 import { createInitialState } from '../src/core/state';
+import { sellPrice } from '../src/core/economy';
 import { createLayout } from '../src/ui/layout';
 import type { UiAudio } from '../src/audio';
 import type { UiCueKind } from '../src/audio/cues';
@@ -431,7 +432,9 @@ describe('DragController — 클릭-투-무브 (스펙 7.5 동작표 7행, 자�
     click(SELL_CENTER);
 
     expect(state.pieces.find(x => x.id === p.id)).toBeUndefined();
-    expect(state.gold).toBe(goldBefore + 150);            // bishop 300 * 0.5
+    // 판매가는 CONFIG에서 유도한다 — 여기서 고정하려는 건 "보드 기물을 판매 영역에 떨구면
+    // 판매된다"는 동작이지 비숍의 가격이 아니다 (비숍 비용은 경제 기물 전환과 함께 바뀌었다).
+    expect(state.gold).toBe(goldBefore + sellPrice('bishop'));
   });
 
   it('7. 무효 대상(8랭크/트레이발 점유 칸) 클릭은 상태를 바꾸지 않고 선택을 해제한다', () => {

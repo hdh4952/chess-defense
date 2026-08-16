@@ -72,6 +72,22 @@ describe('createTitleScreen', () => {
     }
   });
 
+  it('골드를 버는 기물만 골드 수입 줄을 갖는다 (현재 비숍) — 액수는 CONFIG에서 유도', () => {
+    const app = mount();
+    for (const type of TYPES) {
+      const panel = app.querySelector<HTMLElement>(`.title-panel[data-piece-type="${type}"]`)!;
+      const g = CONFIG.pieces[type].goldPerAttack;
+      if (g > 0) {
+        expect(panel.textContent).toContain(`공격 1회당 +${g}G`);
+      } else {
+        expect(panel.textContent).not.toContain('공격 1회당');
+      }
+    }
+    // 위 루프가 "전부 0이라 아무것도 검사하지 않은" 채로 통과하지 않도록, 비숍이 실제로 버는
+    // 기물이라는 전제를 명시적으로 고정한다.
+    expect(CONFIG.pieces.bishop.goldPerAttack).toBeGreaterThan(0);
+  });
+
   it('비숍 사거리 그림이 bishopTargets의 창 안 결과와 정확히 일치한다', () => {
     const app = mount();
     const expected = new Set(

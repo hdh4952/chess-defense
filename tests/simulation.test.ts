@@ -215,8 +215,12 @@ describe('전 게임 시뮬레이션', () => {
     expect(mixed.wave).toBe(6);                              // 처치든 누수든 웨이브는 종료된다 (스펙 4.2)
     expect(mixed.hp).toBe(mixed.killed ? CONFIG.player.startHp : CONFIG.player.startHp - CONFIG.player.hpLossBoss);
     expect(mixed.dealt).toBeGreaterThan(300);                 // 추격 메커니즘이 실제로 동작했는지 하한 확인
-    // 겹치지 않는 좌표에서는 실측상 처치까지 성공한다 (2026-08-14 실측: dealt 420 = bossHp, 가산
-    // 추정 428과의 마진은 8 — 이게 이 프로젝트의 웨이브5 보스 밸런스 헤드라인 수치다).
+    // 겹치지 않는 좌표에서는 실측상 처치까지 성공한다 (2026-08-15 재측정: dealt 420 = bossHp,
+    // 가산 추정도 420 — 마진 0). 비숍이 경제 기물로 바뀌며 공격력이 3 → 1이 되어(비숍 단독 기여
+    // 12 → 4) 예전의 마진 8이 통째로 사라졌다: 이 빌드는 이제 정확히 딱 맞게 보스를 잡는다.
+    // 다만 이 빌드는 "웨이브5 시점에 살 수 있는 최소 구성"이지 실제 플레이의 상한이 아니다 —
+    // 비숍이 웨이브1~4 동안 벌어들이는 골드(실측 19회 공격 ≈ 190G)로 폰을 두 개 더 살 수 있으므로,
+    // 게이트 자체가 더 어려워졌다고 읽으면 안 된다.
     expect(mixed.killed).toBe(true);
   });
 

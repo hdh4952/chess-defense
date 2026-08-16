@@ -30,6 +30,9 @@ export function updateTooltip(
         p.type === 'knight'
           ? (def.interval > 0 ? `이동 쿨다운 ${def.interval}s` : '이동 쿨다운 없음')
           : `공격 주기 ${def.interval}s`,
+        // 골드를 벌지 않는 기물(현재 비숍 외 전부)에는 줄 자체를 만들지 않는다 — "공격당 +0G"는
+        // 알려주는 정보가 없다. config에서 다른 기물에 값을 주면 그 기물에도 자동으로 나타난다.
+        ...(def.goldPerAttack > 0 ? [`공격당 +${def.goldPerAttack}G (버프 미적용)`] : []),
         ...(suppressRemainingCooldown ? [] : [`남은 쿨다운 ${p.cooldown.toFixed(1)}s`]),
       ];
   el.innerHTML = `<b>${PIECE_NAME[p.type]}</b><br>${rows.join('<br>')}<br>판매가 ${sellPrice(p.type)}G`;

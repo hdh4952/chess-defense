@@ -45,6 +45,9 @@ export interface GameState {
 /** 코어 → 렌더/UI 단방향 알림. 매 프레임 소비 후 비운다. */
 export type GameEvent =
   | { kind: 'attack'; pieceType: PieceType; from: Square; targets: Square[] }
+  // 공격이 골드를 낳았을 때만(= CONFIG.pieces[type].goldPerAttack > 0) attack 바로 뒤에 따라온다.
+  // square는 골드를 번 기물의 칸 — 렌더가 그 자리에 "+10G"를 띄운다.
+  | { kind: 'goldGained'; square: Square; amount: number }
   | { kind: 'knightBlast'; square: Square }
   | { kind: 'enemyDied'; enemyId: string; square: Square; isBoss: boolean; reward: number }
   | { kind: 'enemyLeaked'; enemyId: string; file: number; isBoss: boolean }

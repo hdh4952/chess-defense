@@ -38,8 +38,11 @@ const BLURB: Record<PieceType, Blurb> = {
       + '화력이 오직 플레이어의 조작 속도로만 제한된다.',
   },
   bishop: {
-    element: '빛', role: '전역 광역 딜러',
-    detail: '대각선 4방향을 보드 끝까지 관통 공격한다. 기물도 적도 광선을 막지 못한다.',
+    element: '빛', role: '골드 생산 · 전역 광역',
+    detail: '대각선 4방향을 보드 끝까지 관통 공격한다. 기물도 적도 광선을 막지 못한다. '
+      + '공격력은 가장 낮은 대신 광선을 쏠 때마다 골드를 번다 — 몇 마리를 맞히든 잡든 액수는 '
+      + '같고, 사거리에 적이 없으면 쏘지 않으니 벌지도 못한다. 적이 오래 머무는 자리에 둘수록 '
+      + '많이 번다.',
   },
   rook: {
     element: '땅', role: '단일 파일 전담 킬러',
@@ -63,6 +66,13 @@ function intervalLabel(type: PieceType): string {
 
 function damageLabel(type: PieceType): string {
   return type === 'queen' ? '— (공격하지 않음)' : String(CONFIG.pieces[type].damage);
+}
+
+/** 골드 수입 줄. 버는 기물에만 줄을 만든다 — 나머지에 "공격당 +0G"를 적어 봐야 정보가 없다
+ * (tooltip.ts와 같은 규칙). config에서 다른 기물에 값을 주면 그 탭에도 자동으로 나타난다. */
+function goldRow(type: PieceType): string {
+  const { goldPerAttack } = CONFIG.pieces[type];
+  return goldPerAttack > 0 ? `<dt>골드</dt><dd>공격 1회당 +${goldPerAttack}G</dd>` : '';
 }
 
 /** 사거리 그림의 범례. 칠해진 칸이 무엇을 뜻하는지는 기물마다 다르다 — 나이트만 두 가지
@@ -134,6 +144,7 @@ function buildPanel(type: PieceType): HTMLElement {
         <dl>
           <dt>공격력</dt><dd>${damageLabel(type)}</dd>
           <dt>공격 주기</dt><dd>${intervalLabel(type)}</dd>
+          ${goldRow(type)}
           <dt>속성</dt><dd>${blurb.element}</dd>
         </dl>
         <p class="panel-detail">${blurb.detail}</p>

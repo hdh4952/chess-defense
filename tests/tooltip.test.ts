@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
+import { CONFIG } from '../src/config';
 import { updateTooltip } from '../src/ui/tooltip';
 import { pieceDamage } from '../src/core/combat';
 import { sellPrice } from '../src/core/economy';
@@ -85,6 +86,24 @@ describe('updateTooltip (스펙 7.7 — 기물 hover 툴팁)', () => {
     expect(el.innerHTML).toContain('배율 ×1');
     expect(el.innerHTML).toContain(`최종 ${pieceDamage(p)}`);
     expect(pieceDamage(p)).toBe(2);
+  });
+
+  it('골드를 버는 기물만 "공격당 +NG" 줄을 갖는다 (비숍 O, 룩 X)', () => {
+    const state = waveState();
+    const bishop = boardPiece('bishop', 1, 1);
+    const rook = boardPiece('rook', 2, 2);
+    state.pieces.push(bishop, rook);
+
+    const bishopEl = makeEl();
+    updateTooltip(bishopEl, state, noInteraction({ hoverSquare: { file: 1, rank: 1 } }), { x: 0, y: 0 });
+    expect(bishopEl.innerHTML).toContain(`공격당 +${CONFIG.pieces.bishop.goldPerAttack}G`);
+    // 골드에는 퀸 버프가 붙지 않는다는 사실을 툴팁에서도 명시한다 — 바로 윗줄에 공격력 배율이
+    // 함께 떠 있어서 "배율이 골드에도 걸린다"고 읽힐 여지를 없앤다.
+    expect(bishopEl.innerHTML).toContain('버프 미적용');
+
+    const rookEl = makeEl();
+    updateTooltip(rookEl, state, noInteraction({ hoverSquare: { file: 2, rank: 2 } }), { x: 0, y: 0 });
+    expect(rookEl.innerHTML).not.toContain('공격당');
   });
 
   it('나이트는 공격 주기 대신 이동 쿨다운으로 표시되고, interval 0에서는 "남은 쿨다운" 줄이 억제된다', () => {

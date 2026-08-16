@@ -140,6 +140,9 @@ const ATTACK_CUE_BY_PIECE: Partial<Record<PieceType, CueKind>> = {
 function cueForEvent(ev: GameEvent): CueKind | null {
   switch (ev.kind) {
     case 'attack': return ATTACK_CUE_BY_PIECE[ev.pieceType] ?? null;
+    // 골드 획득은 무음 — 언제나 같은 프레임의 attack 이벤트와 짝을 이루므로 이미 그 기물의
+    // 공격 소리가 난다. 전용 큐를 주면 비숍이 발사할 때마다 소리가 두 겹으로 겹칠 뿐이다.
+    case 'goldGained': return null;
     case 'knightBlast': return 'knight';
     case 'enemyDied': return ev.isBoss ? 'bossDied' : 'enemyDied';
     case 'enemyLeaked': return 'enemyLeaked';

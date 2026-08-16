@@ -6,10 +6,11 @@ const SQ = CONFIG.board.squarePx;
 const center = (sq: Square) => ({ x: fileCenterX(sq.file), y: rankToTopY(sq.rank) + SQ / 2 });
 
 interface Fx {
-  kind: 'shock' | 'crack' | 'beam' | 'explosion' | 'ember' | 'puff';
+  kind: 'shock' | 'crack' | 'beam' | 'explosion' | 'ember' | 'puff' | 'coin';
   x: number; y: number;
   x2?: number; y2?: number;      // 라인형(crack/beam)의 끝점
   vx?: number; vy?: number;      // 파티클 속도
+  amount?: number;               // coin 전용 — 표시할 골드 액수
   t: number; ttl: number;
 }
 
@@ -70,6 +71,12 @@ export class Effects {
         });
       }
       this.shake = Math.max(this.shake, 0.25);
+    }
+    if (ev.kind === 'goldGained') {
+      // 공격 이펙트(0.3초)보다 길게 살려 둔다 — 광선이 사라진 뒤에도 "번 돈"이 잠깐 남아야
+      // 플레이어가 비숍이 무슨 일을 했는지 눈으로 따라갈 수 있다.
+      const c = center(ev.square);
+      this.list.push({ kind: 'coin', ...c, amount: ev.amount, t: 0, ttl: 0.9 });
     }
     if (ev.kind === 'enemyDied') {
       const c = center(ev.square);
@@ -148,6 +155,20 @@ export class Effects {
         case 'puff': {             // 처치 연출
           ctx.fillStyle = '#999';
           ctx.beginPath(); ctx.arc(f.x, f.y, (1 - k) * 14, 0, Math.PI * 2); ctx.fill();
+          break;
+        }
+        case 'coin': {             // 골드 획득 — 위로 떠오르며 사라지는 "+10G"
+          // 마지막 30%에서만 서서히 사라지게 한다: 선형 알파(k)로 두면 뜨자마자 흐려져서
+          // 숫자를 읽을 시간이 없다.
+          ctx.globalAlpha = Math.min(1, k / 0.3);
+          const y = f.y - (1 - k) * 30;
+          ctx.font = 'bold 20px system-ui';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.lineWidth = 4; ctx.strokeStyle = '#3a2c05';   // 밝은 칸 위에서도 읽히도록 테두리
+          ctx.strokeText(`+${f.amount}G`, f.x, y);
+          ctx.fillStyle = '#ffd34d';
+          ctx.fillText(`+${f.amount}G`, f.x, y);
           break;
         }
       }

@@ -152,6 +152,32 @@ describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스�
       expect(records.filter(r => r.method === 'fillRect')).toHaveLength(0); // ember와 구분됨
     });
 
+    it('goldGained: 해당 칸에서 위로 떠오르는 "+N G" 1개 (테두리 + 채움)', () => {
+      const fx = new Effects();
+      const square: Square = { file: 3, rank: 4 };
+      fx.onEvent({ kind: 'goldGained', square, amount: 10 });
+
+      const { ctx, records } = makeStubCtx();
+      fx.draw(ctx as unknown as CanvasRenderingContext2D);
+
+      const texts = records.filter(r => r.method === 'strokeText' || r.method === 'fillText');
+      expect(texts).toHaveLength(2);                       // 가독성용 테두리 1 + 채움 1
+      expect(texts.every(r => r.args[0] === '+10G')).toBe(true);
+      const c = center(square);
+      expect(texts.every(r => r.args[1] === c.x)).toBe(true);
+      // 갓 생성된 이펙트는 아직 떠오르지 않았다 — 칸 중앙에서 출발한다.
+      expect(texts.every(r => r.args[2] === c.y)).toBe(true);
+
+      // 시간이 지나면 같은 x에서 위(y 감소)로 이동한다.
+      fx.update(0.5);
+      const later = makeStubCtx();
+      fx.draw(later.ctx as unknown as CanvasRenderingContext2D);
+      const moved = later.records.filter(r => r.method === 'fillText');
+      expect(moved).toHaveLength(1);
+      expect(moved[0].args[1]).toBe(c.x);
+      expect(moved[0].args[2]).toBeLessThan(c.y);
+    });
+
     it('퀸은 attack 이벤트를 받아도 이펙트를 만들지 않는다 (스펙 8.2 — 퀸은 공격 이펙트 없음)', () => {
       const fx = new Effects();
       const from: Square = { file: 4, rank: 4 };
