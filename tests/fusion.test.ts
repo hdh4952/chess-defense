@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import { CONFIG, TRAITS, tierMultiplier } from '../src/config';
 import { recalcQueenBuffs } from '../src/core/buff';
@@ -5,6 +6,9 @@ import { pieceDamage } from '../src/core/combat';
 import { sellPrice } from '../src/core/economy';
 import { FUSION_RECIPES, fusionResult } from '../src/core/fusion';
 import { moveOnBoard, placeFromSlot, resolveLanding } from '../src/core/pieces';
+import { bishopTargets, knightBlastTargets } from '../src/core/patterns';
+import { buildHighlights, HIGHLIGHT_COLORS } from '../src/render/highlights';
+import { updateTooltip } from '../src/ui/tooltip';
 import type { GameEvent, Piece, PieceType } from '../src/types';
 import { boardPiece, enemyAt, waveState } from './helpers';
 
@@ -219,5 +223,89 @@ describe('융합물의 그 이후', () => {
           .toBe(CONFIG.pieces[result].damage * tierMultiplier(k));
       }
     }
+  });
+});
+
+describe('겸업 기물의 미리보기와 설명 (S4c)', () => {
+  it('★ 아치비숍은 대각선 사거리와 3×3 폭발을 **둘 다** 보여준다', () => {
+    // 예전 조기반환 사슬에서는 한쪽이 통째로 사라졌다. 나이트 브랜치가 초록 L자칸만 그리고
+    // return했고, 그 아래 사거리 블록에는 도달하지 못했다.
+    const s = waveState();
+    const p = boardPiece('archbishop', 3, 4);
+    s.pieces.push(p);
+    const hl = buildHighlights(s, {
+      dragging: null, selectedPieceId: p.id, hoverSquare: { file: 3, rank: 4 },
+    });
+    const squares = hl.highlights.map(h => h.square);
+    const has = (f: number, r: number): boolean => squares.some(q => q.file === f && q.rank === r);
+
+    for (const sq of bishopTargets({ file: 3, rank: 4 })) expect(has(sq.file, sq.rank)).toBe(true);
+    for (const sq of knightBlastTargets({ file: 3, rank: 4 })) expect(has(sq.file, sq.rank)).toBe(true);
+    // 대각선에 없는 3×3 칸(바로 위)이 실제로 포함됐는지 — 폭발 범위가 살아 있다는 직접 증거
+    expect(has(3, 5)).toBe(true);
+  });
+
+  it('아마존은 버프 라인과 폭발 범위를 둘 다 보여준다', () => {
+    const s = waveState();
+    const p = boardPiece('amazon', 3, 4);
+    s.pieces.push(p);
+    const hl = buildHighlights(s, {
+      dragging: null, selectedPieceId: p.id, hoverSquare: { file: 3, rank: 4 },
+    });
+    const squares = hl.highlights.map(h => h.square);
+    const colors = new Set(hl.highlights.map(h => h.color));
+    expect(colors.has(HIGHLIGHT_COLORS.queenLine)).toBe(true);
+    expect(colors.has(HIGHLIGHT_COLORS.range)).toBe(true);
+    expect(hl.lines.length).toBeGreaterThan(0);           // 8방향 라인도 그린다
+    expect(squares.some(q => q.file === 2 && q.rank === 3)).toBe(true);   // 3×3 안쪽
+  });
+
+  it('순수 나이트는 여전히 자기 칸에서 폭발 범위를 그리지 않는다 (회귀 방지)', () => {
+    // 나이트의 폭발은 "착지 지점"에 묶여 있다. 가산 구조가 anchor 기준으로 폭발을 그리면
+    // 보드 위 나이트가 자기 현재 칸에서 터지는 것처럼 보인다.
+    const s = waveState();
+    const n = boardPiece('knight', 3, 4);
+    s.pieces.push(n);
+    const hl = buildHighlights(s, {
+      dragging: null, selectedPieceId: n.id, hoverSquare: null,
+    });
+    expect(hl.highlights.every(h => h.color !== HIGHLIGHT_COLORS.range)).toBe(true);
+  });
+});
+
+describe('융합 기물 툴팁 (S4c)', () => {
+  function tip(type: PieceType, tier = 1): string {
+    const el = document.createElement('div');
+    const s = waveState();
+    const p = boardPiece(type, 2, 2, tier);
+    s.pieces.push(p);
+    updateTooltip(el, s, {
+      dragging: null, selectedPieceId: null, hoverSquare: { file: 2, rank: 2 },
+    }, { x: 0, y: 0 });
+    return el.innerHTML;
+  }
+
+  it('★ 아마존은 공격력과 버프를 **둘 다** 보여준다', () => {
+    // 예전 배타 삼항에서는 버퍼 분기로 들어가 공격력·주기·쿨다운 행이 통째로 사라졌다.
+    const html = tip('amazon');
+    expect(html).toContain('기본 공격력');
+    expect(html).toContain('버프 효과');
+    expect(html).toContain('폭발');
+  });
+
+  it('아마존의 버프 표기는 계수를 반영한다 — 퀸의 절반', () => {
+    expect(tip('queen')).toContain('버프 효과: +100%');
+    expect(tip('amazon')).toContain('버프 효과: +50%');
+  });
+
+  it('챈슬러는 공격 주기와 이동 폭발을 둘 다 보여준다', () => {
+    const html = tip('chancellor');
+    expect(html).toContain(`공격 주기 ${CONFIG.pieces.chancellor.interval}s`);
+    expect(html).toContain('이동·배치할 때 주변 9칸 폭발');
+    expect(html).not.toContain('이동 쿨다운');   // interval은 공격 주기가 쓰고 있다
+  });
+
+  it('아치비숍은 비숍의 골드 수입 줄을 유지한다', () => {
+    expect(tip('archbishop')).toContain(`공격당 +${CONFIG.pieces.archbishop.goldPerAttack}G`);
   });
 });

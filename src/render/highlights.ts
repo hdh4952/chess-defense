@@ -63,6 +63,24 @@ function pushSelected(highlights: ViewState['highlights'], piece: Piece): void {
   if (piece.square) highlights.push({ square: piece.square, color: C.selected });
 }
 
+/**
+ * 이 기물이 anchor 칸에서 실제로 덮는 칸 — 주기 공격 사거리와 폭발 범위의 **합집합**이다.
+ * 둘을 겸하는 기물(아치비숍·챈슬러)이 생기면서 하나만 그리면 절반이 사라진다. 중복은 제거한다
+ * — 나이트처럼 attackTargets가 폭발 범위를 폴백으로 돌려주는 경우 같은 칸이 두 번 들어온다.
+ */
+function previewRange(piece: Piece, anchor: Square): Square[] {
+  const t = TRAITS[piece.type];
+  const pattern = t.pattern === 'none' ? [] : attackTargets(piece.type, anchor);
+  const blast = blastTargets(piece.type, anchor);
+  const seen = new Set<string>();
+  return [...pattern, ...blast].filter(sq => {
+    const k = `${sq.file},${sq.rank}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
 export function buildHighlights(
   state: GameState, it: Interaction,
 ): Pick<ViewState, 'highlights' | 'lines' | 'mergePreview'> {
@@ -93,65 +111,53 @@ export function buildHighlights(
     }
   }
 
-  if (TRAITS[piece.type].buffFactor > 0) {
-    // hover가 실제 착지 제안일 때만 canLandAt으로 검증한다 — hover가 없어 anchor가 퀸의 현재 칸으로
-    // 대체된 경우는 "제안"이 아니므로 검증 대상에서 제외한다. hover가 퀸 자신의 현재 칸을 가리키는
-    // 경우도 별도 예외 없이 canLandAt이 자연히 통과시킨다 — 점유 칸이 더 이상 착지 실격 사유가
-    // 아니게 되면서(게임 규칙 변경: 보드 위 기물은 점유 칸도 맞교환 대상), "자기 자신이 점유한
-    // 칸"이라는 이유로 거부될 일 자체가 없어졌다. 예전에는 이 자기 칸 케이스만 따로 가려내는
-    // hoveringOwnSquare 예외가 필요했지만(회귀 1), 이제 canLandAt 자체의 의미 변화에 흡수돼
-    // 불필요해졌다 — 지웠는데도 이 브랜치의 세 회귀 1 테스트가 그대로 통과하는 것으로 확인했다.
-    if (it.hoverSquare && !canLandAt(state, piece, it.hoverSquare)) {
-      // 착지 불가 hover라 미리보기 전체를 접지만, "무엇이 선택됐는지"는 여기서도 계속 보여야
-      // 한다 — 잘못된 칸에 hover한 순간 선택 표식마저 사라지면 오히려 방향을 잃는다.
-      pushSelected(highlights, piece);
-      return { highlights, lines, mergePreview };
-    }
-    for (const sq of queenLines(anchor)) highlights.push({ square: sq, color: C.queenLine });
-    for (const seg of queenLineSegments(anchor)) lines.push({ ...seg, color: C.queenLine });
-    pushSelected(highlights, piece);
-    return { highlights, lines, mergePreview };
-  }
+  // ── 나이트류(L자 이동 제한): 폭발이 "착지 지점"에 묶여 있어 성질이 다르므로 따로 다룬다.
+  // 아래 가산 블록처럼 anchor 기준으로 폭발을 그리면, 보드 위 나이트가 **자기 현재 칸**에서
+  // 터지는 것처럼 보인다 — 실제로는 L자로 착지한 칸에서만 터진다.
   if (TRAITS[piece.type].moveL && onBoard) {
     // canLandAt 하나로 L자 + 이동 쿨다운 게이트를 적용한다 (검토 Item 1). 점유 칸은 더 이상 착지
-    // 실격 사유가 아니다 (게임 규칙 변경, 사용자 승인 — 보드 위 기물은 점유 칸도 맞교환 대상) — 그
-    // 결과 legalMoves는 점유된 L자 칸도 그대로 포함하고, 그 칸에 hover하면 폭발 미리보기가 뜬다
-    // (moveOnBoard도 실제로 그 칸에서 스왑 후 폭발한다 — 미리보기와 실제 규칙이 어긋나지 않는다).
-    // 쿨다운 중에는 여전히 어떤 후보 칸도 canLandAt을 통과하지 못해 legalMoves가 통째로 비고, 초록
-    // 하이라이트도 폭발 미리보기도 뜨지 않는다 — moveOnBoard가 실제로 거부하는 것과 정확히 일치한다.
-    // 초록 하이라이트와 hover 일치 판정 양쪽에 이 legalMoves 하나만 동일하게 사용한다 (리뷰 Finding 1
-    // — 이전에는 hover 판정이 미필터링된 knightMoves()를 써서, 착지 불가능한 칸에도 폭발 미리보기가 떴다).
+    // 실격 사유가 아니다 — legalMoves는 점유된 L자 칸도 포함하고, 그 칸에 hover하면 폭발
+    // 미리보기가 뜬다(moveOnBoard도 실제로 그 칸에서 스왑 후 폭발한다). 쿨다운 중에는 어떤
+    // 후보도 통과하지 못해 legalMoves가 통째로 비고 초록도 폭발 미리보기도 뜨지 않는다 —
+    // moveOnBoard가 실제로 거부하는 것과 정확히 일치한다. 초록 하이라이트와 hover 일치 판정
+    // 양쪽에 이 legalMoves 하나만 쓴다 (리뷰 Finding 1).
     const legalMoves = knightMoves(piece.square!).filter(m => canLandAt(state, piece, m));
     for (const m of legalMoves) highlights.push({ square: m, color: C.move });
     if (it.hoverSquare && legalMoves.some(m => sameSquare(m, it.hoverSquare!))) {
-      for (const sq of blastTargets(piece.type, it.hoverSquare)) highlights.push({ square: sq, color: C.range });
+      for (const sq of previewRange(piece, it.hoverSquare)) {
+        highlights.push({ square: sq, color: C.range });
+      }
     }
-    // legalMoves가 쿨다운으로 통째로 비어도(위 쿨다운 케이스) 선택 표식은 그대로 남는다 —
-    // "이동할 수 없다"와 "선택되지 않았다"는 다른 상태이므로.
+    // legalMoves가 쿨다운으로 비어도 선택 표식은 남는다 — "이동할 수 없다"와 "선택되지
+    // 않았다"는 다른 상태다.
     pushSelected(highlights, piece);
     return { highlights, lines, mergePreview };
   }
-  // 폰/비숍/룩과 슬롯의 나이트: hover가 실제로 착지 불가능한 칸(8랭크·범위 밖, 그리고 트레이
-  // 기물이라면 점유 칸까지)이면 moveOnBoard/placeFromSlot이 거부할 이동·배치·폭발을 미리 약속하지
-  // 않도록 미리보기 자체를 그리지 않는다 (검토 Item 1). 보드 위 기물이 점유 칸(자기 자신의 현재
-  // 칸 포함)에 hover하는 경우는 canLandAt이 더 이상 거부하지 않는다 — 점유 칸도 맞교환 대상으로
-  // 허용되기 때문이다(게임 규칙 변경). 그 결과 "기물을 클릭해 사거리를 확인한다"는 가장 흔한
-  // 조작(hover가 자기 칸과 같음)도 별도 예외 없이 canLandAt 하나로 자연히 통과한다 — 예전에
-  // 필요했던 hoveringOwnSquare 예외(회귀 1)는 canLandAt의 의미 변화에 흡수돼 불필요해졌다.
+
+  // ── 그 외 전부: hover가 실제로 착지 불가능한 칸이면 미리보기 자체를 그리지 않는다. 그러지
+  // 않으면 moveOnBoard/placeFromSlot이 거부할 이동·배치·폭발을 미리 약속하게 된다 (검토 Item 1).
+  // 보드 위 기물이 점유 칸(자기 칸 포함)에 hover하는 경우는 canLandAt이 거부하지 않는다 —
+  // 점유 칸도 맞교환 대상이기 때문이고, 덕분에 "기물을 클릭해 사거리를 확인한다"는 가장 흔한
+  // 조작이 별도 예외 없이 통과한다.
   if (it.hoverSquare && !canLandAt(state, piece, it.hoverSquare)) {
-    // 착지 불가 hover라 미리보기 전체를 접지만, 선택 표식은 여기서도 유지한다 (퀸 브랜치와 동일한
-    // 이유 — 잘못된 칸에 hover했다고 "무엇이 선택됐는지"까지 사라지면 안 된다).
+    // 미리보기는 접되 선택 표식은 남긴다 — 잘못된 칸에 hover했다고 "무엇이 선택됐는지"까지
+    // 사라지면 오히려 방향을 잃는다.
     pushSelected(highlights, piece);
     return { highlights, lines, mergePreview };
   }
-  // 비숍/룩(및 나이트-슬롯의 3×3 폭발)은 attackTargets 자체가 자기 칸을 포함하므로, origin을
-  // 별도로 push하면 같은 칸이 두 번 그려진다 (리뷰 Finding 2). attackTargets 결과에 이미 anchor가
-  // 있는지로 판단해 중복을 피한다 — 폰처럼 자기 칸을 포함하지 않는 패턴에는 origin이 그대로 남는다.
-  // anchor가 기물 자신의 칸과 같을 때도 origin을 건너뛴다 — 그 칸은 아래에서 pushSelected가
-  // C.selected로 이미 표시하므로, 흰 반투명 origin까지 얹으면 같은 칸에 두 마커가 겹쳐 찍힌다.
-  const targets = attackTargets(piece.type, anchor);
+
+  // ★ 여기부터는 **가산**이다. 예전에는 퀸이면 버프 라인만, 아니면 사거리만 그리는 배타
+  // 구조였는데, 버프와 공격을 겸하는 기물(아마존)이나 주기 공격과 폭발을 겸하는 기물
+  // (아치비숍·챈슬러)이 생기면서 한쪽이 통째로 사라졌다. 각 축을 독립적으로 얹는다.
+  if (TRAITS[piece.type].buffFactor > 0) {
+    for (const sq of queenLines(anchor)) highlights.push({ square: sq, color: C.queenLine });
+    for (const seg of queenLineSegments(anchor)) lines.push({ ...seg, color: C.queenLine });
+  }
+  const targets = previewRange(piece, anchor);
   const anchorIsOwnSquare = piece.square !== null && sameSquare(anchor, piece.square);
-  if (!targets.some(sq => sameSquare(sq, anchor)) && !anchorIsOwnSquare) {
+  // targets가 비어 있으면(퀸처럼 공격이 없는 기물) origin을 찍지 않는다 — 표시할 사거리가
+  // 없는데 기준 칸만 덩그러니 남으면 "여기 뭔가 있다"는 잘못된 신호가 된다.
+  if (targets.length > 0 && !targets.some(sq => sameSquare(sq, anchor)) && !anchorIsOwnSquare) {
     highlights.push({ square: anchor, color: C.origin });
   }
   for (const sq of targets) highlights.push({ square: sq, color: C.range });
