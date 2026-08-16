@@ -1,4 +1,4 @@
-import { CONFIG, tierMultiplier } from '../config';
+import { CONFIG, TRAITS, tierMultiplier } from '../config';
 import { pieceDamage, pieceGold } from '../core/combat';
 import { sellPrice } from '../core/economy';
 import { pieceAt } from '../core/pieces';
@@ -18,7 +18,10 @@ export function updateTooltip(
   // 0.0s"를 바로 위 "이동 쿨다운 없음"과 나란히 보여주는 게 중복이다 — 어차피 이 나이트의
   // cooldown은 항상 0이므로(재무장이 즉시 일어남) 그 줄이 알려주는 정보가 없다. interval을
   // config에서 되돌리면(0이 아니게 되면) 이 줄도 자동으로 다시 나타난다.
-  const suppressRemainingCooldown = p.type === 'knight' && def.interval === 0;
+  const suppressRemainingCooldown = TRAITS[p.type].blast && def.interval === 0;
+  // ⚠️ 이 배타 삼항은 TRAITS로 치환하지 않는다. `buffFactor > 0`으로 문자 그대로 바꾸면,
+  // 나중에 버프와 공격을 겸하는 기물이 생겼을 때 버퍼 분기로 들어가 공격력·주기·쿨다운 행이
+  // 통째로 사라진다. 겸업 기물이 실제로 들어오는 단계에서 가산 구조로 한 번에 재작성한다.
   const rows = p.type === 'queen'
     // 버프량은 이 퀸의 강화 단계에서 유도한다 (recalcQueenBuffs: queenBuffCount += tierMultiplier).
     // "+100%" 고정 표기는 T1에서만 참이다 — T3 퀸은 +400%, T6은 +3200%다. 겹침 규칙도 함께 적어야
@@ -37,7 +40,7 @@ export function updateTooltip(
         // 나이트는 이동 쿨다운을 표기한다. def.interval은 config 값 그대로이므로, 0(현재 설정 —
         // 게임 규칙 변경으로 나이트 쿨다운이 폐지됨)이면 "0s"처럼 거짓 정보를 주는 대신 쿨다운이
         // 없다는 사실을 그대로 알린다. interval을 config에서 되돌리면 문구도 자동으로 복원된다.
-        p.type === 'knight'
+        TRAITS[p.type].blast
           ? (def.interval > 0 ? `이동 쿨다운 ${def.interval}s` : '이동 쿨다운 없음')
           : `공격 주기 ${def.interval}s`,
         // 골드를 벌지 않는 기물(현재 비숍 외 전부)에는 줄 자체를 만들지 않는다 — "공격당 +0G"는

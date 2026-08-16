@@ -1,6 +1,6 @@
-import { CONFIG, tierMultiplier } from '../config';
+import { CONFIG, TRAITS, tierMultiplier } from '../config';
 import { sellPrice } from '../core/economy';
-import { attackTargets, knightMoves, queenLines } from '../core/patterns';
+import { attackTargets, blastTargets, knightMoves, queenLines } from '../core/patterns';
 import { ALLY_SPRITE_URL } from '../render/sprites';
 import { tierRingColor } from '../render/tiers';
 import type { PieceType, Square } from '../types';
@@ -61,13 +61,15 @@ const BLURB: Record<PieceType, Blurb> = {
  * "0초"라는 거짓 정보 대신 그 사실을 그대로 적고, config 값을 되돌리면 문구도 자동 복원된다. */
 function intervalLabel(type: PieceType): string {
   const { interval } = CONFIG.pieces[type];
-  if (type === 'queen') return '—';
-  if (type === 'knight') return interval > 0 ? `이동 쿨다운 ${interval}초` : '이동할 때마다 (쿨다운 없음)';
+  const t = TRAITS[type];
+  // blast를 먼저 본다 — 폭발 기물의 interval은 공격 주기가 아니라 이동 쿨다운이다.
+  if (t.blast) return interval > 0 ? `이동 쿨다운 ${interval}초` : '이동할 때마다 (쿨다운 없음)';
+  if (t.pattern === 'none') return '—';
   return `${interval}초`;
 }
 
 function damageLabel(type: PieceType): string {
-  return type === 'queen' ? '— (공격하지 않음)' : String(CONFIG.pieces[type].damage);
+  return CONFIG.pieces[type].damage === 0 ? '— (공격하지 않음)' : String(CONFIG.pieces[type].damage);
 }
 
 /** 골드 수입 줄. 버는 기물에만 줄을 만든다 — 나머지에 "공격당 +0G"를 적어 봐야 정보가 없다
@@ -92,8 +94,13 @@ const squareKey = (s: Square): string => `${s.file},${s.rank}`;
 /** 사거리 미리보기 — 실제 공격 패턴 함수를 그대로 호출한다 (설명과 게임 규칙의 단일 출처).
  * 퀸은 attackTargets가 빈 배열이므로(공격이 없다) 버프 라인인 queenLines를 보여준다. */
 function rangeSquares(type: PieceType): { targets: Set<string>; moves: Set<string> } {
-  const attack = type === 'queen' ? queenLines(RANGE_CENTER) : attackTargets(type, RANGE_CENTER);
-  const move = type === 'knight' ? knightMoves(RANGE_CENTER) : [];
+  const t = TRAITS[type];
+  // 공격 사거리와 폭발 범위를 합집합으로 보여준다 — 둘을 겸하는 기물이 생기면 그림이 저절로
+  // 둘 다 담는다. 퀸처럼 공격이 없고 버프만 있는 기물은 버프 라인을 대신 보여준다.
+  const attack = t.buffFactor > 0
+    ? queenLines(RANGE_CENTER)
+    : [...attackTargets(type, RANGE_CENTER), ...blastTargets(type, RANGE_CENTER)];
+  const move = t.moveL ? knightMoves(RANGE_CENTER) : [];
   return { targets: new Set(attack.map(squareKey)), moves: new Set(move.map(squareKey)) };
 }
 

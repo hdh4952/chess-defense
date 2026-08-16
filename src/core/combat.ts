@@ -1,4 +1,4 @@
-import { CONFIG, tierMultiplier } from '../config';
+import { CONFIG, TRAITS, tierMultiplier } from '../config';
 import type { GameEvent, GameState, Piece, Square } from '../types';
 import { enemySquare, sameSquare } from './grid';
 import { attackTargets } from './patterns';
@@ -71,7 +71,7 @@ export function updateCombat(state: GameState, dt: number, events: GameEvent[]):
     p.cooldown = Math.max(0, p.cooldown - dt);
     if (p.cooldown < COOLDOWN_EPS) p.cooldown = 0;
     const def = CONFIG.pieces[p.type];
-    if (def.damage === 0 || p.type === 'knight') continue;
+    if (TRAITS[p.type].pattern === 'none' || def.damage === 0) continue;
     if (p.square === null || p.cooldown > 0) continue;
     const targets = attackTargets(p.type, p.square);
     if (!anyEnemyIn(state, targets)) continue;

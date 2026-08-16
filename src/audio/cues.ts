@@ -117,13 +117,21 @@ export const AUDIO_TUNING: {
   muteRampSeconds: 0.05,
 };
 
-const ATTACK_CUE_BY_PIECE: Partial<Record<PieceType, CueKind>> = {
+/**
+ * attack 이벤트 → 큐. **Partial이 아니라 전수 Record이고 값에 null을 허용한다.**
+ * 예전에는 Partial이라 새 기물을 추가해도 컴파일이 통과했고, 그 기물의 공격은 완전 무음이
+ * 됐다 — 침묵으로 실패하는 종류의 구멍이라 테스트도 잡지 못한다. null을 명시하게 하면
+ * "소리가 없다"가 누락이 아니라 결정이 된다.
+ *
+ * knight/queen이 null인 이유: 둘 다 'attack' 이벤트를 내지 않는다(나이트는 knightBlast로,
+ * 퀸은 damage 0이라 발사 루프에서 제외). 도달하지 않는 값이지만 명시해 둔다.
+ */
+const ATTACK_CUE_BY_PIECE: Record<PieceType, CueKind | null> = {
   pawn: 'pawn',
   bishop: 'bishop',
   rook: 'rook',
-  // knight/queen은 'attack' 이벤트를 발생시키지 않는다(combat.ts: knight는 별도 knightBlast로
-  // 처리되고, queen은 damage===0이라 애초에 건너뛴다) — 매핑을 넣어도 도달하지 않지만, 넣지
-  // 않음으로써 "attack 이벤트로는 오지 않는 타입"이라는 사실을 이 표 자체가 드러내게 둔다.
+  knight: null,
+  queen: null,
 };
 
 /**
@@ -139,7 +147,7 @@ const ATTACK_CUE_BY_PIECE: Partial<Record<PieceType, CueKind>> = {
  */
 function cueForEvent(ev: GameEvent): CueKind | null {
   switch (ev.kind) {
-    case 'attack': return ATTACK_CUE_BY_PIECE[ev.pieceType] ?? null;
+    case 'attack': return ATTACK_CUE_BY_PIECE[ev.pieceType];
     // 골드 획득은 무음 — 언제나 같은 프레임의 attack 이벤트와 짝을 이루므로 이미 그 기물의
     // 공격 소리가 난다. 전용 큐를 주면 비숍이 발사할 때마다 소리가 두 겹으로 겹칠 뿐이다.
     case 'goldGained': return null;

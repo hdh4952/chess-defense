@@ -1,4 +1,4 @@
-import { CONFIG } from '../config';
+import { CONFIG, TRAITS } from '../config';
 import type { PieceType, Square } from '../types';
 import { inBoard } from './grid';
 
@@ -45,13 +45,20 @@ export function queenLines(sq: Square): Square[] {
 }
 
 export function attackTargets(type: PieceType, sq: Square): Square[] {
-  switch (type) {
+  switch (TRAITS[type].pattern) {
     case 'pawn': return pawnTargets(sq);
-    case 'knight': return knightBlastTargets(sq);
     case 'bishop': return bishopTargets(sq);
     case 'rook': return rookTargets(sq);
-    case 'queen': return [];
+    // 'none' = 주기 발사가 없는 기물. 나이트는 그래도 폭발 범위를 돌려준다 — 사거리 그림
+    // (시작 화면·hover 미리보기)이 이 값을 폴백으로 쓰고, patterns.test.ts와 highlights.test.ts가
+    // 그 길이(9칸)를 못박고 있다. 폭발과 사거리가 갈라지는 기물이 생기면 blastTargets를 쓸 것.
+    case 'none': return TRAITS[type].blast ? knightBlastTargets(sq) : [];
   }
+}
+
+/** 폭발 범위 — 사거리(attackTargets)와 분리된 축이다. 둘을 겸하는 기물이 생기면 여기서 갈라진다. */
+export function blastTargets(type: PieceType, sq: Square): Square[] {
+  return TRAITS[type].blast ? knightBlastTargets(sq) : [];
 }
 
 const L_OFFSETS = [[1, 2], [2, 1], [2, -1], [1, -2], [-1, -2], [-2, -1], [-2, 1], [-1, 2]] as const;

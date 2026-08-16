@@ -1,4 +1,4 @@
-import { CONFIG, tierMultiplier } from '../config';
+import { CONFIG, TRAITS, tierMultiplier } from '../config';
 import type { GameState, Piece, PieceType } from '../types';
 import { recalcQueenBuffs } from './buff';
 
@@ -16,7 +16,8 @@ export function freeSlotIndex(state: GameState): number | null {
 }
 
 export function canBuy(state: GameState, type: PieceType): boolean {
-  return !state.paused
+  return TRAITS[type].purchasable
+    && !state.paused
     && (state.phase === 'prepare' || state.phase === 'wave')
     && state.gold >= CONFIG.pieces[type].cost
     && freeSlotIndex(state) !== null;

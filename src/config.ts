@@ -1,3 +1,5 @@
+import type { PieceType } from './types';
+
 export const CONFIG = {
   board: { files: 8, ranks: 8, squarePx: 80 },
 
@@ -85,6 +87,41 @@ export const CONFIG = {
   economy: { sellRatio: 0.5 },
   slots: { rows: 4, cols: 4 },
 } as const;
+
+/**
+ * 기물의 **행동 특성** 표 — `type === 'knight'` 같은 술어가 코드 곳곳에 흩어지는 것을 막는다.
+ *
+ * 왜 필요한가. 지금 `type === 'knight'` 술어가 10곳, `type === 'queen'`이 8곳에 흩어져 있는데
+ * **컴파일 시 전수성이 보장되는 것은 하나도 없다.** 기물이 늘면 그 술어들은 조용히 false를
+ * 돌려주고, 새 기물은 "공격은 하는데 소리가 안 나고 이펙트도 안 그려지는" 상태로 배포된다.
+ * TRAITS는 `Record<PieceType, …>`이라 기물이 늘면 **컴파일러가 빠짐없이 짚어 준다.**
+ *
+ * 이 표는 "무엇을 하는 기물인가"만 담는다. "얼마나 세게"는 CONFIG.pieces가, "어떤 칸을"은
+ * patterns.ts가 담당한다 — 세 축을 섞지 않는 것이 이 표의 유일한 규칙이다.
+ */
+export type AttackPattern = 'pawn' | 'bishop' | 'rook' | 'none';
+
+export interface PieceTraits {
+  /** 주기 발사 패턴. 'none'이면 updateCombat의 발사 루프에서 제외된다. */
+  pattern: AttackPattern;
+  /** 배치·이동·합성 직후 주변 3×3 폭발 (tryKnightBlast). */
+  blast: boolean;
+  /** 보드 위 이동이 L자로 제한되는가. blast와 근거가 다르다 — 이쪽은 행마 규칙이고,
+   *  blast 쪽 쿨다운 게이트는 "미리보기가 약속한 폭발을 실제로도 터뜨리기 위한" 장치다. */
+  moveL: boolean;
+  /** 퀸 라인 버프 계수. 0이면 버프를 주지 않는다(buff.ts). */
+  buffFactor: number;
+  /** 상점에 노출되고 구매할 수 있는가. */
+  purchasable: boolean;
+}
+
+export const TRAITS: Record<PieceType, PieceTraits> = {
+  pawn:   { pattern: 'pawn',   blast: false, moveL: false, buffFactor: 0, purchasable: true },
+  knight: { pattern: 'none',   blast: true,  moveL: true,  buffFactor: 0, purchasable: true },
+  bishop: { pattern: 'bishop', blast: false, moveL: false, buffFactor: 0, purchasable: true },
+  rook:   { pattern: 'rook',   blast: false, moveL: false, buffFactor: 0, purchasable: true },
+  queen:  { pattern: 'none',   blast: false, moveL: false, buffFactor: 1, purchasable: true },
+};
 
 /**
  * 티어 n 기물의 능력치 배수 = 2^(n-1). 같은 티어끼리만 합쳐지므로(CONFIG.merge) T2는 T1 둘의

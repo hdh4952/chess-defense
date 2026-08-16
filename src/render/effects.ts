@@ -1,4 +1,4 @@
-import { CONFIG } from '../config';
+import { CONFIG, TRAITS } from '../config';
 import { fileCenterX, rankToTopY } from '../core/grid';
 import { tierRingColor } from './tiers';
 import type { GameEvent, Square } from '../types';
@@ -34,13 +34,16 @@ export class Effects {
 
   onEvent(ev: GameEvent): void {
     if (ev.kind === 'attack') {
-      if (ev.pieceType === 'pawn') {
+      // TRAITS.pattern으로 분기한다 — 예전에는 타입 이름을 직접 봤고 else가 없어서, 새 기물이
+      // 늘면 **컴파일도 테스트도 통과하는데 화면에는 아무것도 안 그려지는** 상태가 됐다.
+      const pattern = TRAITS[ev.pieceType].pattern;
+      if (pattern === 'pawn') {
         for (const sq of ev.targets) {
           const c = center(sq);
           this.list.push({ kind: 'shock', ...c, t: 0, ttl: 0.1 });
         }
-      } else if (ev.pieceType === 'rook' || ev.pieceType === 'bishop') {
-        const kind = ev.pieceType === 'rook' ? 'crack' : 'beam';
+      } else if (pattern === 'rook' || pattern === 'bishop') {
+        const kind = pattern === 'rook' ? 'crack' : 'beam';
         const from = center(ev.from);
         // 방향별 가장 먼 대상 칸까지 라인 (관통 연출)
         const dirs = new Map<string, Square>();
@@ -60,6 +63,8 @@ export class Effects {
         }
         if (kind === 'crack') this.shake = Math.max(this.shake, 0.15);
       }
+      // pattern 'none'은 주기 발사가 없으므로 attack 이벤트가 오지 않는다. 새 패턴을 추가하면
+      // 여기 분기도 함께 늘려야 한다 — 안 늘리면 그 기물만 조용히 무연출이 된다.
     }
     if (ev.kind === 'knightBlast') {
       const c = center(ev.square);

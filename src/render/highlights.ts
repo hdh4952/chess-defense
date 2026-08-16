@@ -1,5 +1,6 @@
 import { canLandAt, findPiece, resolveLanding } from '../core/pieces';
-import { attackTargets, knightMoves, queenLines } from '../core/patterns';
+import { TRAITS } from '../config';
+import { attackTargets, blastTargets, knightMoves, queenLines } from '../core/patterns';
 import { sameSquare } from '../core/grid';
 import type { GameState, Interaction, Piece, Square } from '../types';
 import type { ViewState } from './renderer';
@@ -92,7 +93,7 @@ export function buildHighlights(
     }
   }
 
-  if (piece.type === 'queen') {
+  if (TRAITS[piece.type].buffFactor > 0) {
     // hover가 실제 착지 제안일 때만 canLandAt으로 검증한다 — hover가 없어 anchor가 퀸의 현재 칸으로
     // 대체된 경우는 "제안"이 아니므로 검증 대상에서 제외한다. hover가 퀸 자신의 현재 칸을 가리키는
     // 경우도 별도 예외 없이 canLandAt이 자연히 통과시킨다 — 점유 칸이 더 이상 착지 실격 사유가
@@ -111,7 +112,7 @@ export function buildHighlights(
     pushSelected(highlights, piece);
     return { highlights, lines, mergePreview };
   }
-  if (piece.type === 'knight' && onBoard) {
+  if (TRAITS[piece.type].moveL && onBoard) {
     // canLandAt 하나로 L자 + 이동 쿨다운 게이트를 적용한다 (검토 Item 1). 점유 칸은 더 이상 착지
     // 실격 사유가 아니다 (게임 규칙 변경, 사용자 승인 — 보드 위 기물은 점유 칸도 맞교환 대상) — 그
     // 결과 legalMoves는 점유된 L자 칸도 그대로 포함하고, 그 칸에 hover하면 폭발 미리보기가 뜬다
@@ -123,7 +124,7 @@ export function buildHighlights(
     const legalMoves = knightMoves(piece.square!).filter(m => canLandAt(state, piece, m));
     for (const m of legalMoves) highlights.push({ square: m, color: C.move });
     if (it.hoverSquare && legalMoves.some(m => sameSquare(m, it.hoverSquare!))) {
-      for (const sq of attackTargets('knight', it.hoverSquare)) highlights.push({ square: sq, color: C.range });
+      for (const sq of blastTargets(piece.type, it.hoverSquare)) highlights.push({ square: sq, color: C.range });
     }
     // legalMoves가 쿨다운으로 통째로 비어도(위 쿨다운 케이스) 선택 표식은 그대로 남는다 —
     // "이동할 수 없다"와 "선택되지 않았다"는 다른 상태이므로.

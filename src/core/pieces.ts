@@ -1,10 +1,10 @@
-import { CONFIG } from '../config';
+import { CONFIG, TRAITS } from '../config';
 import type { GameEvent, GameState, Piece, Square } from '../types';
 import { recalcQueenBuffs } from './buff';
 import { applyAttack, pieceDamage } from './combat';
 import { freeSlotIndex, SLOT_CAPACITY } from './economy';
 import { inBoard, sameSquare } from './grid';
-import { knightBlastTargets } from './patterns';
+import { blastTargets } from './patterns';
 
 export function findPiece(state: GameState, pieceId: string): Piece | undefined {
   return state.pieces.find(p => p.id === pieceId);
@@ -75,9 +75,14 @@ export function resolveLanding(
   if (!inLandableBounds(square)) return reject(null, 'outOfBounds');
 
   const fromBoard = piece.square !== null;
-  if (fromBoard && piece.type === 'knight') {
-    if (piece.cooldown > 0) return reject(null, 'knightCooldown');
-    if (!isKnightMove(piece.square!, square)) return reject(null, 'knightPattern');
+  if (fromBoard) {
+    // 두 게이트는 근거가 다르므로 술어도 분리한다. 쿨다운은 "미리보기가 약속한 폭발이 실제로
+    // 터지게" 하는 장치(blast)이고, L자는 행마 규칙(moveL)이다. 지금은 나이트가 둘 다 참이라
+    // 같은 블록처럼 보이지만, 폭발만 하고 자유 이동하는 기물이 생기면 즉시 갈라진다.
+    if (TRAITS[piece.type].blast && piece.cooldown > 0) return reject(null, 'knightCooldown');
+    if (TRAITS[piece.type].moveL && !isKnightMove(piece.square!, square)) {
+      return reject(null, 'knightPattern');
+    }
   }
 
   const occupant = pieceAt(state, square.file, square.rank);
@@ -97,7 +102,7 @@ export function resolveLanding(
     // 삼킨다 — 미리보기가 그린 3×3이 실제로는 0회가 되는, 이 파일이 막으려는 바로 그 상황이다.
     // 현재 CONFIG.pieces.knight.interval이 0이라 이 게이트는 항상 통과하지만(쿨다운이 늘 0),
     // interval을 되돌리는 순간 코드 변경 없이 그대로 실전화된다.
-    if (occupant.type === 'knight' && occupant.cooldown > 0) return reject(occupant, 'knightCooldown');
+    if (TRAITS[occupant.type].blast && occupant.cooldown > 0) return reject(occupant, 'knightCooldown');
     const resultTier = piece.tier + 1;
     if (resultTier > CONFIG.merge.maxTier[piece.type]) return reject(occupant, 'tierOverflow');
     return { kind: 'merge', occupant, resultTier };
@@ -155,10 +160,14 @@ function interactable(state: GameState): boolean {
  */
 function tryKnightBlast(state: GameState, piece: Piece, events: GameEvent[]): void {
   if (piece.cooldown > 0) return;
-  const targets = knightBlastTargets(piece.square!);
+  const targets = blastTargets(piece.type, piece.square!);
   applyAttack(state, targets, pieceDamage(piece), events);
   events.push({ kind: 'knightBlast', square: { ...piece.square! } });
-  piece.cooldown = CONFIG.pieces.knight.interval;
+  // ★ 반드시 그 기물 자신의 interval을 읽는다. 예전에는 CONFIG.pieces.knight.interval이
+  // 하드코딩돼 있었는데, 폭발하는 기물이 나이트뿐이라 값이 같아 **어떤 테스트도 잡지 못했다.**
+  // 폭발을 겸하는 기물이 생기는 순간 그 기물이 나이트의 쿨다운(현재 0 = 무제한)을 물려받아
+  // 무제한 폭발기가 된다. 그 사고가 나기 전에 고쳐 둔다 — 순수 나이트에는 완전한 no-op다.
+  piece.cooldown = CONFIG.pieces[piece.type].interval;
 }
 
 /** 슬롯 → 보드. 쿨다운은 유지된다 (스펙 5.1) */
@@ -174,13 +183,13 @@ export function placeFromSlot(
     // 트레이발 합성이 슬롯을 하나 비워 canBuy를 다시 연다 — 보드가 꽉 찬 후반에도 구매 루프가
     // 계속 돌게 하는 의도된 동작이다. 흡수되는 건 트레이의 p이므로 보드 위 칸 수는 그대로다.
     commitMerge(state, p, landing.occupant, events);
-    if (landing.occupant.type === 'knight') tryKnightBlast(state, landing.occupant, events);
+    if (TRAITS[landing.occupant.type].blast) tryKnightBlast(state, landing.occupant, events);
     return true;
   }
   p.square = { file, rank };
   p.slotIndex = null;
   recalcQueenBuffs(state);
-  if (p.type === 'knight') tryKnightBlast(state, p, events);
+  if (TRAITS[p.type].blast) tryKnightBlast(state, p, events);
   return true;
 }
 
@@ -210,7 +219,7 @@ export function moveOnBoard(
     // "플레이어가 직접 움직인 기물만 폭발한다"는 맞교환 규칙과 같은 근거다 — 다만 합성에서는
     // 움직인 쪽이 사라지므로 그 화력이 생존자에게 넘어간다(티어가 갱신된 뒤의 데미지로 터진다).
     commitMerge(state, p, landing.occupant, events);
-    if (landing.occupant.type === 'knight') tryKnightBlast(state, landing.occupant, events);
+    if (TRAITS[landing.occupant.type].blast) tryKnightBlast(state, landing.occupant, events);
     return true;
   }
   const from = p.square;
@@ -218,7 +227,7 @@ export function moveOnBoard(
   p.square = { file, rank };
   if (occupant) occupant.square = from;
   recalcQueenBuffs(state);
-  if (p.type === 'knight') tryKnightBlast(state, p, events);
+  if (TRAITS[p.type].blast) tryKnightBlast(state, p, events);
   return true;
 }
 
