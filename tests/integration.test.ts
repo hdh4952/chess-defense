@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CONFIG, enemyCount } from '../src/config';
+import { CONFIG, clearBonus, enemyCount } from '../src/config';
 import { createEnemy } from '../src/core/enemy';
 import { BOARD_H } from '../src/core/grid';
 import { createInitialState } from '../src/core/state';
@@ -20,8 +20,9 @@ describe('웨이브 1 엔드투엔드 (스펙 4.5 대조)', () => {
     expect(s.phase).toBe('prepare');
     expect(s.hp).toBe(CONFIG.player.startHp); // 누수 0
     expect(s.stats.totalKills).toBe(10);
-    expect(s.gold).toBe(100 + 300);          // 처치 100 + 보너스 300 (시작골드 제외)
-    expect(s.stats.totalGoldEarned).toBe(400);
+    // 전멸이므로 보너스는 곡선의 전액이다 (처치율 1.0)
+    expect(s.gold).toBe(100 + clearBonus(1));   // 처치 100 + 보너스 (시작골드 제외)
+    expect(s.stats.totalGoldEarned).toBe(100 + clearBonus(1));
     expect(events.some(e => e.kind === 'waveCleared')).toBe(true);
   });
 

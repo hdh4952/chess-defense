@@ -1,4 +1,4 @@
-import { CONFIG, enemyCount, enemyTraits } from '../config';
+import { CONFIG, clearBonus, enemyCount, enemyTraits } from '../config';
 import type { GameEvent, GameState } from '../types';
 import { createEnemy } from './enemy';
 
@@ -15,6 +15,7 @@ export function startWave(state: GameState): void {
   state.prepareTimer = 0;
   state.spawnTimer = 0;      // 첫 스폰은 즉시
   state.spawnedCount = 0;
+  state.killedThisWave = 0;
 }
 
 export function updateSpawning(
@@ -43,8 +44,10 @@ export function updateSpawning(
 export function checkWaveEnd(state: GameState, events: GameEvent[]): void {
   if (state.phase !== 'wave') return;
   if (state.spawnedCount < enemyCount(state.wave) || state.enemies.length > 0) return;
-  state.gold += CONFIG.wave.clearBonus;
-  state.stats.totalGoldEarned += CONFIG.wave.clearBonus;
+  // 보너스는 지금 막 끝난 웨이브(state.wave) 기준이다 — 지급이 state.wave++보다 앞에 있다.
+  const bonus = clearBonus(state.wave, state.killedThisWave / enemyCount(state.wave));
+  state.gold += bonus;
+  state.stats.totalGoldEarned += bonus;
   events.push({ kind: 'waveCleared', wave: state.wave });
   if (state.wave >= CONFIG.wave.total) {
     state.phase = 'victory';

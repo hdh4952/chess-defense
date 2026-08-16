@@ -52,6 +52,9 @@ export interface GameState {
   prepareTimer: number;
   spawnTimer: number;
   spawnedCount: number;
+  /** 이번 웨이브에서 처치한 적 수. 클리어 보너스의 처치율 연동에 쓴다 — stats.totalKills는
+   *  게임 전체 누적이라 웨이브별로는 쓸 수 없고, 웨이브별 누수 카운터도 따로 없다. */
+  killedThisWave: number;
   speedMultiplier: 1 | 2;
   paused: boolean;
   pieces: Piece[];

@@ -10,6 +10,7 @@ export function createInitialState(): GameState {
     prepareTimer: CONFIG.wave.prepareSeconds,
     spawnTimer: 0,
     spawnedCount: 0,
+    killedThisWave: 0,
     speedMultiplier: 1,
     paused: false,
     pieces: [],

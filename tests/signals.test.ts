@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CONFIG, enemyCount, enemyHp } from '../src/config';
+import { CONFIG, clearBonus, enemyCount, enemyHp } from '../src/config';
 import {
   boardPiece, bossTransit, buildCost, chaseWave5Boss, countingRng, cycleRng,
   fullRun, minWinBuild, rooksTwoPerFile, transitDamage,
@@ -33,15 +33,37 @@ describe('N1a — 이론 예산 상한 (감시: 클리어 보너스 단계)', ()
     }
     return g;
   }
-  /** 무누수·전량 처치·방어비 0을 가정한 상한. 클리어 보너스가 웨이브 함수로 바뀌면 이 식의
-   *  `clearBonus × (w−1)` 항을 `Σ clearBonus(1..w−1)`로 갈아끼워야 한다. */
+  /** 무누수·**전량 처치**·방어비 0을 가정한 상한. 전량 처치 가정이라 보너스는 곡선의 최댓값을
+   *  쓴다 — 처치율 연동이 들어간 뒤에도 "상한"의 정의는 바뀌지 않는다. */
+  const sumBonus = (uptoInclusive: number): number => {
+    let g = 0;
+    for (let w = 1; w <= uptoInclusive; w++) g += clearBonus(w);
+    return g;
+  };
   const ceilingBefore = (w: number): number =>
-    CONFIG.player.startGold + grossKillGold(w) + CONFIG.wave.clearBonus * (w - 1);
+    CONFIG.player.startGold + grossKillGold(w) + sumBonus(w - 1);
 
-  it('w5 · w11 · 총액 기준선', () => {
-    expect(ceilingBefore(5)).toBe(2108);
-    expect(ceilingBefore(11)).toBe(6426);
-    expect(ceilingBefore(CONFIG.wave.total + 1)).toBe(24702);
+  it('w5 · w11 · 총액 기준선 (곡선 도입으로 갱신)', () => {
+    // 정액 300G 시절: 2,108 / 6,426 / 24,702. 곡선이 초반을 32% 열고 총액은 거의 그대로 둔다.
+    expect(ceilingBefore(5)).toBe(2788);
+    expect(ceilingBefore(11)).toBe(7526);
+    expect(ceilingBefore(CONFIG.wave.total + 1)).toBe(24902);
+  });
+
+  it('곡선의 모양 — 초반을 열고 후반을 조인다', () => {
+    expect(clearBonus(1)).toBe(500);
+    expect(clearBonus(10)).toBe(320);
+    expect(clearBonus(20)).toBe(120);
+    expect(sumBonus(CONFIG.wave.total)).toBe(6200);   // 정액 시절 6,000과 거의 같다
+  });
+
+  it('★ 처치율 연동 — 누수 방치에 처음으로 대가가 생긴다', () => {
+    // 예전에는 클리어 보너스가 정액이라 "체력만 버틸 수 있다면 누수 방치는 처치 골드만
+    // 포기하는 선택지"였다. 곡선은 그 무조건 수입을 1.67배로 키우므로 연동이 함께 와야 한다.
+    expect(clearBonus(1, 1)).toBe(500);      // 전멸
+    expect(clearBonus(1, 0.5)).toBe(375);
+    expect(clearBonus(1, 0)).toBe(250);      // 전량 누수 — 하한 50%가 사망 나선을 막는다
+    expect(clearBonus(1, 0)).toBe(clearBonus(1) * CONFIG.wave.clearBonusFloor);
   });
 });
 
@@ -157,6 +179,19 @@ describe('N4 — 합성 골드 중립성 (감시: 적 유형·융합 단계)', (
 });
 
 describe('N6 — 엔진 무결성 풀런 (감시: 전 단계)', () => {
+  /** "이 웨이브를 전멸시켰는가"를 주면 총 수입을 CONFIG에서 유도한다. 처치 골드와 클리어
+   *  보너스(처치율 연동 포함) 둘 다 계산하므로, 수입 규칙이 바뀌면 여기서 한 번에 드러난다. */
+  function earnedFor(cleared: (wave: number) => boolean): number {
+    let g = 0;
+    for (let w = 1; w <= CONFIG.wave.total; w++) {
+      const isBoss = w % CONFIG.wave.bossEvery === 0;
+      const ratio = cleared(w) ? 1 : 0;
+      g += ratio * enemyCount(w) * enemyHp(w) * (isBoss ? CONFIG.enemy.bossHpMultiplier : 1);
+      g += clearBonus(w, ratio);
+    }
+    return g;
+  }
+
   // rng 감시 역할은 없다. 8파일 대칭 빌드에서는 스폰 파일이 결과에 영향을 주지 않아
   // `() => 0`(전부 파일 0)으로 돌려도 같은 값이 나온다. rng는 N8이 본다.
   it('룩 2기/파일: 일반 적 전멸 · 보스 4마리 전부 누수', () => {
@@ -165,7 +200,9 @@ describe('N6 — 엔진 무결성 풀런 (감시: 전 단계)', () => {
     expect(r.kills).toBe(448);
     expect(r.leaks).toBe(4);
     expect(r.bossLeaks).toBe(4);
-    expect(r.earned).toBe(20472);
+    // 수입을 유도로 확인한다 — 이 빌드는 일반 적을 전멸시키고 보스 4마리를 전부 놓치므로
+    // 보스 웨이브의 처치율은 0이고 보너스가 하한(50%)까지 깎인다.
+    expect(r.earned).toBe(earnedFor(w => w % CONFIG.wave.bossEvery !== 0));
 
     // ★ 이 빌드가 이 시리즈의 전제를 한 줄로 보여준다 — 일반 웨이브 누수가 0인데도
     //   보스 누수 4회 × 5 = 20 > 시작 체력 10이라 실제로는 패배 빌드다.
@@ -182,6 +219,8 @@ describe('N6 — 엔진 무결성 풀런 (감시: 전 단계)', () => {
     expect(r.leaks).toBe(1);
     expect(r.bossLeaks).toBe(1);
     expect(r.bossLeaks * CONFIG.player.hpLossBoss).toBeLessThan(CONFIG.player.startHp);
+    // w20 보스 하나만 놓친다.
+    expect(r.earned).toBe(earnedFor(w => w !== CONFIG.wave.total));
   });
 });
 

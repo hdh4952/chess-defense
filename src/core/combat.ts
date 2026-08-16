@@ -69,6 +69,7 @@ export function applyAttack(
     state.enemies.splice(state.enemies.indexOf(e), 1);
     state.gold += e.maxHp;
     state.stats.totalKills++;
+    state.killedThisWave++;
     state.stats.totalGoldEarned += e.maxHp;
     events.push({
       kind: 'enemyDied', enemyId: e.id, square: enemySquare(e), isBoss: e.isBoss, reward: e.maxHp,

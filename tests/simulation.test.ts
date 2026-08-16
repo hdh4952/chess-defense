@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CONFIG, enemyCount, enemyHp } from '../src/config';
+import { CONFIG, clearBonus, enemyCount, enemyHp } from '../src/config';
 import { createInitialState } from '../src/core/state';
 import { stepGame } from '../src/core/step';
 import { BOARD_H } from '../src/core/grid';
@@ -77,7 +77,12 @@ describe('전 게임 시뮬레이션', () => {
     // 게 정상이며, 아래 실측 단언들은 totalEnemies(유도치)를 그대로 써서 재조정에 영향받지 않는다.
     expect(totalEnemies).toBe(452);
     expect(s.stats.totalKills).toBe(totalEnemies - bossWaves.length);
-    expect(s.stats.totalGoldEarned).toBe(killGold + CONFIG.wave.clearBonus * CONFIG.wave.total);
+    // 이 빌드는 일반 적을 전멸시키고 보스만 놓치므로, 보스 웨이브의 처치율만 0이다.
+    let bonusTotal = 0;
+    for (let w = 1; w <= CONFIG.wave.total; w++) {
+      bonusTotal += clearBonus(w, w % CONFIG.wave.bossEvery === 0 ? 0 : 1);
+    }
+    expect(s.stats.totalGoldEarned).toBe(killGold + bonusTotal);
   });
 
   it('20웨이브 보스 누수: 체력 6 이상이면 승리, 5 이하면 패배 우선 (스펙 3.1/10.5)', () => {
@@ -220,7 +225,9 @@ describe('밸런스 확장 측정 — 후반 웨이브 & 보스 게이트 (Task 
     return g;
   }
   function goldCeilingBeforeWave(wave: number): number {
-    return CONFIG.player.startGold + grossKillGold(wave) + CONFIG.wave.clearBonus * (wave - 1);
+    let bonus = 0;
+    for (let w = 1; w < wave; w++) bonus += clearBonus(w);
+    return CONFIG.player.startGold + grossKillGold(wave) + bonus;
   }
 
   it('[리포트] 웨이브 5 보스 게이트 — 충돌 없는 배치 재측정 + 예산 대비 (스펙 9.5-4)', () => {

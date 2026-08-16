@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { CONFIG, clearBonus, enemyCount } from '../src/config';
 import { createInitialState } from '../src/core/state';
 import {
   checkWaveEnd, remainingEnemies, startWave, updatePrepare, updateSpawning,
@@ -64,6 +65,9 @@ describe('웨이브 종료 (스펙 3/4.4)', () => {
     startWave(s);
     updateSpawning(s, 60, [], rngFile(0));
     s.enemies = []; // 전부 처치된 상황
+    // 처치율 연동이 생긴 뒤로는 "적이 사라졌다"만으로는 부족하다 — 처치와 누수가 구분되므로
+    // 이 하네스가 어느 쪽을 흉내내는지 명시해야 한다. 여기서는 전멸이다.
+    s.killedThisWave = enemyCount(wave);
     return s;
   }
 
@@ -77,13 +81,14 @@ describe('웨이브 종료 (스펙 3/4.4)', () => {
     checkWaveEnd(s, []);
     expect(s.phase).toBe('wave');
   });
-  it('클리어: +300골드, 다음 웨이브 준비 10초, 이벤트 2종', () => {
+  it('클리어: 보너스 지급, 다음 웨이브 준비 10초, 이벤트 2종', () => {
     const s = clearedWave(1);
     const gold = s.gold;
     const ev: GameEvent[] = [];
     checkWaveEnd(s, ev);
-    expect(s.gold).toBe(gold + 300);
-    expect(s.stats.totalGoldEarned).toBe(300);
+    // 정액 300G에서 곡선으로 바뀌었다. 값을 하드코딩하지 않고 clearBonus에서 유도한다.
+    expect(s.gold).toBe(gold + clearBonus(1));
+    expect(s.stats.totalGoldEarned).toBe(clearBonus(1));
     expect(s.wave).toBe(2);
     expect(s.phase).toBe('prepare');
     expect(s.prepareTimer).toBe(10);
@@ -96,13 +101,28 @@ describe('웨이브 종료 (스펙 3/4.4)', () => {
     checkWaveEnd(s, ev);
     expect(ev).toContainEqual({ kind: 'prepareStarted', wave: 5, isBossWave: true });
   });
-  it('웨이브 20 클리어 → victory (+300은 지급)', () => {
+  it('웨이브 20 클리어 → victory (마지막 보너스도 지급)', () => {
     const s = clearedWave(20);
     const gold = s.gold;
     checkWaveEnd(s, []);
     expect(s.phase).toBe('victory');
-    expect(s.gold).toBe(gold + 300);
+    expect(s.gold).toBe(gold + clearBonus(20));
     expect(s.wave).toBe(20);
+  });
+
+  it('★ 누수를 방치하면 보너스가 줄어든다 — 하한 50%까지', () => {
+    // 예전에는 클리어 보너스가 정액이라 "체력만 버틸 수 있다면 누수 방치는 처치 골드만
+    // 포기하는 선택지"였다. 이제 방치에 직접 대가가 붙는다.
+    const full = clearedWave(1);
+    const half = clearedWave(1); half.killedThisWave = Math.floor(enemyCount(1) / 2);
+    const none = clearedWave(1); none.killedThisWave = 0;
+    const paid = (s: ReturnType<typeof clearedWave>): number => {
+      const g = s.gold; checkWaveEnd(s, []); return s.gold - g;
+    };
+    const a = paid(full), b = paid(half), c = paid(none);
+    expect(a).toBeGreaterThan(b);
+    expect(b).toBeGreaterThan(c);
+    expect(c).toBe(Math.round(clearBonus(1) * CONFIG.wave.clearBonusFloor));
   });
 });
 

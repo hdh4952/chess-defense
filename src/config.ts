@@ -8,7 +8,16 @@ export const CONFIG = {
   wave: {
     total: 20,
     prepareSeconds: 10,
-    clearBonus: 300,
+    // 클리어 보너스는 정액이 아니라 **역방향 곡선**이다. 이 게임은 골드의 83%가 후반에
+    // 들어오는데 최소 승리 비용은 초반부터 필요해서, 정액 보너스는 초반을 조이고 후반에
+    // 남아돌게 만든다. 곡선으로 바꾸면 w5 예산이 2,108 → 2,788G(+32%)가 되고 후반 잉여는
+    // 줄어든다. 총액은 6,000 → 6,200G로 거의 그대로다.
+    clearBonusBase: 500,
+    clearBonusDecay: 20,
+    // 처치율 연동의 하한. 0으로 두면 무너진 판의 수입이 더 줄어 사망 나선이 생기고,
+    // 1로 두면(=연동 없음) "체력만 버틸 수 있다면 누수 방치가 이득"이라는 기존 구멍이
+    // 곡선 때문에 오히려 커진다(무조건 수입이 w1 기준 300 → 500G로 1.67배).
+    clearBonusFloor: 0.5,
     spawnInterval: 1.0,
     countBase: 10,
     countPerWave: 2,        // 10 + 2*(w-1)
@@ -227,4 +236,25 @@ export function armorMultiplier(traits: readonly EnemyTrait[], isBoss: boolean):
     if (v !== undefined) m *= v;
   }
   return m;
+}
+
+
+/**
+ * 웨이브 클리어 보너스 — 웨이브 번호에 따라 줄어드는 곡선이고, 그 웨이브의 처치율에 연동된다.
+ *
+ * 두 축이 각각 다른 문제를 푼다.
+ *  - **곡선**: 골드의 83%가 후반에 들어오는데 최소 승리 비용은 초반부터 필요하다. 정액이면
+ *    초반이 숨막히고 후반이 남아돈다.
+ *  - **처치율 연동**: 정액 보너스는 "체력만 버틸 수 있다면 누수 방치가 이득"이라는 선택지를
+ *    만든다(클리어 보너스는 그대로 받고 처치 골드만 포기). 곡선이 그 무조건 수입을 1.67배로
+ *    키우므로 연동 없이 곡선만 넣으면 결함이 오히려 커진다.
+ *
+ * 하한(clearBonusFloor)이 사망 나선을 막는다 — 0이면 무너진 판의 수입이 더 줄어 회복이
+ * 불가능해지고, 1이면 연동이 없는 것과 같다.
+ */
+export function clearBonus(wave: number, killRatio = 1): number {
+  const { clearBonusBase, clearBonusDecay, clearBonusFloor } = CONFIG.wave;
+  const full = Math.max(0, clearBonusBase - clearBonusDecay * (wave - 1));
+  const ratio = clearBonusFloor + (1 - clearBonusFloor) * Math.min(1, Math.max(0, killRatio));
+  return Math.round(full * ratio);
 }
