@@ -211,8 +211,10 @@ describe('N6 — 엔진 무결성 풀런 (감시: 전 단계)', () => {
 
   it('최소 승리 빌드: w20 보스 하나만 놓친다', () => {
     // 적 유형 도입 전에는 무누수(452킬)였다. 지금은 w20 보스를 놓친다 — w20은 놓쳐도 이기는
-    // 보스이므로(체력 10 → −5 → 5 > 0) 이것이 의도된 상태다. 그 보스를 잡으려면 더 사야 한다
-    // (실측: 룩 8기 +4,000G면 w20이 6/8이 된다).
+    // 보스이므로(체력 10 → −5 → 5 > 0) 이것이 의도된 상태다.
+    // ⚠️ 이 빌드가 w20을 놓치는 것은 **화력이 모자라서가 아니라 배치 때문이다.** 같은 18,800G를
+    // 보스 파일에 집중하면 8/8로 잡힌다(아래 N7 참고). 골드를 더 쓰는 것(룩 8기 +4,000G → 6/8)도
+    // 방법이지만, 이 게임에서 w20을 여는 주된 수단은 구매가 아니라 **이동**이다.
     const r = fullRun(minWinBuild(), cycleRng());
     expect(r.phase).toBe('victory');
     expect(r.kills).toBe(451);
@@ -247,9 +249,13 @@ describe('N7 — 보스 3/4 처치 가능성 ★ (감시: 적 유형 단계의 �
     expect(killed).toBe(0);
   });
 
-  it('★ 더 사면 w20이 열린다 — "약간 더 사면 되는 압력"이 실제로 존재하는지', () => {
+  it('★ w20은 불가능한 벽이 아니다 — 더 사도 열리고, 옮기면 더 확실히 열린다', () => {
     // 이 단언이 없으면 w20 0/8이 "불가능한 벽"인지 "투자하면 되는 목표"인지 구분되지 않는다.
     // 벽이 되면 마지막 보스 보상 1,770G가 설계상 도달 불가가 된다.
+    //
+    // ⚠️ 이 테스트의 예전 이름은 "더 사면 w20이 열린다"였는데 그 서술은 절반만 맞았다. 실측상
+    // w20을 여는 더 강한 수단은 **이동**이다 — 같은 18,800G를 대칭 배치하면 0/8, 보스 파일에
+    // 집중하면 8/8이다. 골드는 보조 수단이고, 아래 두 단언이 그 둘을 각각 고정한다.
     const bigger = () => {
       const b = minWinBuild();
       for (const f of FILES) b.push(boardPiece('rook', f, 5));
@@ -258,6 +264,36 @@ describe('N7 — 보스 3/4 처치 가능성 ★ (감시: 적 유형 단계의 �
     expect(buildCost(bigger()) - buildCost(minWinBuild())).toBe(8 * CONFIG.pieces.rook.cost);
     const killed = FILES.map(f => bossTransit(20, f, bigger())).filter(r => r.killed).length;
     expect(killed).toBeGreaterThanOrEqual(6);
+
+    // ★ 그리고 더 사지 않아도, 같은 18,800G를 보스 파일 쪽으로 옮기기만 하면 8/8이 된다.
+    // 이쪽이 더 싸고(0G) 더 확실하다(8/8 > 6/8). 보스는 적이 1마리·1파일이라 일반 웨이브의
+    // 최적해("8파일을 고루 덮어라")가 통째로 뒤집힌다 — 대칭 배치는 화력의 5/8을 놀린다.
+    //
+    // ⚠️ 퀸은 **실제로 인접한** 파일에 둬야 한다. 인접 판정에 랩어라운드는 없으므로 파일 7의
+    // 이웃을 (7+1)%8=0으로 잡으면 버프가 통째로 사라지고 같은 골드로도 7/8에 그친다.
+    const focused = (bossFile: number) => {
+      const { files, ranks } = CONFIG.board;
+      const b: ReturnType<typeof minWinBuild> = [];
+      const near = bossFile === files - 1 ? bossFile - 1 : bossFile + 1;
+      const far = bossFile === files - 1 ? bossFile - 2 : bossFile === 0 ? 2 : bossFile - 1;
+      const queens = () => b.filter(p => p.type === 'queen').length;
+      // 보스 파일 한 줄은 적이 내려오는 내내 사거리 안에 든다
+      for (let r = 1; r <= ranks; r++) b.push(boardPiece('rook', bossFile, r));
+      for (const f of [near, far]) for (let r = 1; r <= ranks && queens() < 12; r++) {
+        b.push(boardPiece('queen', f, r));
+      }
+      for (let d = 2, n = 0; d < files && n < 16 - ranks; d++) for (const sgn of [1, -1]) {
+        const f = bossFile + d * sgn;
+        if (f < 0 || f >= files) continue;
+        for (let r = 1; r <= ranks && n < 16 - ranks; r++) {
+          if (b.some(p => p.square!.file === f && p.square!.rank === r)) continue;
+          b.push(boardPiece('rook', f, r)); n++;
+        }
+      }
+      return b;
+    };
+    expect(buildCost(focused(0))).toBe(buildCost(minWinBuild()));   // 한 푼도 더 쓰지 않는다
+    expect(FILES.filter(f => bossTransit(20, f, focused(f)).killed).length).toBe(CONFIG.board.files);
   });
 });
 
