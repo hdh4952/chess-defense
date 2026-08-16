@@ -181,18 +181,23 @@ describe('updateTooltip (스펙 7.7 — 기물 hover 툴팁)', () => {
     expect(el.innerHTML).toContain(`판매가 ${sellPrice('queen')}G`);
   });
 
-  it('퀸 버프 설명은 겹치는 퀸마다 배율이 누적된다는 것을 알려준다 (리뷰 Finding 3 — 고정 ×2 표기는 오해 소지)', () => {
-    const el = makeEl();
+  it('퀸 버프 설명은 자기 강화 단계에서 유도된 실제 버프량과 누적 규칙을 함께 알려준다', () => {
+    // "×2"나 "+100%"로 고정 표기하면 두 가지를 동시에 오해하게 된다: 겹치는 퀸이 늘어도 배율이
+    // 그대로라는 오해(recalcQueenBuffs는 퀸 1기당 tierMultiplier만큼 늘린다)와, 합성한 퀸도
+    // 같은 양을 준다는 오해다. 두 값 모두 문구가 코드에서 유도해야 한다.
     const state = waveState();
-    const p = boardPiece('queen', 3, 3);
-    state.pieces.push(p);
-    updateTooltip(el, state, noInteraction({ hoverSquare: { file: 3, rank: 3 } }), { x: 0, y: 0 });
+    const t1 = boardPiece('queen', 3, 3);
+    const t3 = boardPiece('queen', 5, 5, 3);
+    state.pieces.push(t1, t3);
 
-    // "×2"로 고정 표기하면 두 번째·세 번째 퀸이 겹쳤을 때도 배율이 그대로라고 오해할 수 있다.
-    // recalcQueenBuffs는 겹치는 퀸 1기당 queenBuffCount를 1씩 늘리므로(퀸 2기 = ×3, 3기 = ×4),
-    // 문구는 고정 배율이 아니라 "퀸 1기당 증가분"으로 표현해야 한다.
-    expect(el.innerHTML).not.toContain('×2');
-    expect(el.innerHTML).toContain('버프 효과');
-    expect(el.innerHTML).toContain('퀸마다');
+    const el1 = makeEl();
+    updateTooltip(el1, state, noInteraction({ hoverSquare: { file: 3, rank: 3 } }), { x: 0, y: 0 });
+    expect(el1.innerHTML).toContain('버프 효과: +100%');
+    expect(el1.innerHTML).toContain('겹치면');
+
+    const el3 = makeEl();
+    updateTooltip(el3, state, noInteraction({ hoverSquare: { file: 5, rank: 5 } }), { x: 0, y: 0 });
+    expect(el3.innerHTML).toContain(`버프 효과: +${tierMultiplier(3) * 100}%`);   // T3 = +400%
+    expect(el3.innerHTML).not.toContain('+100%');
   });
 });

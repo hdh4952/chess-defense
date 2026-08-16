@@ -20,9 +20,14 @@ export function updateTooltip(
   // config에서 되돌리면(0이 아니게 되면) 이 줄도 자동으로 다시 나타난다.
   const suppressRemainingCooldown = p.type === 'knight' && def.interval === 0;
   const rows = p.type === 'queen'
-    // 겹치는 퀸마다 배율이 한 단계씩 더 쌓인다 (recalcQueenBuffs: queenBuffCount += 1 per queen) —
-    // "×2"로 고정 표기하면 두 번째 퀸이 아무 효과가 없다고 오해할 수 있다 (리뷰 Finding 3).
-    ? ['공격력 — (버퍼)', `버프 효과: 겹치는 퀸마다 +100% (8방향 직선)`]
+    // 버프량은 이 퀸의 강화 단계에서 유도한다 (recalcQueenBuffs: queenBuffCount += tierMultiplier).
+    // "+100%" 고정 표기는 T1에서만 참이다 — T3 퀸은 +400%, T6은 +3200%다. 겹침 규칙도 함께 적어야
+    // 두 번째 퀸이 아무 효과가 없다고 오해하지 않는다 (리뷰 Finding 3).
+    ? [
+        '공격력 — (버퍼)',
+        `버프 효과: +${tierMultiplier(p.tier) * 100}% (8방향 직선)`,
+        '여러 퀸의 라인이 겹치면 그만큼 더 쌓인다',
+      ]
     : [
         // 강화 단계는 별도 항목이 아니라 곱셈의 한 항으로 보여준다 — 최종 공격력이 어떻게
         // 나왔는지 한 줄로 읽혀야 한다. T1이면 ×1이라 생략한다(정보가 없는 항이므로).

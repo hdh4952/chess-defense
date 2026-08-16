@@ -5,7 +5,7 @@ import { recalcQueenBuffs } from '../src/core/buff';
 import { sellPiece, sellPrice } from '../src/core/economy';
 import { moveOnBoard, placeFromSlot, resolveLanding, canLandAt } from '../src/core/pieces';
 import { buildHighlights, HIGHLIGHT_COLORS } from '../src/render/highlights';
-import { tierRingColor } from '../src/render/tiers';
+import { TIER_COLORS, tierRingColor } from '../src/render/tiers';
 import { render, createFrameView } from '../src/render/renderer';
 import type { GameEvent, Interaction, Piece, PieceType } from '../src/types';
 import { makeStubCtx } from './canvasStub';
@@ -260,12 +260,26 @@ describe('능력치는 전부 tier에 정비례한다 ("능력치 합")', () => 
     expect(s.gold).toBe(gold0 + cost * 4 * CONFIG.economy.sellRatio);   // T3 = T1 4기분
   });
 
-  it('퀸의 티어 상한만 다른 기물보다 낮다 — 버프는 전체 화력의 지수이므로', () => {
-    expect(CONFIG.merge.maxTier.queen).toBeLessThan(CONFIG.merge.maxTier.rook);
-    // 색 팔레트가 상한을 감당하는지 — 상한을 올렸는데 색이 모자라면 링이 흰색으로 되돌아간다
+  it('모든 기물이 테두리 색 6단계 끝까지 강화된다 — 상한과 팔레트가 어긋나지 않는다', () => {
+    // 상한을 올렸는데 색이 모자라면 tierRingColor가 null을 돌려 링이 사라진다(T1 취급).
     for (const type of Object.keys(CONFIG.merge.maxTier) as PieceType[]) {
+      expect(CONFIG.merge.maxTier[type]).toBe(TIER_COLORS.length);
       expect(tierRingColor(CONFIG.merge.maxTier[type])).not.toBeNull();
     }
+  });
+
+  it('퀸 버프는 티어 배수만큼 커진다 — 상한 6이 전체 화력의 지수라는 사실을 수치로 고정한다', () => {
+    // 퀸만은 자기 화력이 아니라 보드 전체의 화력에 곱해지므로, 상한을 열어 둔 대가가 얼마인지
+    // 테스트가 직접 들고 있어야 한다. 밸런스가 무너지면 여기 숫자가 먼저 근거가 된다.
+    const s = waveState();
+    const target = boardPiece('rook', 3, 3, CONFIG.merge.maxTier.rook);
+    // 같은 칸을 덮는 최대 티어 퀸 두 기 (파일·랭크로 각각 target을 지난다)
+    s.pieces.push(target, boardPiece('queen', 3, 1, 6), boardPiece('queen', 0, 3, 6));
+    recalcQueenBuffs(s);
+
+    expect(target.queenBuffCount).toBe(tierMultiplier(6) * 2);          // 32 × 2 = 64
+    expect(pieceDamage(target)).toBe(CONFIG.pieces.rook.damage * tierMultiplier(6) * 65);
+    expect(pieceDamage(target)).toBe(10_400);
   });
 });
 
