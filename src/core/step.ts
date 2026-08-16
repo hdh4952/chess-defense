@@ -8,7 +8,11 @@ import { checkWaveEnd, updatePrepare, updateSpawning } from './wave';
  * dt에는 speedMultiplier가 이미 곱해져 들어온다 (배속은 준비 시간·이동·쿨다운 모두 적용).
  */
 export function stepGame(
-  state: GameState, dt: number, events: GameEvent[], rng: () => number = Math.random,
+  state: GameState, dt: number, events: GameEvent[],
+  rng: () => number = Math.random,
+  // ★ 지급 추첨은 **별도 난수원**이다. `= rng`로 두면 스폰 난수열에 draw가 끼어들어 파일
+  // 시퀀스가 통째로 달라지고, 기존 헤드리스 측정이 조용히 다른 것을 재게 된다.
+  grantRng: () => number = Math.random,
 ): void {
   if (state.paused || state.phase === 'victory' || state.phase === 'defeat') return;
   updatePrepare(state, dt);                 // 준비 시간 카운트다운
@@ -24,5 +28,5 @@ export function stepGame(
   // 오직 컴파일러를 설득하기 위한 것이고, 런타임에는 완전히 지워지며 값에는 아무 영향도 주지 않는다.
   // 미래에 "중복 검사처럼 보인다"며 지우면 그 컴파일 에러가 그대로 재발한다.
   if ((state.phase as Phase) === 'defeat') return;     // 즉시 정지 (스펙 10.5)
-  checkWaveEnd(state, events);              // 웨이브 종료/승리 판정
+  checkWaveEnd(state, events, grantRng);    // 웨이브 종료/승리 판정 + 무작위 지급
 }

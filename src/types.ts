@@ -81,7 +81,11 @@ export type GameEvent =
   | { kind: 'enemyLeaked'; enemyId: string; file: number; isBoss: boolean }
   | { kind: 'bossSpawned'; file: number }
   | { kind: 'waveCleared'; wave: number }
-  | { kind: 'prepareStarted'; wave: number; isBossWave: boolean };
+  | { kind: 'prepareStarted'; wave: number; isBossWave: boolean }
+  // 무작위 지급 성공 — 트레이에 T1 기물이 들어왔다.
+  | { kind: 'granted'; pieceType: PieceType }
+  // 트레이가 꽉 차 지급하지 못했다. 조용히 버리면 무음 실패가 하나 더 늘므로 환급하고 알린다.
+  | { kind: 'grantDiscarded'; pieceType: PieceType; refund: number };
 
 /**
  * 드래그/클릭 선택/hover 상호작용 상태 — DOM 이벤트 자체가 아니라 뷰모델이므로 core에 속하지는

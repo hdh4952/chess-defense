@@ -160,6 +160,9 @@ function cueForEvent(ev: GameEvent): CueKind | null {
     // 합성은 무음 — 전용 효과음 에셋이 없고, 합성 성사는 화면(티어 링 교체 + 합성 이펙트)이
     // 이미 분명히 알린다. 나이트 합성만은 직후 knightBlast가 따라와 폭발음이 난다.
     case 'merged': return null;
+    // 지급은 구매와 같은 종류의 사건이라 같은 소리를 쓴다. 실패(트레이 만석)는 거부음이다.
+    case 'granted': return 'uiBuy';
+    case 'grantDiscarded': return 'uiInvalid';
     case 'enemyDied': return ev.isBoss ? 'bossDied' : 'enemyDied';
     case 'enemyLeaked': return 'enemyLeaked';
     case 'bossSpawned': return 'bossSpawn';

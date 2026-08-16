@@ -1,5 +1,6 @@
 import { CONFIG } from '../config';
 import { fileLabel } from '../core/grid';
+import { PIECE_NAME } from './layout';
 import type { GameEvent, GameState } from '../types';
 import type { Layout } from './layout';
 
@@ -17,6 +18,13 @@ export class Banners {
       // 그 웨이브만 다른 문구를 준다 — 배너가 네 번 다 같으면 그 사실을 배울 길이 없다.
       const isPivotal = ev.wave === CONFIG.wave.total - CONFIG.wave.bossEvery;
       this.showBanner(isPivotal ? '⚠ 최대 고비 — BOSS WAVE' : '⚠ BOSS WAVE');
+    }
+    if (ev.kind === 'granted') {
+      // 무엇을 받았는지 알려야 한다. 트레이에 조용히 나타나면 후반에는 알아채지도 못한다.
+      this.showBanner(`+ ${PIECE_NAME[ev.pieceType]} 획득`);
+    }
+    if (ev.kind === 'grantDiscarded') {
+      this.showBanner(`트레이 가득 참 — ${PIECE_NAME[ev.pieceType]} 대신 ${ev.refund}G`);
     }
     if (ev.kind === 'bossSpawned') {
       this.bossFlash = { file: ev.file, t: 1.0 };

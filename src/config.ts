@@ -149,6 +149,33 @@ export const CONFIG = {
   /** 보스에게 붙지 않는 유형. 보스는 "딜을 넣을 시간을 주는" 설계라 가속이 그 전제를 깬다. */
   bossForbidden: ['swift'] as readonly EnemyTrait[],
 
+  /**
+   * 무작위 기물 지급 — 짝수 웨이브를 클리어할 때마다 T1 기물 하나를 트레이에 준다.
+   *
+   * 목적은 **매 판을 다르게 만드는 것**이다. 이 게임의 무작위는 스폰 파일 하나뿐인데 그것도
+   * 파일 커버리지를 넓히면 무의미해져서, 최적 빌드가 판마다 동일했다. 부수적으로 초반 골드를
+   * 부양하고(사용가치 10 × 290G), 원치 않던 기물이 융합 재료가 되어 발견을 만든다.
+   *
+   * 정직한 한계: 원안이 노렸던 "슬롯 압박"은 실측상 거의 없다. 트레이가 차면 구매 자체가
+   * 막히므로 플레이어는 어차피 트레이를 비워 두고, 지급 10기는 동종 합성만으로 5칸 이하로
+   * 압축된다. 그 목표는 폐기하고 위 셋만 남긴다.
+   *
+   * 총량이 10회인 이유: 20회면 무상 가치 5,700G가 적 유형이 만든 난이도 상승을 통째로
+   * 상쇄해 게임이 오히려 쉬워진다. 10회면 2,850G로 보너스 곡선 +200G와 합쳐 대략 균형이다.
+   *
+   * 퀸이 0%인 이유: 최소 승리 빌드의 58%가 퀸이고 퀸은 **곱셈 축**이라 분산이 골드로 흡수되지
+   * 않는다. 10회 추첨에서 5%면 0회가 60%, 2회 이상이 8.6%라 판마다 전력이 널뛴다.
+   */
+  grant: {
+    /** 롤백 노브. weights를 0으로 만들어 우회하지 말 것 — 추첨 자체는 계속 돌아 draw 수가 남는다. */
+    enabled: true,
+    everyWaves: 2,
+    weights: {
+      pawn: 0.30, bishop: 0.25, rook: 0.25, knight: 0.20, queen: 0,
+      archbishop: 0, chancellor: 0, amazon: 0,
+    } as Record<PieceType, number>,
+  },
+
   economy: { sellRatio: 0.5 },
   slots: { rows: 4, cols: 4 },
 } as const;
@@ -285,4 +312,22 @@ export function clearBonus(wave: number, killRatio = 1): number {
   const full = Math.max(0, clearBonusBase - clearBonusDecay * (wave - 1));
   const ratio = clearBonusFloor + (1 - clearBonusFloor) * Math.min(1, Math.max(0, killRatio));
   return Math.round(full * ratio);
+}
+
+
+/**
+ * 누적합으로 roll ∈ [0,1)을 기물 종류에 매핑한다. **rng를 여기서 부르지 않는다** —
+ * 난수는 호출부가 주입해야 테스트가 결정론적으로 전 구간을 훑을 수 있다.
+ */
+export function pickGrantType(roll: number): PieceType {
+  const entries = Object.entries(CONFIG.grant.weights) as [PieceType, number][];
+  const total = entries.reduce((sum, [, w]) => sum + w, 0);
+  let acc = 0;
+  const target = Math.min(Math.max(roll, 0), 1 - Number.EPSILON) * total;
+  for (const [type, w] of entries) {
+    acc += w;
+    if (target < acc) return type;
+  }
+  // 부동소수 잔차로 여기 도달할 수 있다. 가중치가 0이 아닌 마지막 종류로 떨어뜨린다.
+  return entries.filter(([, w]) => w > 0).map(([t]) => t).pop()!;
 }

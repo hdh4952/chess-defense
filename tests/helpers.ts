@@ -153,7 +153,9 @@ export interface RunReport {
 
 /** 20웨이브 완주 풀런. 엔진 무결성 확인용 — rng를 감시하지는 못한다(대칭 빌드에서는
  *  스폰 파일이 결과에 영향을 주지 않는다). rng 감시는 countingRng가 담당한다. */
-export function fullRun(pieces: Piece[], rng: () => number): RunReport {
+export function fullRun(
+  pieces: Piece[], rng: () => number, grantRng: () => number = Math.random,
+): RunReport {
   const s = createInitialState();
   // 체력을 무한대로 둔다 — 여기서 보려는 것은 "이 빌드가 이기는가"가 아니라 20웨이브가 끝까지
   // 정상 진행되는가(엔진 무결성)이고, 누수는 체력이 아니라 이벤트로 직접 센다.
@@ -163,7 +165,7 @@ export function fullRun(pieces: Piece[], rng: () => number): RunReport {
   const ev: GameEvent[] = [];
   let leaks = 0, bossLeaks = 0, t = 0;
   for (; t < 3000 && s.phase !== 'victory' && s.phase !== 'defeat'; t += DT) {
-    stepGame(s, DT, ev, rng);
+    stepGame(s, DT, ev, rng, grantRng);
     for (const x of ev) if (x.kind === 'enemyLeaked') { leaks++; if (x.isBoss) bossLeaks++; }
     ev.length = 0;
   }

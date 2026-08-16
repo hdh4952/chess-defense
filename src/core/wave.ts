@@ -1,4 +1,5 @@
-import { CONFIG, clearBonus, enemyCount, enemyTraits } from '../config';
+import { CONFIG, clearBonus, enemyCount, enemyTraits, pickGrantType } from '../config';
+import { grantPiece, sellPrice } from './economy';
 import type { GameEvent, GameState } from '../types';
 import { createEnemy } from './enemy';
 
@@ -41,7 +42,9 @@ export function updateSpawning(
 }
 
 /** 모든 적이 사망 또는 통과 → 클리어 보너스, 다음 웨이브 또는 승리 (스펙 3/4.4) */
-export function checkWaveEnd(state: GameState, events: GameEvent[]): void {
+export function checkWaveEnd(
+  state: GameState, events: GameEvent[], grantRng: () => number = Math.random,
+): void {
   if (state.phase !== 'wave') return;
   if (state.spawnedCount < enemyCount(state.wave) || state.enemies.length > 0) return;
   // 보너스는 지금 막 끝난 웨이브(state.wave) 기준이다 — 지급이 state.wave++보다 앞에 있다.
@@ -49,6 +52,24 @@ export function checkWaveEnd(state: GameState, events: GameEvent[]): void {
   state.gold += bonus;
   state.stats.totalGoldEarned += bonus;
   events.push({ kind: 'waveCleared', wave: state.wave });
+
+  // 무작위 지급 — 클리어 보너스 뒤, victory 판정 **앞**이다(w20에도 지급한다).
+  // ★ 추첨은 **조건 없이** 한 번 돌린다. "트레이가 비었을 때만 뽑는다"처럼 draw 횟수를 상태에
+  // 의존시키면 난수열이 플레이 내용에 따라 갈라져 재현성이 사라진다. 뽑고 나서 버린다.
+  if (CONFIG.grant.enabled && state.wave % CONFIG.grant.everyWaves === 0) {
+    const type = pickGrantType(grantRng());
+    if (grantPiece(state, type)) {
+      events.push({ kind: 'granted', pieceType: type });
+    } else {
+      // 트레이 만석. 조용히 버리면 §12.3의 무음 실패 경로가 하나 더 늘고, 이월은 새 상태와
+      // 불투명한 지급 시점을 만든다. 판매가로 환급하는 것이 새 규칙을 0개 추가하는 길이다.
+      // ⚠️ 판매와 같은 취급이므로 stats.totalGoldEarned에는 넣지 않는다 — 그 통계는 "벌어들인
+      // 골드"이고 환급은 받지 못한 것을 되돌려 받는 것이다.
+      const refund = sellPrice(type);
+      state.gold += refund;
+      events.push({ kind: 'grantDiscarded', pieceType: type, refund });
+    }
+  }
   if (state.wave >= CONFIG.wave.total) {
     state.phase = 'victory';
     return;
