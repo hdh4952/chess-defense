@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG, enemyCount, enemyHp } from '../src/config';
-import { moveOnBoard } from '../src/core/pieces';
 import { createInitialState } from '../src/core/state';
 import { stepGame } from '../src/core/step';
-import { BOARD_H, enemySquare } from '../src/core/grid';
-import type { GameEvent, GameState, Phase, Piece } from '../src/types';
-import { boardPiece } from './helpers';
+import { BOARD_H } from '../src/core/grid';
+import type { GameEvent, GameState, Phase } from '../src/types';
+import { boardPiece, bossHpFor, chaseWave5Boss } from './helpers';
 
 const DT = 1 / 60;
 const cycleRng = () => { let i = 0; return () => (i++ % 8) / 8; };   // a~h 순환 스폰
@@ -20,54 +19,6 @@ function run(s: GameState, seconds: number, rng: () => number, onTick?: () => vo
   }
 }
 
-function bossHpFor(wave: number): number {
-  return enemyHp(wave) * CONFIG.enemy.bossHpMultiplier;
-}
-
-/**
- * 웨이브5 보스를 향해 chasePieces를 "보스 바로 아랫랭크"로 계속 따라 붙이며(완벽 추격)
- * staticPieces(고정 기물)와 함께 실측한다. 보스 파일과 비인접한 폰을 chasePieces에 넣으면
- * 추격을 시도해도 실제로는 전혀 명중하지 못하는 것까지 그대로 측정된다(리뷰 파인딩 1).
- * bossHp/dealt 모두 config에서 유도한다 — 하드코딩 금지(리뷰 파인딩 2).
- */
-function chaseWave5Boss(
-  chasePieces: Piece[], staticPieces: Piece[] = [],
-): { dealt: number; killed: boolean; hp: number; wave: number; bossHp: number; bossSpawnT: number; bossKillT: number } {
-  const s = createInitialState();
-  s.wave = 5;
-  const bossFile = 3;
-  s.pieces.push(...chasePieces, ...staticPieces);
-  s.phase = 'prepare';
-  s.prepareTimer = 0.01;
-  const bossHp = bossHpFor(5);
-  let bossMinHp = bossHp;
-  let bossSpawnT = -1;
-  let bossKillT = -1;
-  const ev: GameEvent[] = [];
-  for (let t = 0; t < 120 && s.wave === 5 && (s.phase as Phase) !== 'defeat'; t += DT) {
-    stepGame(s, DT, ev, () => bossFile / 8);
-    for (const e of ev) {
-      if (e.kind === 'bossSpawned' && bossSpawnT < 0) bossSpawnT = t;
-      // 실제 '처치' 이벤트로만 킬 시각을 잡는다 — 보스가 사라진 시각(누수 포함)을 킬 시각으로
-      // 오인하던 예전 로직을 교체 (리뷰 파인딩 5 마지막 항목).
-      if (e.kind === 'enemyDied' && e.isBoss && bossKillT < 0) bossKillT = t;
-    }
-    ev.length = 0;
-    const boss = s.enemies.find(e => e.isBoss);
-    if (boss) {
-      bossMinHp = Math.min(bossMinHp, boss.hp);
-      const wantRank = enemySquare(boss).rank - 1;     // 보스 바로 아랫랭크로 폰 유지 (완벽 추격)
-      for (const p of chasePieces) {
-        if (p.square && p.square.rank !== wantRank && wantRank >= 1) {
-          moveOnBoard(s, p.id, p.square.file, wantRank, []);
-        }
-      }
-    }
-  }
-  const killed = s.stats.totalKills === 1;
-  const dealt = killed ? bossHp : bossHp - bossMinHp;
-  return { dealt, killed, hp: s.hp, wave: s.wave, bossHp, bossSpawnT, bossKillT };
-}
 
 describe('전 게임 시뮬레이션', () => {
   it('웨이브 1: 폰 4개(b4/c4/f4/g4)가 8파일 전부 커버 — 무누수 클리어 (스펙 9.3)', () => {
