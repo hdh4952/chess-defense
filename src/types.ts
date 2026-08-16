@@ -10,6 +10,12 @@ export interface Piece {
   slotIndex: number | null;
   cooldown: number;        // 초. 이동/회수해도 초기화되지 않음
   queenBuffCount: number;
+  /**
+   * 강화 단계 = 이 기물에 흡수된 기본 기물의 개수. 구매 직후 항상 1이고, 같은 종류끼리 합성할
+   * 때 두 기물의 tier가 더해진다(상한 CONFIG.merge.maxTier). 능력치는 전부 이 값에 정비례한다
+   * — 공격력·비숍 골드·퀸 버프·판매가 (combat.ts / buff.ts / economy.ts).
+   */
+  tier: number;
 }
 
 export interface Enemy {
@@ -49,6 +55,8 @@ export type GameEvent =
   // square는 골드를 번 기물의 칸 — 렌더가 그 자리에 "+10G"를 띄운다.
   | { kind: 'goldGained'; square: Square; amount: number }
   | { kind: 'knightBlast'; square: Square }
+  // 합성 성사 — square는 생존한 기물(합쳐진 결과)이 서 있는 칸, tier는 합성 *후* 단계다.
+  | { kind: 'merged'; square: Square; pieceType: PieceType; tier: number }
   | { kind: 'enemyDied'; enemyId: string; square: Square; isBoss: boolean; reward: number }
   | { kind: 'enemyLeaked'; enemyId: string; file: number; isBoss: boolean }
   | { kind: 'bossSpawned'; file: number }

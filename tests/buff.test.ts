@@ -5,7 +5,7 @@ import type { Piece, PieceType, Square } from '../src/types';
 
 let seq = 0;
 function piece(type: PieceType, square: Square | null, slotIndex: number | null = null): Piece {
-  return { id: `p${seq++}`, type, square, slotIndex, cooldown: 0, queenBuffCount: 0 };
+  return { id: `p${seq++}`, type, square, slotIndex, cooldown: 0, queenBuffCount: 0, tier: 1 };
 }
 
 describe('recalcQueenBuffs (스펙 5.6)', () => {

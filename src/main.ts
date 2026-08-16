@@ -118,6 +118,7 @@ function startGame(root: HTMLDivElement): void {
       const hl = buildHighlights(state, drag.interaction);   // 사거리/이동/퀸 라인 미리보기 (스펙 7.7, Task 18)
       view.highlights.push(...hl.highlights);
       view.lines.push(...hl.lines);
+      view.mergePreview = hl.mergePreview;   // 합성 결과 티어 미리보기 (드래그 중에만 non-null)
       if (banners.bossFlash) {                          // 파일 전체 붉은 강조 1초 (스펙 7.9)
         for (let rank = 1; rank <= CONFIG.board.ranks; rank++) {
           view.highlights.push({ square: { file: banners.bossFlash.file, rank }, color: 'rgba(220,50,40,0.28)' });

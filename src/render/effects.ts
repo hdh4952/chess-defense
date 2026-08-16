@@ -1,16 +1,18 @@
 import { CONFIG } from '../config';
 import { fileCenterX, rankToTopY } from '../core/grid';
+import { tierRingColor } from './tiers';
 import type { GameEvent, Square } from '../types';
 
 const SQ = CONFIG.board.squarePx;
 const center = (sq: Square) => ({ x: fileCenterX(sq.file), y: rankToTopY(sq.rank) + SQ / 2 });
 
 interface Fx {
-  kind: 'shock' | 'crack' | 'beam' | 'explosion' | 'ember' | 'puff' | 'coin';
+  kind: 'shock' | 'crack' | 'beam' | 'explosion' | 'ember' | 'puff' | 'coin' | 'mergeBurst';
   x: number; y: number;
   x2?: number; y2?: number;      // 라인형(crack/beam)의 끝점
   vx?: number; vy?: number;      // 파티클 속도
   amount?: number;               // coin 전용 — 표시할 골드 액수
+  color?: string;                // mergeBurst 전용 — 결과 티어 색
   t: number; ttl: number;
 }
 
@@ -77,6 +79,12 @@ export class Effects {
       // 플레이어가 비숍이 무슨 일을 했는지 눈으로 따라갈 수 있다.
       const c = center(ev.square);
       this.list.push({ kind: 'coin', ...c, amount: ev.amount, t: 0, ttl: 0.9 });
+    }
+    if (ev.kind === 'merged') {
+      // 합성 순간 — 결과 티어 색으로 퍼지는 링 한 겹. 비가역 조작이므로 "방금 무슨 일이
+      // 일어났는지"가 분명해야 한다.
+      const c = center(ev.square);
+      this.list.push({ kind: 'mergeBurst', ...c, color: tierRingColor(ev.tier) ?? '#ffffff', t: 0, ttl: 0.45 });
     }
     if (ev.kind === 'enemyDied') {
       const c = center(ev.square);
@@ -155,6 +163,14 @@ export class Effects {
         case 'puff': {             // 처치 연출
           ctx.fillStyle = '#999';
           ctx.beginPath(); ctx.arc(f.x, f.y, (1 - k) * 14, 0, Math.PI * 2); ctx.fill();
+          break;
+        }
+        case 'mergeBurst': {       // 합성 성사 — 결과 티어 색으로 퍼지는 링
+          ctx.beginPath();
+          ctx.arc(f.x, f.y, 16 + (1 - k) * 30, 0, Math.PI * 2);
+          ctx.lineWidth = 3 + k * 4;
+          ctx.strokeStyle = f.color!;
+          ctx.stroke();
           break;
         }
         case 'coin': {             // 골드 획득 — 위로 떠오르며 사라지는 "+10G"

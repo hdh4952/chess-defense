@@ -1,7 +1,8 @@
-import { CONFIG } from '../config';
+import { CONFIG, tierMultiplier } from '../config';
 import { sellPrice } from '../core/economy';
 import { attackTargets, knightMoves, queenLines } from '../core/patterns';
 import { ALLY_SPRITE_URL } from '../render/sprites';
+import { tierRingColor } from '../render/tiers';
 import type { PieceType, Square } from '../types';
 import { CREDIT_HTML, PIECE_NAME } from './layout';
 
@@ -120,6 +121,24 @@ function buildRangeBoard(type: PieceType): HTMLElement {
   return board;
 }
 
+/**
+ * 합성 설명 — 이 기물이 몇 단계까지 강화되는지와 그 의미. maxTier와 색 표는 전부 CONFIG/
+ * render/tiers.ts에서 유도하므로, 상한이나 팔레트를 바꾸면 이 문구도 함께 따라온다.
+ */
+function mergeRow(type: PieceType): string {
+  const max = CONFIG.merge.maxTier[type];
+  const swatches = Array.from({ length: max }, (_, i) => {
+    const color = tierRingColor(i + 1);
+    const style = color
+      ? `background:${color}`
+      : 'background:transparent;border:1px dashed currentColor';
+    return `<i class="tier-dot" style="${style}"></i>`;
+  }).join('');
+  const top = tierMultiplier(max);
+  return `<dt>합성</dt><dd>같은 단계끼리 · 최대 ${max}단계(×${top})`
+    + `<span class="tier-dots">${swatches}</span></dd>`;
+}
+
 function buildPanel(type: PieceType): HTMLElement {
   const def = CONFIG.pieces[type];
   const blurb = BLURB[type];
@@ -145,6 +164,7 @@ function buildPanel(type: PieceType): HTMLElement {
           <dt>공격력</dt><dd>${damageLabel(type)}</dd>
           <dt>공격 주기</dt><dd>${intervalLabel(type)}</dd>
           ${goldRow(type)}
+          ${mergeRow(type)}
           <dt>속성</dt><dd>${blurb.element}</dd>
         </dl>
         <p class="panel-detail">${blurb.detail}</p>
@@ -171,7 +191,8 @@ export function createTitleScreen(app: HTMLElement, onBattle: () => void): void 
       </div>
       <div id="title-foot">
         <button id="battle">BATTLE</button>
-        <p id="title-hint">기물을 사서 보드로 드래그하면 자동으로 싸운다. 웨이브 중에도 자유롭게 옮길 수 있다.</p>
+        <p id="title-hint">기물을 사서 보드로 드래그하면 자동으로 싸운다. 웨이브 중에도 자유롭게 옮길 수 있다.<br>
+        <b>같은 종류·같은 단계</b> 기물 위로 드래그해 겹치면 <b>합성</b>된다 — 능력치가 두 기물의 합이 되고 테두리 색이 한 단계 오른다.</p>
       </div>
       ${CREDIT_HTML}
     </div>`;

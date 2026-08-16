@@ -1,3 +1,4 @@
+import { tierMultiplier } from '../config';
 import type { GameState } from '../types';
 import { sameSquare } from './grid';
 import { queenLines } from './patterns';
@@ -16,7 +17,9 @@ export function recalcQueenBuffs(state: GameState): void {
     const covered = queenLines(q.square!);
     for (const p of onBoard) {
       if (p === q) continue;
-      if (covered.some(sq => sameSquare(sq, p.square!))) p.queenBuffCount++;
+      // 퀸의 유일한 능력치가 버프이므로 합성되면 버프가 합해진다 — T2 퀸 하나가 T1 퀸 둘과
+      // 정확히 같은 +2를 준다(비용도 1,800G로 같다). 합성이 손해도 이득도 아니게 만드는 조건이다.
+      if (covered.some(sq => sameSquare(sq, p.square!))) p.queenBuffCount += tierMultiplier(q.tier);
     }
   }
 }

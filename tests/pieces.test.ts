@@ -9,7 +9,7 @@ import { boardPiece, enemyAt, waveState } from './helpers';
 
 let seq = 0;
 function slotPiece(s: GameState, type: PieceType, slotIndex: number): Piece {
-  const p: Piece = { id: `sp-${seq++}`, type, square: null, slotIndex, cooldown: 0, queenBuffCount: 0 };
+  const p: Piece = { id: `sp-${seq++}`, type, square: null, slotIndex, cooldown: 0, queenBuffCount: 0, tier: 1 };
   s.pieces.push(p);
   return p;
 }

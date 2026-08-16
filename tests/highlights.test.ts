@@ -11,7 +11,7 @@ import { boardPiece, waveState } from './helpers';
 // 실제 공격/버프 계산과 어긋날 수 없게 한다.
 
 function slotPiece(id: string, type: PieceType, slotIndex: number): Piece {
-  return { id, type, square: null, slotIndex, cooldown: 0, queenBuffCount: 0 };
+  return { id, type, square: null, slotIndex, cooldown: 0, queenBuffCount: 0, tier: 1 };
 }
 
 function noInteraction(overrides: Partial<Interaction> = {}): Interaction {
@@ -31,13 +31,13 @@ describe('buildHighlights (스펙 7.7 사거리 미리보기) — 활성 기물 
   it('드래그도 선택도 없으면 하이라이트/라인이 모두 비어 있다', () => {
     const s = waveState();
     s.pieces.push(boardPiece('rook', 3, 3));   // 보드에 기물이 있어도 상호작용이 없으면 무관
-    expect(buildHighlights(s, noInteraction())).toEqual({ highlights: [], lines: [] });
+    expect(buildHighlights(s, noInteraction())).toEqual({ highlights: [], lines: [], mergePreview: null });
   });
 
   it('hoverSquare만 있고 드래그/선택 대상이 없으면 여전히 비어 있다', () => {
     const s = waveState();
     expect(buildHighlights(s, noInteraction({ hoverSquare: { file: 3, rank: 3 } })))
-      .toEqual({ highlights: [], lines: [] });
+      .toEqual({ highlights: [], lines: [], mergePreview: null });
   });
 });
 

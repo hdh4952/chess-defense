@@ -144,6 +144,9 @@ function cueForEvent(ev: GameEvent): CueKind | null {
     // 공격 소리가 난다. 전용 큐를 주면 비숍이 발사할 때마다 소리가 두 겹으로 겹칠 뿐이다.
     case 'goldGained': return null;
     case 'knightBlast': return 'knight';
+    // 합성은 무음 — 전용 효과음 에셋이 없고, 합성 성사는 화면(티어 링 교체 + 합성 이펙트)이
+    // 이미 분명히 알린다. 나이트 합성만은 직후 knightBlast가 따라와 폭발음이 난다.
+    case 'merged': return null;
     case 'enemyDied': return ev.isBoss ? 'bossDied' : 'enemyDied';
     case 'enemyLeaked': return 'enemyLeaked';
     case 'bossSpawned': return 'bossSpawn';

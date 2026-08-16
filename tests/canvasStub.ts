@@ -27,6 +27,10 @@ export function makeStubCtx() {
   ctxObj.strokeText = (text: string, x: number, y: number): void => record('strokeText', [text, x, y]);
   ctxObj.fillText = (text: string, x: number, y: number): void => record('fillText', [text, x, y]);
   ctxObj.drawImage = (...args: unknown[]): void => record('drawImage', args);
+  // 합성 미리보기의 점선 링이 사용한다. 스텁에 없는 메서드를 프로덕션이 부르면 브라우저에서는
+  // 멀쩡한데 테스트만 TypeError로 죽는다 — 더 나쁜 경로로, main.ts의 frame()이 예외를 잡아
+  // 로그만 남기므로 실제 게임에서는 미리보기가 조용히 사라진 채 굴러갈 수도 있다.
+  ctxObj.setLineDash = (segments: number[]): void => record('setLineDash', [segments]);
   ctxObj.createRadialGradient = (...args: unknown[]) => { record('createRadialGradient', args); return gradientStub; };
   ctxObj.createLinearGradient = (...args: unknown[]) => { record('createLinearGradient', args); return gradientStub; };
   return { ctx: ctxObj, records, gradientStub };

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
-import { CONFIG } from '../src/config';
+import { CONFIG, tierMultiplier } from '../src/config';
 import { updateTooltip } from '../src/ui/tooltip';
 import { pieceDamage } from '../src/core/combat';
 import { sellPrice } from '../src/core/economy';
@@ -104,6 +104,30 @@ describe('updateTooltip (스펙 7.7 — 기물 hover 툴팁)', () => {
     const rookEl = makeEl();
     updateTooltip(rookEl, state, noInteraction({ hoverSquare: { file: 2, rank: 2 } }), { x: 0, y: 0 });
     expect(rookEl.innerHTML).not.toContain('공격당');
+  });
+
+  it('강화 단계는 티어 숫자가 아니라 실제 배수로 표시된다 (T3 = ×4)', () => {
+    // 티어는 레벨(1~6)이고 배수는 2^(tier-1)이라 두 값이 다르다 — "강화 ×3"처럼 티어를 그대로
+    // 적으면 최종 공격력과 곱셈이 맞아떨어지지 않아 툴팁이 거짓말을 한다.
+    const el = makeEl();
+    const state = waveState();
+    const p = boardPiece('rook', 1, 1, 3);
+    state.pieces.push(p);
+    updateTooltip(el, state, noInteraction({ hoverSquare: { file: 1, rank: 1 } }), { x: 0, y: 0 });
+
+    expect(el.innerHTML).toContain(`강화 ×${tierMultiplier(3)}`);
+    expect(el.innerHTML).toContain(`최종 ${pieceDamage(p)}`);
+    expect(el.innerHTML).toContain('T3');                       // 이름 옆 단계 표기
+    expect(pieceDamage(p)).toBe(CONFIG.pieces.rook.damage * 4);
+  });
+
+  it('T1 기물에는 강화 항과 단계 표기가 아예 없다 (정보가 없는 항)', () => {
+    const el = makeEl();
+    const state = waveState();
+    state.pieces.push(boardPiece('rook', 1, 1));
+    updateTooltip(el, state, noInteraction({ hoverSquare: { file: 1, rank: 1 } }), { x: 0, y: 0 });
+    expect(el.innerHTML).not.toContain('강화');
+    expect(el.innerHTML).not.toContain('T1');
   });
 
   it('나이트는 공격 주기 대신 이동 쿨다운으로 표시되고, interval 0에서는 "남은 쿨다운" 줄이 억제된다', () => {

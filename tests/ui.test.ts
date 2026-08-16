@@ -165,7 +165,7 @@ describe('updateShop (Task 14) — canBuy 기반 비활성화', () => {
     for (let i = 0; i < SLOT_CAPACITY; i++) {
       state.pieces.push({
         id: `full-${i}`, type: 'pawn', square: null, slotIndex: i,
-        cooldown: 0, queenBuffCount: 0,
+        cooldown: 0, queenBuffCount: 0, tier: 1,
       });
     }
     updateShop(layout, state);

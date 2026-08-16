@@ -1,4 +1,4 @@
-import { canLandAt, findPiece } from '../core/pieces';
+import { canLandAt, findPiece, resolveLanding } from '../core/pieces';
 import { attackTargets, knightMoves, queenLines } from '../core/patterns';
 import { sameSquare } from '../core/grid';
 import type { GameState, Interaction, Piece, Square } from '../types';
@@ -17,6 +17,10 @@ export const HIGHLIGHT_COLORS = {
   queenLine: 'rgba(0, 159, 217, 0.5)',
   origin: 'rgba(255, 255, 255, 0.25)',   // 기준 칸 — hover가 가리키는 착지 예정 칸(폰 등)
   selected: 'rgba(255, 255, 0, 0.5)',    // 선택/드래그 중인 기물이 실제로 서 있는 칸
+  // 합성 대상 칸. 마젠타는 기존 팔레트(주황 사거리·초록 이동·파랑 퀸라인·노랑 선택) 어느 것과도
+  // 겹치지 않고, 강화 단계 6색(흰/녹/파/보/노/빨)과도 구분된다 — 합성 미리보기가 그 위에 결과
+  // 티어 링을 겹쳐 그리므로 둘이 같은 색이면 안 된다.
+  merge: 'rgba(214, 51, 132, 0.55)',
 };
 const C = HIGHLIGHT_COLORS;   // 내부에서는 짧은 이름으로 사용 (호출부 가독성)
 
@@ -60,15 +64,33 @@ function pushSelected(highlights: ViewState['highlights'], piece: Piece): void {
 
 export function buildHighlights(
   state: GameState, it: Interaction,
-): Pick<ViewState, 'highlights' | 'lines'> {
+): Pick<ViewState, 'highlights' | 'lines' | 'mergePreview'> {
   const highlights: ViewState['highlights'] = [];
   const lines: ViewState['lines'] = [];
+  let mergePreview: ViewState['mergePreview'] = null;
   const piece = activePiece(state, it);
-  if (!piece) return { highlights, lines };
+  if (!piece) return { highlights, lines, mergePreview };
 
   const onBoard = piece.square !== null;
   const anchor: Square | null = it.hoverSquare ?? piece.square;   // 미리보기 기준 칸
-  if (!anchor) return { highlights, lines };
+  if (!anchor) return { highlights, lines, mergePreview };
+
+  // 합성 미리보기 — allowMerge를 "드래그 중인가"에서 유도한다. drag.ts의 드롭 경로가 넘기는
+  // 값과 같은 사실에서 나온 같은 값이므로, 미리보기가 실제로는 일어나지 않을 합성을 약속할 수
+  // 없다(합성은 드래그 전용이라 클릭-투-무브 중에는 여기서도 null이 된다). 판정 자체를
+  // resolveLanding 하나에 위임하는 것도 같은 이유다 — 8랭크·나이트 L자/쿨다운·티어 상한 게이트를
+  // 미리보기가 따로 재구현하지 않는다.
+  if (it.dragging && it.hoverSquare) {
+    const landing = resolveLanding(state, piece, it.hoverSquare, true);
+    if (landing.kind === 'merge') {
+      mergePreview = { square: { ...it.hoverSquare }, tier: landing.resultTier };
+      highlights.push({ square: { ...it.hoverSquare }, color: C.merge });
+      pushSelected(highlights, piece);
+      // 합성은 이동이 아니라 흡수다 — 사거리 미리보기를 그리면 "이 칸으로 옮겨간다"는 잘못된
+      // 인상을 준다. 결과 티어를 보여주는 것으로 충분하다.
+      return { highlights, lines, mergePreview };
+    }
+  }
 
   if (piece.type === 'queen') {
     // hover가 실제 착지 제안일 때만 canLandAt으로 검증한다 — hover가 없어 anchor가 퀸의 현재 칸으로
@@ -82,12 +104,12 @@ export function buildHighlights(
       // 착지 불가 hover라 미리보기 전체를 접지만, "무엇이 선택됐는지"는 여기서도 계속 보여야
       // 한다 — 잘못된 칸에 hover한 순간 선택 표식마저 사라지면 오히려 방향을 잃는다.
       pushSelected(highlights, piece);
-      return { highlights, lines };
+      return { highlights, lines, mergePreview };
     }
     for (const sq of queenLines(anchor)) highlights.push({ square: sq, color: C.queenLine });
     for (const seg of queenLineSegments(anchor)) lines.push({ ...seg, color: C.queenLine });
     pushSelected(highlights, piece);
-    return { highlights, lines };
+    return { highlights, lines, mergePreview };
   }
   if (piece.type === 'knight' && onBoard) {
     // canLandAt 하나로 L자 + 이동 쿨다운 게이트를 적용한다 (검토 Item 1). 점유 칸은 더 이상 착지
@@ -106,7 +128,7 @@ export function buildHighlights(
     // legalMoves가 쿨다운으로 통째로 비어도(위 쿨다운 케이스) 선택 표식은 그대로 남는다 —
     // "이동할 수 없다"와 "선택되지 않았다"는 다른 상태이므로.
     pushSelected(highlights, piece);
-    return { highlights, lines };
+    return { highlights, lines, mergePreview };
   }
   // 폰/비숍/룩과 슬롯의 나이트: hover가 실제로 착지 불가능한 칸(8랭크·범위 밖, 그리고 트레이
   // 기물이라면 점유 칸까지)이면 moveOnBoard/placeFromSlot이 거부할 이동·배치·폭발을 미리 약속하지
@@ -119,7 +141,7 @@ export function buildHighlights(
     // 착지 불가 hover라 미리보기 전체를 접지만, 선택 표식은 여기서도 유지한다 (퀸 브랜치와 동일한
     // 이유 — 잘못된 칸에 hover했다고 "무엇이 선택됐는지"까지 사라지면 안 된다).
     pushSelected(highlights, piece);
-    return { highlights, lines };
+    return { highlights, lines, mergePreview };
   }
   // 비숍/룩(및 나이트-슬롯의 3×3 폭발)은 attackTargets 자체가 자기 칸을 포함하므로, origin을
   // 별도로 push하면 같은 칸이 두 번 그려진다 (리뷰 Finding 2). attackTargets 결과에 이미 anchor가
@@ -133,5 +155,5 @@ export function buildHighlights(
   }
   for (const sq of targets) highlights.push({ square: sq, color: C.range });
   pushSelected(highlights, piece);
-  return { highlights, lines };
+  return { highlights, lines, mergePreview };
 }

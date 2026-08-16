@@ -1,6 +1,7 @@
 import { CONFIG } from '../config';
 import { BOARD_H, BOARD_W, fileCenterX, rankToTopY } from '../core/grid';
 import { ALLY_SPRITE_PX, getAllySprite, getEnemySprite } from './sprites';
+import { tierRingColor } from './tiers';
 import type { Enemy, GameState, Piece, PieceType, Square } from '../types';
 
 const SQ = CONFIG.board.squarePx;
@@ -13,8 +14,13 @@ export interface ViewState {
   highlights: { square: Square; color: string }[];
   lines: { from: Square; to: Square; color: string }[];
   shake: { x: number; y: number };
+  /** 합성 미리보기 — 드래그 중인 기물을 지금 놓으면 나올 결과. null이면 합성 대상 위가 아니다.
+   *  highlights와 달리 "한 칸에 하나"뿐이라 배열이 아니다 (드롭 지점은 언제나 한 곳). */
+  mergePreview: { square: Square; tier: number } | null;
 }
-export const EMPTY_VIEW: ViewState = { highlights: [], lines: [], shake: { x: 0, y: 0 } };
+export const EMPTY_VIEW: ViewState = {
+  highlights: [], lines: [], shake: { x: 0, y: 0 }, mergePreview: null,
+};
 // 공유 싱글턴 보호: 과거 main.ts가 `{ ...EMPTY_VIEW, highlights: [] }`로 highlights만 새로
 // 할당하고 lines/shake는 이 상수를 참조 공유한 채로 남겨둔 버그가 있었다 (Task 17 리뷰에서 발견).
 // freeze로 향후 실수로 EMPTY_VIEW.lines.push(...) 등을 호출하면 개발 중 즉시 TypeError로 드러난다.
@@ -26,7 +32,7 @@ Object.freeze(EMPTY_VIEW);
 /** 매 프레임 새로 만드는 ViewState. 세 필드 모두 새 배열/객체 — EMPTY_VIEW와 참조를 공유하지
  * 않으므로 Task 18(하이라이트/툴팁)·19(공격 이펙트/화면 흔들림)가 안전하게 push/대입할 수 있다. */
 export function createFrameView(): ViewState {
-  return { highlights: [], lines: [], shake: { x: 0, y: 0 } };
+  return { highlights: [], lines: [], shake: { x: 0, y: 0 }, mergePreview: null };
 }
 
 // 글리프 폴백 테이블. 이전에는 DOM 레이어(ui/drag.ts, ui/layout.ts, ui/slots.ts)가 텍스트
@@ -81,6 +87,8 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState, view: Vi
       ctx.stroke();
     }
     for (const p of state.pieces) if (p.square) drawPiece(ctx, p);
+    // 기물 위, 적 아래 — 미리보기는 대상 기물을 덮어야 읽히지만 적을 가리면 안 된다.
+    if (view.mergePreview) drawMergePreview(ctx, view.mergePreview);
     const sorted = [...state.enemies].sort((a, b) => a.y - b.y);
     for (const e of sorted) drawEnemy(ctx, e);
     drawBossVignette(ctx, state);
@@ -128,9 +136,67 @@ function drawGlyph(
   ctx.restore();
 }
 
+/**
+ * 강화 단계 링. 스프라이트(72px) 바로 바깥을 도는 원으로 그린다 — 칸(80px) 경계에 맞춘 사각
+ * 테두리는 인접 칸의 링과 맞닿아 어느 쪽 것인지 구분이 안 되고, 8랭크 스폰 경계선과도 붙는다.
+ * 어두운 바깥선을 먼저 깔아 반투명 하이라이트(선택 노랑·이동 초록) 위에서도 색이 독립적으로
+ * 읽히게 한다. save/restore로 감싸 lineWidth/strokeStyle이 이후 그리기로 새지 않게 한다 —
+ * drawPiece는 원래 ctx 상태를 복구하지 않는 함수라 여기서만이라도 스스로 닫는다.
+ */
+function drawTierRing(ctx: CanvasRenderingContext2D, x: number, y: number, color: string): void {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x, y, ALLY_SPRITE_PX / 2 + 2, 0, Math.PI * 2);
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = 'rgba(20,16,22,0.55)';
+  ctx.stroke();
+  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = color;
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * 합성 미리보기 — 드래그 중인 기물을 지금 놓으면 나올 결과를 그 칸 위에 미리 보여준다.
+ * 결과 티어의 링을 점선으로 그리고 단계를 숫자로 적는다("T3"). 놓기 전에 결과를 보여주는 것이
+ * 이 기능의 유일한 사전 안전장치다 — 합성은 비가역이고 복구 수단은 판매(50% 손실)뿐이다.
+ */
+function drawMergePreview(
+  ctx: CanvasRenderingContext2D, preview: { square: Square; tier: number },
+): void {
+  const x = fileCenterX(preview.square.file);
+  const y = rankToTopY(preview.square.rank) + SQ / 2;
+  const color = tierRingColor(preview.tier) ?? '#FFFFFF';
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x, y, ALLY_SPRITE_PX / 2 + 7, 0, Math.PI * 2);
+  ctx.setLineDash([6, 5]);
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = 'rgba(20,16,22,0.55)';
+  ctx.stroke();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = color;
+  ctx.stroke();
+  ctx.setLineDash([]);
+  // 'T3' — renderer.test.ts가 '×'로 시작하는 fillText 전량을 퀸 버프 배지로 못박고 있으므로
+  // 접두사를 '×'로 쓰면 안 된다.
+  const label = `T${preview.tier}`;
+  ctx.font = 'bold 15px system-ui';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = 'rgba(20,16,22,0.75)';
+  ctx.strokeText(label, x, y + SQ / 2 - 10);
+  ctx.fillStyle = color;
+  ctx.fillText(label, x, y + SQ / 2 - 10);
+  ctx.restore();
+}
+
 function drawPiece(ctx: CanvasRenderingContext2D, p: Piece): void {
   const x = fileCenterX(p.square!.file);
   const y = rankToTopY(p.square!.rank) + SQ / 2;
+  const ring = tierRingColor(p.tier);
+  if (ring) drawTierRing(ctx, x, y, ring);       // 스프라이트 아래 — 실루엣을 가리지 않는다
   const sprite = getAllySprite(p.type);
   if (sprite) {
     ctx.drawImage(sprite, x - ALLY_SPRITE_PX / 2, y - ALLY_SPRITE_PX / 2, ALLY_SPRITE_PX, ALLY_SPRITE_PX);

@@ -33,18 +33,28 @@ export function pickDropTarget(x: number, y: number, zones: DropZones): DropTarg
   return null;
 }
 
-/** 스펙 7.5 동작표 매핑 (순수). 실패 = 원위치 복귀 */
+/**
+ * 스펙 7.5 동작표 매핑 (순수). 실패 = 원위치 복귀.
+ *
+ * allowMerge — 이 드롭이 합성을 일으킬 수 있는가. 합성은 드래그 앤 드롭 전용이므로(사용자 결정)
+ * 드래그 경로만 true를 넘기고 클릭-투-무브는 기본값 false 그대로 둔다. 같은 칸에 같은 종류
+ * 기물을 놓는 조작이 드래그면 합성, 클릭이면 예전과 똑같은 맞교환이 된다.
+ */
 export function dropAction(
   state: GameState, pieceId: string, from: 'slot' | 'board',
-  target: DropTarget, events: GameEvent[],
+  target: DropTarget, events: GameEvent[], allowMerge = false,
 ): boolean {
   if (!target) return false;
   if (target.kind === 'sell') return sellPiece(state, pieceId);
   if (from === 'slot') {
-    if (target.kind === 'square') return placeFromSlot(state, pieceId, target.file, target.rank, events);
+    if (target.kind === 'square') {
+      return placeFromSlot(state, pieceId, target.file, target.rank, events, allowMerge);
+    }
     return reorderSlots(state, pieceId, target.index);
   }
-  if (target.kind === 'square') return moveOnBoard(state, pieceId, target.file, target.rank, events);
+  if (target.kind === 'square') {
+    return moveOnBoard(state, pieceId, target.file, target.rank, events, allowMerge);
+  }
   return recallToSlot(state, pieceId, target.index);
 }
 
@@ -208,7 +218,10 @@ export class DragController {
 
     if (d && !wasClick) {                               // 드래그 드롭
       const target = pickDropTarget(e.clientX, e.clientY, this.zones());
-      const ok = dropAction(this.state, d.pieceId, d.from, target, this.events);
+      // 드래그 경로만 합성을 허용한다 (사용자 결정 — 합성은 비가역이므로 "직접 집어 겹쳐 놓는"
+      // 명확한 의도의 제스처에만 붙인다). 아래 클릭-투-무브 경로는 이 인자를 넘기지 않으므로
+      // 같은 종류 기물 위에 놓아도 예전 그대로 맞교환이다.
+      const ok = dropAction(this.state, d.pieceId, d.from, target, this.events, true);
       this.playDropCue(d.from, target, ok);
       this.interaction.selectedPieceId = null;           // 드래그 후에는 이전 클릭 선택을 남기지 않는다 (검토 Finding 1)
       return;

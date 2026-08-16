@@ -8,6 +8,7 @@ import type { UiAudio } from '../src/audio';
 import type { UiCueKind } from '../src/audio/cues';
 import type { GameEvent, GameState, Piece, PieceType } from '../src/types';
 import { boardPiece, waveState } from './helpers';
+import { buildHighlights } from '../src/render/highlights';
 
 /** UiAudio 스텁 — DragController가 어떤 UI 큐를 어떤 순서로 재생 요청했는지만 기록한다.
  *  (실제 재생/스로틀은 cues.ts/audio/index.ts 쪽 유닛 테스트가 이미 검증한다 — 여기서는
@@ -46,7 +47,7 @@ describe('pickDropTarget', () => {
 describe('dropAction (스펙 7.5 동작표)', () => {
   function withSlotPiece(type: PieceType = 'pawn'): { s: GameState; p: Piece } {
     const s = waveState();
-    const p: Piece = { id: 'x', type, square: null, slotIndex: 0, cooldown: 0, queenBuffCount: 0 };
+    const p: Piece = { id: 'x', type, square: null, slotIndex: 0, cooldown: 0, queenBuffCount: 0, tier: 1 };
     s.pieces.push(p);
     return { s, p };
   }
@@ -208,8 +209,67 @@ function click(at: { x: number; y: number }): void {
 }
 
 function slotPiece(id: string, type: PieceType, slotIndex: number): Piece {
-  return { id, type, square: null, slotIndex, cooldown: 0, queenBuffCount: 0 };
+  return { id, type, square: null, slotIndex, cooldown: 0, queenBuffCount: 0, tier: 1 };
 }
+
+describe('DragController — 합성은 드래그 전용 (제스처 분리, 사용자 결정)', () => {
+  it('드래그로 같은 종류 위에 놓으면 합성된다', () => {
+    const { state, events } = setup('wave');
+    const mover = boardPiece('rook', 0, 1);
+    const occupant = boardPiece('rook', 5, 5);
+    state.pieces.push(mover, occupant);
+
+    drag_(squareCenter(0, 1), squareCenter(5, 5));
+
+    expect(state.pieces).toHaveLength(1);
+    expect(occupant.tier).toBe(2);
+    expect(events.some(e => e.kind === 'merged')).toBe(true);
+  });
+
+  it('클릭-투-무브로 같은 종류 위에 놓으면 합성이 아니라 맞교환이다 — 되돌릴 수 없는 조작이 클릭 하나로 새어나가지 않는다', () => {
+    const { state, events } = setup('wave');
+    const mover = boardPiece('rook', 0, 1);
+    const occupant = boardPiece('rook', 5, 5);
+    state.pieces.push(mover, occupant);
+
+    click(squareCenter(0, 1));      // 선택
+    click(squareCenter(5, 5));      // 같은 종류 기물 클릭 = 이동 커밋
+
+    expect(state.pieces).toHaveLength(2);
+    expect(mover.tier).toBe(1);
+    expect(occupant.tier).toBe(1);
+    expect(mover.square).toEqual({ file: 5, rank: 5 });
+    expect(occupant.square).toEqual({ file: 0, rank: 1 });
+    expect(events.some(e => e.kind === 'merged')).toBe(false);
+  });
+
+  it('드래그 중 같은 종류 위에 올리면 결과 티어 미리보기가 뜬다 (놓기 전 유일한 사전 표시)', () => {
+    const { state, drag } = setup('wave');
+    const mover = boardPiece('bishop', 0, 1, 2);
+    state.pieces.push(mover, boardPiece('bishop', 5, 5, 2));   // 같은 티어끼리만 합쳐진다
+
+    const to = squareCenter(5, 5);
+    document.dispatchEvent(pointer('pointerdown', squareCenter(0, 1).x, squareCenter(0, 1).y));
+    document.dispatchEvent(pointer('pointermove', to.x, to.y));
+
+    const hl = buildHighlights(state, drag.interaction);
+    expect(hl.mergePreview).toEqual({ square: { file: 5, rank: 5 }, tier: 3 });
+
+    document.dispatchEvent(pointer('pointerup', to.x, to.y));
+  });
+
+  it('트레이에서 드래그해 보드의 같은 종류 위에 놓아도 합성된다', () => {
+    const { state } = setup('prepare');
+    const tray = slotPiece('m-tray', 'pawn', 0);
+    const onBoard = boardPiece('pawn', 2, 3);
+    state.pieces.push(tray, onBoard);
+
+    drag_(slotCenter(0), squareCenter(2, 3));
+
+    expect(state.pieces).toHaveLength(1);
+    expect(onBoard.tier).toBe(2);
+  });
+});
 
 describe('DragController — 드래그 제스처 (스펙 7.5 동작표 7행, 자동화된 Step 5 대체 1/2)', () => {
   it('1. 슬롯 → 보드 빈칸 = 배치', () => {

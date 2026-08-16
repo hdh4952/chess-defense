@@ -95,6 +95,10 @@ canvas { display: block; }
 }
 .panel-facts dt { color: #9d968a; }
 .panel-facts dd { margin: 0; }
+/* 합성 단계 색 견본. 색값 자체는 render/tiers.ts가 인라인 style로 넣는다 — 팔레트의 단일 출처를
+   두 군데로 쪼개지 않기 위해서다(여기는 모양만 정한다). */
+.tier-dots { display: inline-flex; gap: 3px; vertical-align: middle; margin-left: 4px; }
+.tier-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 .panel-detail { margin: 14px 0 0; font-size: 14px; line-height: 1.6; color: #cfc9be; }
 
 /* 사거리 미리보기 5×5. 칸 색은 보드 하이라이트와 같은 의미로 읽히도록 맞춘다:

@@ -1,10 +1,31 @@
-import { CONFIG } from '../config';
+import { CONFIG, tierMultiplier } from '../config';
 import type { GameEvent, GameState, Piece, Square } from '../types';
 import { enemySquare, sameSquare } from './grid';
 import { attackTargets } from './patterns';
 
+/**
+ * 최종 공격력 = 기본 공격력 × 강화 단계 × (1 + 퀸 버프).
+ *
+ * 티어 배수가 곱셈으로 들어가야 "능력치 합"이라는 합성 규칙이 실제로 성립한다: 퀸 라인 위의
+ * T1 룩 2기는 각각 5 × (1+1) = 10이라 합계 20인데, 그 둘을 합친 T2 룩 한 기도 반드시 20이어야
+ * 하고 5 × 2 × (1+1) = 20이 정확히 그 값이다. 덧셈으로 넣으면 버프받은 기물을 합칠 때만 값이
+ * 어긋난다.
+ */
 export function pieceDamage(p: Piece): number {
-  return CONFIG.pieces[p.type].damage * (1 + p.queenBuffCount);
+  return CONFIG.pieces[p.type].damage * tierMultiplier(p.tier) * (1 + p.queenBuffCount);
+}
+
+/**
+ * 공격 1회당 얻는 골드 = 기본값 × 강화 단계. 퀸 버프는 여전히 곱하지 않는다(v1.7 결정).
+ *
+ * tier를 곱하는 이유는 공격력과 같다 — 골드도 능력치이므로 합성되면 합해져야 한다. 이건 단순한
+ * 일관성 문제가 아니라 함정 방지다: 비숍의 수입은 발사 "횟수"에 비례하는데 합성은 발사체 수를
+ * 반으로 줄이므로, tier를 곱하지 않으면 같은 3,200G에서 20웨이브 총 수입이 T1 16기의 +19,940G
+ * 에서 T2 8기의 +9,750G로 51% 증발한다(실측). 그런데 판매가와 툴팁은 가치가 보존된 것처럼
+ * 표시하므로, 되돌릴 수 없는 손실이 어디에도 드러나지 않는다. tier배가 그 감소를 정확히 상쇄한다.
+ */
+export function pieceGold(p: Piece): number {
+  return CONFIG.pieces[p.type].goldPerAttack * tierMultiplier(p.tier);
 }
 
 function anyEnemyIn(state: GameState, targets: Square[]): boolean {
@@ -57,11 +78,12 @@ export function updateCombat(state: GameState, dt: number, events: GameEvent[]):
     applyAttack(state, targets, pieceDamage(p), events);
     events.push({ kind: 'attack', pieceType: p.type, from: { ...p.square }, targets });
     if (def.goldPerAttack > 0) {
-      // pieceDamage(p)와 달리 퀸 버프(queenBuffCount)를 곱하지 않는다 — 골드는 버프 대상이
-      // 아니다(사용자 결정). config 값을 그대로 쓰는 이 한 줄이 그 규칙의 유일한 근거다.
-      state.gold += def.goldPerAttack;
-      state.stats.totalGoldEarned += def.goldPerAttack;
-      events.push({ kind: 'goldGained', square: { ...p.square }, amount: def.goldPerAttack });
+      // pieceGold(p)는 강화 단계는 곱하되 퀸 버프(queenBuffCount)는 곱하지 않는다 — 골드는
+      // 버프 대상이 아니다(사용자 결정). 그 규칙의 유일한 근거는 pieceGold 하나다.
+      const gold = pieceGold(p);
+      state.gold += gold;
+      state.stats.totalGoldEarned += gold;
+      events.push({ kind: 'goldGained', square: { ...p.square }, amount: gold });
     }
     p.cooldown = def.interval;
   }
