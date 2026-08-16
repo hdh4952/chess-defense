@@ -1,10 +1,11 @@
 import { CONFIG, TRAITS } from '../config';
-import type { GameEvent, GameState, Piece, Square } from '../types';
+import type { GameEvent, GameState, Piece, PieceType, Square } from '../types';
 import { recalcQueenBuffs } from './buff';
 import { applyAttack, pieceDamage } from './combat';
 import { freeSlotIndex, SLOT_CAPACITY } from './economy';
 import { inBoard, sameSquare } from './grid';
 import { blastTargets } from './patterns';
+import { fusionResult } from './fusion';
 
 export function findPiece(state: GameState, pieceId: string): Piece | undefined {
   return state.pieces.find(p => p.id === pieceId);
@@ -43,7 +44,9 @@ export type RejectReason =
  */
 export type Landing =
   | { kind: 'place'; occupant: null; resultTier: null }
-  | { kind: 'merge'; occupant: Piece; resultTier: number }
+  // 동종 합성도 resultType을 채운다(= piece.type). 그래야 하류(moveOnBoard/placeFromSlot/
+  // highlights)가 이종/동종을 구분할 필요가 아예 없어진다.
+  | { kind: 'merge'; occupant: Piece; resultTier: number; resultType: PieceType }
   | { kind: 'swap'; occupant: Piece; resultTier: null }
   | { kind: 'self'; occupant: Piece; resultTier: null }
   | { kind: 'reject'; occupant: Piece | null; resultTier: null; reason: RejectReason };
@@ -89,23 +92,34 @@ export function resolveLanding(
   if (!occupant) return { kind: 'place', occupant: null, resultTier: null };
   if (occupant === piece) return { kind: 'self', occupant, resultTier: null };
 
-  if (allowMerge && occupant.type === piece.type) {
-    // 같은 티어끼리만 합쳐진다 (사용자 결정 — 흰+흰=녹, 녹+녹=파 …). 이 제약이 있어야 티어가
-    // "흡수한 개수"가 아니라 레벨이 되고, 능력치 배수가 단계마다 정확히 2배로 떨어진다
-    // (tierMultiplier). 티어가 다르면 합성이 아니라 맞교환/거부로 흘려보낸다 — 강화된 기물을
-    // 약한 기물에 겹쳐서 조용히 잡아먹히는 사고를 규칙 차원에서 막는다.
-    if (occupant.tier !== piece.tier) {
-      return fromBoard ? { kind: 'swap', occupant, resultTier: null } : reject(occupant, 'tierMismatch');
+  if (allowMerge) {
+    // 어느 쪽이든 **같은 티어**여야 한다. 이 제약이 있어야 동종 합성에서 티어가 "흡수한 개수"가
+    // 아니라 레벨이 되고, 이종 융합에서도 "T3 재료 둘 → T3 융합물"이라는 등가가 성립한다.
+    // 강화된 기물이 약한 기물에 겹쳐 조용히 잡아먹히는 사고도 규칙 차원에서 막힌다.
+    const sameType = occupant.type === piece.type;
+    const fused = sameType ? null : fusionResult(piece.type, occupant.type);
+
+    if (sameType || fused) {
+      if (occupant.tier !== piece.tier) {
+        return fromBoard
+          ? { kind: 'swap', occupant, resultTier: null }
+          : reject(occupant, 'tierMismatch');
+      }
+      // 폭발 기물이 쿨다운 중이면 합성 자체를 막는다. 검사하지 않으면 합성은 성사되는데 직후
+      // tryKnightBlast가 `if (cooldown > 0) return`에 걸려 조용히 폭발을 삼킨다 — 미리보기가
+      // 그린 3×3이 실제로는 0회가 되는, 이 파일이 막으려는 바로 그 상황이다. 현재 나이트의
+      // interval이 0이라 늘 통과하지만, 되돌리는 순간 코드 변경 없이 실전화된다.
+      if (TRAITS[occupant.type].blast && occupant.cooldown > 0) {
+        return reject(occupant, 'knightCooldown');
+      }
+      // 동종은 티어가 한 단계 오르고, 이종은 **티어가 그대로**다. 융합은 등급 상승이 아니라
+      // 정체성 변경이고, 능력치를 재료 합으로 둔 것이 그 등가의 근거다 — 티어까지 올리면
+      // 500G 재료로 1,000G짜리가 나와 골드 중립성이 무너진다.
+      const resultType = fused ?? piece.type;
+      const resultTier = sameType ? piece.tier + 1 : piece.tier;
+      if (resultTier > CONFIG.merge.maxTier[resultType]) return reject(occupant, 'tierOverflow');
+      return { kind: 'merge', occupant, resultTier, resultType };
     }
-    // 나이트 합성은 양쪽 쿨다운이 모두 0일 때만 성립한다. 점유자 쪽 쿨다운을 검사하지 않으면
-    // 합성은 성사되는데 직후 tryKnightBlast가 `if (cooldown > 0) return`에 걸려 조용히 폭발을
-    // 삼킨다 — 미리보기가 그린 3×3이 실제로는 0회가 되는, 이 파일이 막으려는 바로 그 상황이다.
-    // 현재 CONFIG.pieces.knight.interval이 0이라 이 게이트는 항상 통과하지만(쿨다운이 늘 0),
-    // interval을 되돌리는 순간 코드 변경 없이 그대로 실전화된다.
-    if (TRAITS[occupant.type].blast && occupant.cooldown > 0) return reject(occupant, 'knightCooldown');
-    const resultTier = piece.tier + 1;
-    if (resultTier > CONFIG.merge.maxTier[piece.type]) return reject(occupant, 'tierOverflow');
-    return { kind: 'merge', occupant, resultTier };
   }
 
   // 트레이 기물은 점유 칸에 착지할 수 없다 — 맞교환은 밀려날 기물이 되돌아갈 출발 칸을 필요로
@@ -139,10 +153,20 @@ export function canLandAt(state: GameState, piece: Piece, square: Square): boole
  * updateSlots/tooltip이 전부 첫 일치만 집으므로, 같은 칸에 두 기물이 남으면 아래 깔린 쪽이
  * 영원히 조작 불가능해진다.
  */
-function commitMerge(state: GameState, absorbed: Piece, survivor: Piece, events: GameEvent[]): void {
-  survivor.tier += 1;   // 같은 티어끼리만 합쳐지므로 결과는 언제나 한 단계 위다
+function commitMerge(
+  state: GameState, absorbed: Piece, survivor: Piece,
+  resultTier: number, resultType: PieceType, events: GameEvent[],
+): void {
+  // 쿨다운은 **둘 중 큰 값**을 쓴다. 예전에는 생존자 것을 그대로 뒀는데, 어느 쪽이 생존자가
+  // 될지는 플레이어가 어느 쪽을 집느냐로 정해지므로 같은 조합이 드래그 방향에 따라 다른
+  // 쿨다운을 가졌다 — 쿨다운 2.9초 남은 룩을 갓 산 룩 위로 끌면 0이 되어 "합성 = 쿨다운
+  // 리셋"이 성립했다. max면 방향과 무관해지고 스펙 5.1의 안티파밍이 비로소 온전해진다.
+  survivor.cooldown = Math.max(survivor.cooldown, absorbed.cooldown);
+  survivor.tier = resultTier;
+  survivor.type = resultType;   // Piece.type이 가변이 되는 유일한 지점
   state.pieces.splice(state.pieces.indexOf(absorbed), 1);
-  recalcQueenBuffs(state);   // 흡수된 쪽이 퀸이 아니어도 퀸 라인 위였을 수 있다
+  // 흡수된 쪽이 퀸이 아니어도 퀸 라인 위였을 수 있고, 결과가 아마존이면 **새 버퍼가 생긴다**.
+  recalcQueenBuffs(state);
   events.push({
     kind: 'merged', square: { ...survivor.square! }, pieceType: survivor.type, tier: survivor.tier,
   });
@@ -182,7 +206,7 @@ export function placeFromSlot(
   if (landing.kind === 'merge') {
     // 트레이발 합성이 슬롯을 하나 비워 canBuy를 다시 연다 — 보드가 꽉 찬 후반에도 구매 루프가
     // 계속 돌게 하는 의도된 동작이다. 흡수되는 건 트레이의 p이므로 보드 위 칸 수는 그대로다.
-    commitMerge(state, p, landing.occupant, events);
+    commitMerge(state, p, landing.occupant, landing.resultTier, landing.resultType, events);
     if (TRAITS[landing.occupant.type].blast) tryKnightBlast(state, landing.occupant, events);
     return true;
   }
@@ -218,7 +242,7 @@ export function moveOnBoard(
     // 합성 후 폭발은 생존자(점유자) 기준으로 정확히 1회다. 흡수된 쪽은 폭발하지 않는데, 이는
     // "플레이어가 직접 움직인 기물만 폭발한다"는 맞교환 규칙과 같은 근거다 — 다만 합성에서는
     // 움직인 쪽이 사라지므로 그 화력이 생존자에게 넘어간다(티어가 갱신된 뒤의 데미지로 터진다).
-    commitMerge(state, p, landing.occupant, events);
+    commitMerge(state, p, landing.occupant, landing.resultTier, landing.resultType, events);
     if (TRAITS[landing.occupant.type].blast) tryKnightBlast(state, landing.occupant, events);
     return true;
   }
