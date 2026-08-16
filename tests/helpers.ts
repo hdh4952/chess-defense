@@ -1,4 +1,4 @@
-import { CONFIG, enemyCount, enemyHp, tierMultiplier } from '../src/config';
+import { CONFIG, enemyCount, enemyHp, enemyTraits, tierMultiplier } from '../src/config';
 import { createEnemy } from '../src/core/enemy';
 import { stepGame } from '../src/core/step';
 import { recalcQueenBuffs } from '../src/core/buff';
@@ -6,7 +6,7 @@ import { moveOnBoard } from '../src/core/pieces';
 import { enemySquare } from '../src/core/grid';
 import { rankToTopY } from '../src/core/grid';
 import { createInitialState } from '../src/core/state';
-import type { Enemy, GameEvent, GameState, Phase, Piece, PieceType } from '../src/types';
+import type { Enemy, EnemyTrait, GameEvent, GameState, Phase, Piece, PieceType } from '../src/types';
 
 let seq = 0;
 
@@ -68,14 +68,17 @@ export function cycleRng(): () => number {
  * 그 피해는 **전량 폐기**된다(§1.3). 그래서 "누수 몇 마리"는 포화되기 쉬운 반면 이 값은
  * 화력·감산·속도 어느 축을 건드려도 선형으로 반응한다.
  */
-export function transitDamage(wave: number, pieces: Piece[], spawnFile: number): number {
+export function transitDamage(
+  wave: number, pieces: Piece[], spawnFile: number,
+  traits: readonly EnemyTrait[] = [],
+): number {
   const s = waveState();
   s.hp = Number.MAX_SAFE_INTEGER;          // 누수로 게임이 끝나 측정이 잘리지 않게
   s.wave = wave;
   s.spawnedCount = enemyCount(wave);       // updateSpawning이 더 스폰하지 않도록
   s.pieces.push(...pieces);
   recalcQueenBuffs(s);   // 직접 push하는 경로는 재계산 책임을 스스로 진다 (기획안 §4.7)
-  const e = createEnemy(wave, spawnFile, false, 'transit');
+  const e = createEnemy(wave, spawnFile, false, 'transit', traits);
   s.enemies.push(e);
   const maxHp = e.maxHp;
   let minHp = maxHp;
@@ -105,7 +108,9 @@ export function bossTransit(
   s.spawnedCount = enemyCount(wave);
   s.pieces.push(...pieces);
   recalcQueenBuffs(s);   // 없으면 퀸 12기가 통째로 놀고 보스 화력이 실제의 절반 아래가 된다
-  const boss = createEnemy(wave, spawnFile, true, 'boss');
+  // 실제 스폰 경로(wave.ts)와 같은 유형을 붙인다. 안 붙이면 이 신호가 적 유형 단계에
+  // 통째로 눈이 먼다 — 실제로 그렇게 만들었다가 8/8이 안 움직여서 알아챘다.
+  const boss = createEnemy(wave, spawnFile, true, 'boss', enemyTraits(wave, 0, true));
   s.enemies.push(boss);
   const maxHp = boss.maxHp;
   let minHp = maxHp;

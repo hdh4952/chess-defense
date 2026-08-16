@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { CONFIG, enemyCount, enemyHp, tierMultiplier } from '../src/config';
+import { CONFIG, enemyCount, enemyHp } from '../src/config';
 import {
   boardPiece, bossTransit, buildCost, chaseWave5Boss, countingRng, cycleRng,
   fullRun, minWinBuild, rooksTwoPerFile, transitDamage,
 } from './helpers';
+import type { EnemyTrait } from '../src/types';
 
 /**
  * 회귀 신호 (S0) — 개선 시리즈가 밸런스를 건드릴 때 **무엇이 얼마나 움직였는지** 보기 위한 것.
@@ -69,6 +70,15 @@ describe('N2 — 단일 적 종주 총피해 (감시: 적 유형·융합 단계)
     }
   });
 
+  it('적 유형이 붙으면 값이 실제로 움직인다 (유형이 적용되고 있다는 증거)', () => {
+    // 이 신호가 안 움직이면 유형이 스폰 경로에만 있고 피해 계산에는 닿지 않은 것이다.
+    const rook = () => [boardPiece('rook', 2, 1)];
+    expect(transitDamage(19, rook(), 2)).toBe(40);
+    expect(transitDamage(19, rook(), 2, ['armored'])).toBe(25);
+    expect(transitDamage(19, rook(), 2, ['shielded'])).toBe(32);
+    expect(transitDamage(19, rook(), 2, ['swift'])).toBe(30);   // 종주가 짧아져 발사 기회가 준다
+  });
+
   it('폰 2기 = 24 · 비숍 1기 = 1 (웨이브 무관 — 화력이 적 체력에 의존하지 않는다)', () => {
     const pawns = () => [boardPiece('pawn', 1, 4), boardPiece('pawn', 3, 4)];
     for (const w of [17, 19]) {
@@ -119,15 +129,29 @@ describe('N3 — w5 게이트 최소성 (감시: 전 단계)', () => {
 });
 
 describe('N4 — 합성 골드 중립성 (감시: 적 유형·융합 단계)', () => {
-  it('티어 k 기물의 종주 피해 ÷ 2^(k−1) 는 티어와 무관하게 일정하다', () => {
-    // 적 유형이 들어오면 이 신호가 먼저 깨진다. 고정 감산(−2)은 티어마다 다른 비율로 깎아
-    // 중립성을 무너뜨리고, 비율 감산(×0.75)은 정확히 보존한다. 그래서 §−1의 "장갑은 비율
-    // 감산" 결정이 이 테스트 하나로 감시된다.
-    const HUGE = 20;   // 문턱에 걸리지 않도록 체력이 충분히 큰 웨이브를 쓴다
-    const base = transitDamage(HUGE, [boardPiece('bishop', 3, 4)], 3) / tierMultiplier(1);
+  // ★ 불변식의 형태가 중요하다. "티어 k 피해 ÷ 2^(k−1)이 일정"은 **곱셈 효과에만** 성립하고
+  // 보호막처럼 총량에서 한 번 빼는 효과에는 성립하지 않는다(풀은 기물 수와 무관하게 한 번만
+  // 소모되므로). 실제로 지켜야 할 것은 "**같은 골드**에서 T1 둘과 T2 하나가 같은 결과"다.
+  const TRAIT_CASES: EnemyTrait[][] = [
+    [], ['armored'], ['shielded'], ['swift'], ['armored', 'shielded'],
+  ];
+
+  it('T1 둘 = T2 하나 — 모든 적 유형 조합에서', () => {
+    for (const traits of TRAIT_CASES) {
+      const spread = transitDamage(20, [boardPiece('rook', 2, 1), boardPiece('rook', 2, 2)], 2, traits);
+      const merged = transitDamage(20, [boardPiece('rook', 2, 1, 2)], 2, traits);
+      expect(merged, JSON.stringify(traits)).toBe(spread);
+    }
+  });
+
+  it('장갑은 비율이라 티어에 같은 배수가 걸린다', () => {
+    // 고정 감산(−2)이면 여기가 깨진다 — 티어마다 다른 비율로 깎이기 때문이다.
+    // 이 단언 하나가 "장갑은 비율 감산" 결정을 영구히 강제한다.
+    const armor = CONFIG.traitDefs.armored.damageMultiplier!;
     for (let k = 1; k <= CONFIG.merge.maxTier.bishop; k++) {
-      const d = transitDamage(HUGE, [boardPiece('bishop', 3, 4, k)], 3);
-      expect(d / tierMultiplier(k)).toBeCloseTo(base, 9);
+      const plain = transitDamage(20, [boardPiece('bishop', 3, 4, k)], 3);
+      const armored = transitDamage(20, [boardPiece('bishop', 3, 4, k)], 3, ['armored']);
+      expect(armored).toBe(plain * armor);
     }
   });
 });
@@ -148,12 +172,16 @@ describe('N6 — 엔진 무결성 풀런 (감시: 전 단계)', () => {
     expect(r.bossLeaks * CONFIG.player.hpLossBoss).toBeGreaterThan(CONFIG.player.startHp);
   });
 
-  it('최소 승리 빌드: 전멸 · 무누수', () => {
+  it('최소 승리 빌드: w20 보스 하나만 놓친다', () => {
+    // 적 유형 도입 전에는 무누수(452킬)였다. 지금은 w20 보스를 놓친다 — w20은 놓쳐도 이기는
+    // 보스이므로(체력 10 → −5 → 5 > 0) 이것이 의도된 상태다. 그 보스를 잡으려면 더 사야 한다
+    // (실측: 룩 8기 +4,000G면 w20이 6/8이 된다).
     const r = fullRun(minWinBuild(), cycleRng());
     expect(r.phase).toBe('victory');
-    expect(r.leaks).toBe(0);
-    expect(r.kills).toBe(452);
-    expect(r.earned).toBe(24402);
+    expect(r.kills).toBe(451);
+    expect(r.leaks).toBe(1);
+    expect(r.bossLeaks).toBe(1);
+    expect(r.bossLeaks * CONFIG.player.hpLossBoss).toBeLessThan(CONFIG.player.startHp);
   });
 });
 
@@ -175,12 +203,22 @@ describe('N7 — 보스 3/4 처치 가능성 ★ (감시: 적 유형 단계의 �
     }
   });
 
-  it('w20 보스는 파일에 따라 갈린다 — 여유가 없다는 사실을 고정한다', () => {
-    // w20은 놓쳐도 이긴다(체력 10 → −5 → 5 > 0). 그래서 처치를 요구하지 않되, "전 파일에서
-    // 잡힌다"가 되면 화력이 과해진 것이므로 상한으로 감시한다.
+  it('w20 보스는 최소 승리 빌드로는 잡히지 않는다 — 놓쳐도 이기지만 보상은 못 받는다', () => {
     const killed = FILES.map(f => bossTransit(20, f, minWinBuild())).filter(r => r.killed).length;
-    expect(killed).toBeLessThan(CONFIG.board.files);
-    expect(killed).toBe(4);
+    expect(killed).toBe(0);
+  });
+
+  it('★ 더 사면 w20이 열린다 — "약간 더 사면 되는 압력"이 실제로 존재하는지', () => {
+    // 이 단언이 없으면 w20 0/8이 "불가능한 벽"인지 "투자하면 되는 목표"인지 구분되지 않는다.
+    // 벽이 되면 마지막 보스 보상 1,770G가 설계상 도달 불가가 된다.
+    const bigger = () => {
+      const b = minWinBuild();
+      for (const f of FILES) b.push(boardPiece('rook', f, 5));
+      return b;
+    };
+    expect(buildCost(bigger()) - buildCost(minWinBuild())).toBe(8 * CONFIG.pieces.rook.cost);
+    const killed = FILES.map(f => bossTransit(20, f, bigger())).filter(r => r.killed).length;
+    expect(killed).toBeGreaterThanOrEqual(6);
   });
 });
 

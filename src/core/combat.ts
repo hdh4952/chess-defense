@@ -1,5 +1,5 @@
-import { CONFIG, TRAITS, tierMultiplier } from '../config';
-import type { GameEvent, GameState, Piece, Square } from '../types';
+import { CONFIG, TRAITS, armorMultiplier, tierMultiplier } from '../config';
+import type { Enemy, GameEvent, GameState, Piece, Square } from '../types';
 import { enemySquare, sameSquare } from './grid';
 import { attackTargets } from './patterns';
 
@@ -32,14 +32,37 @@ function anyEnemyIn(state: GameState, targets: Square[]): boolean {
   return state.enemies.some(e => targets.some(t => sameSquare(t, enemySquare(e))));
 }
 
-/** 대상 칸들의 모든 적에게 데미지. 처치 시 골드 = maxHp (스펙 4.1/5.1/6) */
+/**
+ * 원피해 → 이 적이 실제로 받는 피해. **순서가 규칙이다: 장갑을 먼저 걸고 그 뒤 보호막 풀에서
+ * 뺀다.** 반대로 하면 장갑 적이 풀을 더 오래 유지해 두 유형이 곱셈으로 겹친다.
+ *
+ * 장갑이 비율이라 결과가 0 이하로 내려가지 않으므로 "최소 피해 1" 같은 바닥이 필요 없다.
+ * 보호막은 남은 **피해량**을 깎는다(횟수가 아니다) — 횟수면 합성이 피격 수를 절반으로 줄여
+ * 골드 중립성이 깨진다.
+ */
+export function resolveDamage(e: Enemy, raw: number): number {
+  let d = raw * armorMultiplier(e.traits, e.isBoss);
+  if (e.shieldPool > 0) {
+    const absorbed = Math.min(e.shieldPool, d);
+    e.shieldPool -= absorbed;
+    d -= absorbed;
+  }
+  return d;
+}
+
+/**
+ * 대상 칸들의 모든 적에게 피해. 처치 시 골드 = maxHp (스펙 4.1/5.1/6)
+ *
+ * ⚠️ `damage` 인자의 의미가 **'감산 전 원피해'**다. 적마다 장갑·보호막이 다르므로 실제 피해는
+ * 적별로 갈라진다. 이 함수를 나이트 폭발(pieces.ts)도 공유한다.
+ */
 export function applyAttack(
   state: GameState, targets: Square[], damage: number, events: GameEvent[],
 ): void {
   const killed: typeof state.enemies = [];
   for (const e of state.enemies) {
     if (!targets.some(t => sameSquare(t, enemySquare(e)))) continue;
-    e.hp -= damage;
+    e.hp -= resolveDamage(e, damage);
     if (e.hp <= 0) killed.push(e);
   }
   for (const e of killed) {

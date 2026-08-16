@@ -11,6 +11,7 @@ const SQ = CONFIG.board.squarePx;
 function makeEnemy(overrides: Partial<Enemy>): Enemy {
   return {
     id: 'e', file: 0, y: 0, hp: 10, maxHp: 10, isBoss: false, speed: 26.6, jitterX: 0,
+    traits: [], shieldPool: 0,
     ...overrides,
   };
 }

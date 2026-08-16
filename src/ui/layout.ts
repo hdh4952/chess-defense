@@ -7,7 +7,7 @@ import type { PieceType } from '../types';
 export interface Layout {
   canvas: HTMLCanvasElement;
   hud: {
-    hp: HTMLElement; gold: HTMLElement; wave: HTMLElement; remaining: HTMLElement;
+    hp: HTMLElement; bossRoom: HTMLElement; gold: HTMLElement; wave: HTMLElement; remaining: HTMLElement;
     timer: HTMLElement; bossIcon: HTMLElement;
     pauseBtn: HTMLButtonElement; speedBtn: HTMLButtonElement; muteBtn: HTMLButtonElement;
   };
@@ -40,6 +40,7 @@ export function createLayout(app: HTMLElement): Layout {
   app.innerHTML = `
     <header id="hud">
       <span>♥<b id="hud-hp"></b></span>
+      <span id="hud-boss-room" title="보스를 몇 번 더 놓쳐도 버티는가"></span>
       <span>💰<b id="hud-gold"></b></span>
       <span>웨이브 <b id="hud-wave"></b></span>
       <span>남은 적 <b id="hud-remaining"></b></span>
@@ -91,7 +92,7 @@ ${CREDIT_HTML}
   return {
     canvas: q<HTMLCanvasElement>('#board'),
     hud: {
-      hp: q('#hud-hp'), gold: q('#hud-gold'), wave: q('#hud-wave'),
+      hp: q('#hud-hp'), bossRoom: q('#hud-boss-room'), gold: q('#hud-gold'), wave: q('#hud-wave'),
       remaining: q('#hud-remaining'), timer: q('#hud-timer'), bossIcon: q('#hud-boss-icon'),
       pauseBtn: q<HTMLButtonElement>('#hud-pause'), speedBtn: q<HTMLButtonElement>('#hud-speed'),
       muteBtn: q<HTMLButtonElement>('#hud-mute'),

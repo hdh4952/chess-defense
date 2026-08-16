@@ -95,7 +95,7 @@ describe('전 게임 시뮬레이션', () => {
       s.spawnedCount = 1;                                // 보스 이미 스폰됨
       const boss = {
         id: 'b', file: 3, y: BOARD_H - 0.1, hp: bossHp, maxHp: bossHp, isBoss: true,
-        speed: bossSpeed, jitterX: 0,
+        speed: bossSpeed, jitterX: 0, traits: [], shieldPool: 0,
       };
       s.enemies.push(boss);
       run(s, 2, () => 0);
@@ -363,7 +363,14 @@ describe('밸런스 확장 측정 — 후반 웨이브 & 보스 게이트 (Task 
       // 핵심 실측 단언: "룩 1개/파일이면 후반 웨이브도 무누수"라는 이 측정의 결론 자체를 고정한다.
       // 위 대조군(완전 고립)은 새지만, 8파일 동시배치에서는 공유 랭크 시너지가 여유 있게 메운다
       // (리뷰에서 확인된 사실). 엔진이 이 시너지를 잃으면(회귀) 여기서 실패해야 한다.
-      expect(oneEach.leaks).toBe(0);
+      // 적 유형(v1.9) 도입 전에는 룩 1기/파일이 전 웨이브에서 무누수였다. 지금은 w17부터 샌다 —
+      // 유형이 "구성 편중을 깬다"는 목적을 실제로 달성하고 있다는 증거이므로 회귀가 아니다.
+      // 실측값을 그대로 못박아 이후 변경이 이 구간을 다시 흔들면 드러나게 한다.
+      const ONE_EACH_LEAKS: Record<number, number> = { 16: 0, 17: 4, 18: 4, 19: 5 };
+      expect(oneEach.leaks).toBe(ONE_EACH_LEAKS[w]);
+      // 룩 2기/파일은 여전히 무누수다 — 포화 성질은 유형 도입 후에도 그대로이고, 이것이
+      // "적 유형은 난이도 노브가 아니다"라는 판단의 근거다.
+      expect(twoEach.leaks).toBe(0);
       // 구조적 불변식: 같은 배치를 더 늘렸는데 누수가 늘어날 수는 없다 (안전한 단언)
       expect(twoEach.leaks).toBeLessThanOrEqual(oneEach.leaks);
       expect(twoEach.cost).toBeLessThan(ceiling);   // 이 시점 이론 상한 내에서 충분히 감당 가능 (config 유도)

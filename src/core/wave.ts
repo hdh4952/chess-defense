@@ -1,4 +1,4 @@
-import { CONFIG, enemyCount } from '../config';
+import { CONFIG, enemyCount, enemyTraits } from '../config';
 import type { GameEvent, GameState } from '../types';
 import { createEnemy } from './enemy';
 
@@ -27,7 +27,12 @@ export function updateSpawning(
   while (state.spawnTimer <= 0 && state.spawnedCount < total) {
     const file = Math.min(CONFIG.board.files - 1, Math.floor(rng() * CONFIG.board.files));
     const isBoss = state.wave % CONFIG.wave.bossEvery === 0;
-    state.enemies.push(createEnemy(state.wave, file, isBoss, `e-${state.wave}-${state.spawnedCount}`));
+    // ★ 유형은 enemyTraits가 결정론적 쿼터로 정한다 — 여기서 rng()를 추가로 뽑으면 스폰 파일
+    // 시퀀스가 통째로 달라져 기존 헤드리스 측정이 조용히 다른 것을 잰다(signals의 N8이 잡는다).
+    const traits = enemyTraits(state.wave, state.spawnedCount, isBoss);
+    state.enemies.push(
+      createEnemy(state.wave, file, isBoss, `e-${state.wave}-${state.spawnedCount}`, traits),
+    );
     state.spawnedCount++;
     if (isBoss) events.push({ kind: 'bossSpawned', file });
     state.spawnTimer += CONFIG.wave.spawnInterval;

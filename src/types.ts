@@ -11,12 +11,19 @@ export interface Piece {
   cooldown: number;        // 초. 이동/회수해도 초기화되지 않음
   queenBuffCount: number;
   /**
-   * 강화 단계 = 이 기물에 흡수된 기본 기물의 개수. 구매 직후 항상 1이고, 같은 종류끼리 합성할
-   * 때 두 기물의 tier가 더해진다(상한 CONFIG.merge.maxTier). 능력치는 전부 이 값에 정비례한다
-   * — 공격력·비숍 골드·퀸 버프·판매가 (combat.ts / buff.ts / economy.ts).
+   * 강화 단계(레벨). 구매 직후 1이고, **같은 종류·같은 티어**끼리 합성하면 1 오른다
+   * (상한 CONFIG.merge.maxTier). 흡수한 개수가 아니라 레벨이므로 T2+T2는 4가 아니라 3이다.
+   * 실제 능력치 배수는 tierMultiplier(tier) = 2^(tier−1)이고, 공격력·비숍 골드·퀸 버프·
+   * 판매가가 전부 그 배수를 탄다 (combat.ts / buff.ts / economy.ts).
    */
   tier: number;
 }
+
+/**
+ * 적 유형. 스폰 시 확정되고 이후 바뀌지 않는다 — "정체성"이지 상태가 아니다.
+ * 상태(남은 보호막)는 Enemy.shieldPool이 따로 들고 있다.
+ */
+export type EnemyTrait = 'armored' | 'swift' | 'shielded';
 
 export interface Enemy {
   id: string;
@@ -25,8 +32,12 @@ export interface Enemy {
   hp: number;
   maxHp: number;      // = 처치 보상 골드
   isBoss: boolean;
-  speed: number;      // px/s
+  speed: number;      // px/s. 영구 배수(보스 감속·신속)는 여기 구워 넣는다
   jitterX: number;    // 렌더 전용
+  traits: readonly EnemyTrait[];   // 스폰 시 확정, 이후 불변
+  /** 남은 흡수 피해량. **횟수가 아니라 피해량**이다 — 횟수로 세면 합성이 피격 수를 절반으로
+   *  줄이므로 "T1 둘 = T2 하나"라는 골드 중립성이 깨진다(실측 −23%). */
+  shieldPool: number;
 }
 
 export type Phase = 'prepare' | 'wave' | 'victory' | 'defeat';

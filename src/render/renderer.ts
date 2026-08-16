@@ -2,13 +2,21 @@ import { CONFIG } from '../config';
 import { BOARD_H, BOARD_W, fileCenterX, rankToTopY } from '../core/grid';
 import { ALLY_SPRITE_PX, getAllySprite, getEnemySprite } from './sprites';
 import { tierRingColor } from './tiers';
-import type { Enemy, GameState, Piece, PieceType, Square } from '../types';
+import type { Enemy, EnemyTrait, GameState, Piece, PieceType, Square } from '../types';
 
 const SQ = CONFIG.board.squarePx;
 // 8랭크/7랭크 경계선 두께 — 표현(presentation) 값이라 config.ts가 아닌 여기에 둔다. export하는
 // 이유는 테스트가 이 두께를 리터럴로 못박아, "경계선이 두께 0으로 그려져도 통과하는" 결함
 // (재검토 Important 1)을 재발 방지하기 위함이다.
 export const SPAWN_BORDER_PX = 4;
+
+/** 적 유형 표식 색. 아군 티어 링(render/tiers.ts)과 겹치지 않는 톤을 골랐다 — 둘이 같은
+ *  화면에 있으므로 색이 겹치면 "강화된 아군"과 "특성 있는 적"이 구분되지 않는다. */
+const TRAIT_COLOR: Record<EnemyTrait, string> = {
+  armored: '#9AA7B4',    // 회청 — 금속
+  swift: '#4FD1C5',      // 청록 — 속도
+  shielded: '#B98CFF',   // 연보라 — 보호막
+};
 
 export interface ViewState {
   highlights: { square: Square; color: string }[];
@@ -225,7 +233,43 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy): void {
   ctx.fillStyle = COLOR.hpBack;
   ctx.fillRect(x - w / 2, top, w, h);
   ctx.fillStyle = COLOR.hpFill;
-  ctx.fillRect(x - w / 2, top, w * Math.max(0, e.hp / e.maxHp), h);
+  // 상·하한 둘 다 클램프한다. 하한만 두면 회복 계열이 생겼을 때 막대가 칸 밖으로 넘어간다.
+  ctx.fillRect(x - w / 2, top, w * Math.min(1, Math.max(0, e.hp / e.maxHp)), h);
+  drawTraitMarks(ctx, e, x, top);
+}
+
+/**
+ * 적 유형 표식 — 체력바 왼쪽에 작은 고리로, 보호막은 체력바 위 아크 게이지로 그린다.
+ *
+ * ⚠️ **`arc`/`stroke`로만 그린다.** renderer.test.ts가 `fillRect`(80×80 정확히 64개, 640폭
+ * 정확히 2개)와 `fillText`('×'로 시작하는 것 전량)의 개수를 리터럴로 못박고 있어서, 표식을
+ * 그 프리미티브로 그리면 밸런스와 무관한 렌더 테스트가 무더기로 깨진다.
+ */
+function drawTraitMarks(ctx: CanvasRenderingContext2D, e: Enemy, x: number, top: number): void {
+  if (e.traits.length === 0) return;
+  ctx.save();
+  let cx = x - 26;
+  for (const t of e.traits) {
+    ctx.beginPath();
+    ctx.arc(cx, top + 2, 3.5, 0, Math.PI * 2);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = TRAIT_COLOR[t];
+    ctx.stroke();
+    cx -= 9;
+  }
+  // 보호막은 "얼마나 남았는가"가 보여야 한다 — 남은 풀에 비례하는 아크로 그린다.
+  if (e.shieldPool > 0) {
+    const full = Math.round(e.maxHp * (CONFIG.traitDefs.shielded.absorbPool ?? 0));
+    if (full > 0) {
+      ctx.beginPath();
+      ctx.arc(x, e.y, CONFIG.enemy.spritePx / 2 + 3, -Math.PI / 2,
+        -Math.PI / 2 + (Math.PI * 2 * Math.min(1, e.shieldPool / full)));
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = TRAIT_COLOR.shielded;
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
 }
 
 /** 보스가 2랭크 진입 시 화면 가장자리 붉은 비네트 (스펙 7.9) */

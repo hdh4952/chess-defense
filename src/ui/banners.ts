@@ -12,7 +12,11 @@ export class Banners {
 
   onEvent(ev: GameEvent): void {
     if (ev.kind === 'prepareStarted' && ev.isBossWave) {
-      this.showBanner('⚠ BOSS WAVE');                    // 2초 표시 후 페이드
+      // 네 보스가 승패에 기여하는 정도가 전혀 다르다. w5·w10은 표준 빌드로 잡히고, w20은
+      // 놓쳐도 이긴다(체력 10 → −5 → 5 > 0). **실제로 판을 가르는 것은 w15 하나뿐**이라
+      // 그 웨이브만 다른 문구를 준다 — 배너가 네 번 다 같으면 그 사실을 배울 길이 없다.
+      const isPivotal = ev.wave === CONFIG.wave.total - CONFIG.wave.bossEvery;
+      this.showBanner(isPivotal ? '⚠ 최대 고비 — BOSS WAVE' : '⚠ BOSS WAVE');
     }
     if (ev.kind === 'bossSpawned') {
       this.bossFlash = { file: ev.file, t: 1.0 };

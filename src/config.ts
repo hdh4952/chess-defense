@@ -1,4 +1,4 @@
-import type { PieceType } from './types';
+import type { EnemyTrait, PieceType } from './types';
 
 export const CONFIG = {
   board: { files: 8, ranks: 8, squarePx: 80 },
@@ -84,6 +84,43 @@ export const CONFIG = {
    */
   merge: { maxTier: { pawn: 6, knight: 6, bishop: 6, rook: 6, queen: 6 } },
 
+  /**
+   * 적 유형 — 웨이브가 진행되며 섞여 들어오는 세 가지 정체성.
+   *
+   * **이것은 난이도 노브가 아니다.** 헤드리스 실측으로 룩 2기/파일 이상에서는 감산을 0.5까지
+   * 내려도 w16~w19 누수가 전부 0이었다(포화). 난이도는 보스가 담당하고(bossDamageMultiplier),
+   * 유형이 하는 일은 **구성 편중을 깨는 것**이다 — 정가제의 실제 최적해는 폰 스팸이었는데
+   * (자동 플레이어 실측: 폰 222.9기 / 룩 0기) T1 폰은 2딜이라 감산에 정면으로 취약하다.
+   * traitRatio를 올려 난이도를 잡으려는 시도는 위 포화 실측 때문에 듣지 않는다.
+   *
+   * ★ 감산이 **비율**인 이유: 고정 감산(−2)은 티어마다 다른 비율로 깎아 합성의 골드 중립성을
+   * 무너뜨린다(실측: 룩 +33% / 나이트 +100% / 비숍 −50%). 비율이면 모든 티어에 같은 배수가
+   * 걸려 정확히 보존되고, "최소 피해 1 보장" 같은 바닥도 필요 없어진다.
+   * 값은 **이진 정확값만** 쓴다 — 3 × 0.6 = 1.7999999999999998이라 정수 단언이 밸런스와
+   * 무관하게 깨진다. 0.5 / 0.625 / 0.75는 전부 정확하다.
+   */
+  traitDefs: {
+    armored:  { damageMultiplier: 0.625, bossDamageMultiplier: 0.875 },
+    swift:    { speedMultiplier: 1.5 },
+    shielded: { absorbPool: 0.15 },
+  } as Record<EnemyTrait, {
+    damageMultiplier?: number; bossDamageMultiplier?: number;
+    speedMultiplier?: number; absorbPool?: number;
+  }>,
+
+  /** 각 유형이 처음 등장하는 웨이브 */
+  traitSchedule: { armored: 6, swift: 9, shielded: 12 } as Record<EnemyTrait, number>,
+  /** 일반 적 중 유형을 갖는 비율 (결정론적 쿼터) */
+  traitRatio: 0.3,
+  /** 유형별 쿼터 위상. 겹치면 같은 적에게 몰려 분포가 무너지므로 서로 어긋나게 둔다. */
+  traitPhase: { armored: 0, swift: 3, shielded: 7 } as Record<EnemyTrait, number>,
+  /** 일반 적이 동시에 가질 수 있는 유형 수 */
+  maxTraitsNormal: 1,
+  /** 보스가 유형 둘을 겸하기 시작하는 웨이브 */
+  bossTraitCountFromWave: 15,
+  /** 보스에게 붙지 않는 유형. 보스는 "딜을 넣을 시간을 주는" 설계라 가속이 그 전제를 깬다. */
+  bossForbidden: ['swift'] as readonly EnemyTrait[],
+
   economy: { sellRatio: 0.5 },
   slots: { rows: 4, cols: 4 },
 } as const;
@@ -147,4 +184,47 @@ export function enemyHp(wave: number): number {
 export function enemyCount(wave: number): number {
   if (wave % CONFIG.wave.bossEvery === 0) return 1;   // 보스 단독
   return CONFIG.wave.countBase + CONFIG.wave.countPerWave * (wave - 1);
+}
+
+
+/**
+ * 스폰되는 적의 유형 — **rng를 소비하지 않는 결정론적 쿼터**다.
+ *
+ * 확률 추첨을 쓰지 않는 이유가 둘이다. ① 스폰 파일 추첨은 rng 호출 "순서"에만 의존하므로,
+ * 여기서 draw를 한 번 더 뽑으면 파일 시퀀스가 통째로 달라져 기존 헤드리스 측정이 조용히 다른
+ * 것을 재게 된다(signals.test.ts의 N8이 이 사실을 강제한다). ② n=20~46짜리 30% 이항 추첨은
+ * 웨이브별 실측 혼합률이 18~50%로 흔들려 회귀 신호가 잡음에 묻힌다.
+ */
+export function enemyTraits(wave: number, spawnIndex: number, isBoss: boolean): EnemyTrait[] {
+  const unlocked = (Object.keys(CONFIG.traitSchedule) as EnemyTrait[])
+    .filter(t => wave >= CONFIG.traitSchedule[t]);
+
+  if (isBoss) {
+    const allowed = unlocked.filter(t => !CONFIG.bossForbidden.includes(t));
+    const count = wave >= CONFIG.bossTraitCountFromWave ? 2 : 1;
+    return allowed.slice(0, count);
+  }
+
+  if (unlocked.length === 0) return [];
+  // 쿼터는 **유형별이 아니라 적별로 한 번만** 판정한다. 유형마다 독립 쿼터를 돌리면 해금이
+  // 늘수록 합집합이 커져(실측 3종 해금 시 52%) 의도한 비율을 훌쩍 넘긴다.
+  // 누적 개수가 정확히 ratio 비율로 늘어나는 지점에서만 붙인다 — n에 무관하게 비율이 고정된다.
+  const k = spawnIndex;
+  const gets = Math.floor(k * CONFIG.traitRatio) > Math.floor((k - 1) * CONFIG.traitRatio);
+  if (!gets) return [];
+  // 어느 유형인지는 순환으로 정한다. 위상을 더해 웨이브마다 같은 순서로 시작하지 않게 한다.
+  const nth = Math.floor(k * CONFIG.traitRatio) + CONFIG.traitPhase[unlocked[0]];
+  return [unlocked[nth % unlocked.length]].slice(0, CONFIG.maxTraitsNormal);
+}
+
+/** 이 적이 받는 피해 배수 (장갑). 보스는 별도 값을 쓴다 — 일반 웨이브를 건드리지 않고
+ *  난이도를 조절할 수 있는 유일한 노브이기 때문이다. */
+export function armorMultiplier(traits: readonly EnemyTrait[], isBoss: boolean): number {
+  let m = 1;
+  for (const t of traits) {
+    const def = CONFIG.traitDefs[t];
+    const v = isBoss ? def.bossDamageMultiplier ?? def.damageMultiplier : def.damageMultiplier;
+    if (v !== undefined) m *= v;
+  }
+  return m;
 }
