@@ -3,7 +3,7 @@ import { CONFIG } from '../src/config';
 import { recalcQueenBuffs } from '../src/core/buff';
 import { squareKey } from '../src/core/grid';
 import {
-  canPlaceAt, isKnightMove, moveOnBoard, pieceAt, placeFromSlot, recallToSlot, reorderSlots,
+  canPlaceAt, moveOnBoard, pieceAt, placeFromSlot, recallToSlot, reorderSlots, resolveLanding,
 } from '../src/core/pieces';
 import { slowCoverage } from '../src/core/slow';
 import type { GameEvent, GameState, Piece, PieceType } from '../src/types';
@@ -117,13 +117,33 @@ describe('퀸 버프 트리거 (스펙 10.5)', () => {
  * 옮겨 적은 기준은 하나다: **pieces.ts가 여전히 책임지는 것만 여기서 잰다.** 감속의 세기·중첩
  * 금지·8랭크 포함 같은 능력 자체의 규칙은 slow/patterns 쪽 책임이라 여기서 재지 않고, 대신
  * "조작이 능력을 발동시키지 않는다"와 "오라의 출처는 조작이 아니라 위치다"만 붙잡는다.
+ *
+ * v1.11에서 그 "조작 규칙"마저 특별할 것이 없어졌다 — L자 이동 제약이 사라져(사용자 결정)
+ * 나이트가 다른 기물과 완전히 같은 규칙을 탄다. 그래서 아래 테스트 대부분은 이제 **아무 일도
+ * 일어나지 않는다**를 재는데, 그 무해함이야말로 이 능력 교체의 결과물이라 지우지 않고 남긴다.
  */
 describe('나이트 (스펙 5.3 + 검토 노트 3)', () => {
-  it('isKnightMove: L자만 허용', () => {
-    expect(isKnightMove({ file: 3, rank: 4 }, { file: 4, rank: 6 })).toBe(true);
-    expect(isKnightMove({ file: 3, rank: 4 }, { file: 5, rank: 5 })).toBe(true);
-    expect(isKnightMove({ file: 3, rank: 4 }, { file: 3, rank: 5 })).toBe(false);
-    expect(isKnightMove({ file: 3, rank: 4 }, { file: 5, rank: 6 })).toBe(false);
+  /*
+   * ⚠️ 여기 있던 `isKnightMove: L자만 허용` 단위 테스트가 삭제됐다 — 함수 자체가 v1.11에서
+   * 사라졌기 때문이다(나이트도 다른 기물과 똑같이 재배치된다, 사용자 결정). 대상이 없어진
+   * 유일한 경우라 지웠지만, 자리를 그냥 비우면 누군가 게이트를 되살려도 실패할 테스트가
+   * 하나도 없다. 그래서 같은 자리에 **부호를 뒤집어** 다시 심는다: 예전 knightPattern에
+   * 걸리던 이동이 지금은 성공한다.
+   */
+  it('L자가 아닌 이동이 전부 성공한다 — 이동 제약이 사라졌다 (v1.11)', () => {
+    const s = waveState();
+    const n = boardPiece('knight', 3, 4);        // d4
+    s.pieces.push(n);
+
+    // 세 방향을 따로 두는 이유는 되살아날 수 있는 게이트가 하나가 아니기 때문이다. 직선·대각선은
+    // "L자 판정"의 부활을, 마지막 원거리 이동은 "한 수 거리 제한" 같은 더 약한 대체 게이트의
+    // 도입을 각각 잡는다 — 남은 제약은 8랭크 금지뿐이고 그것은 아래 가드 스위트가 맡는다.
+    expect(moveOnBoard(s, n.id, 3, 5, [])).toBe(true);   // 직선 한 칸 (룩처럼)
+    expect(n.square).toEqual({ file: 3, rank: 5 });
+    expect(moveOnBoard(s, n.id, 5, 7, [])).toBe(true);   // 대각선 두 칸 (비숍처럼)
+    expect(n.square).toEqual({ file: 5, rank: 7 });
+    expect(moveOnBoard(s, n.id, 0, 1, [])).toBe(true);   // 보드 반대편 끝까지 한 번에
+    expect(n.square).toEqual({ file: 0, rank: 1 });
   });
   it('최초 배치는 아무 능력도 발동하지 않는다 — 피해도 이벤트도 쿨다운 변화도 없다', () => {
     const s = waveState();
@@ -141,21 +161,20 @@ describe('나이트 (스펙 5.3 + 검토 노트 3)', () => {
     expect(ev).toEqual([]);
     expect(n.cooldown).toBe(HELD_COOLDOWN);
   });
-  it('쿨다운이 남아 있어도 이동할 수 있다 — 남은 제약은 L자뿐, 점유 칸은 맞교환', () => {
+  it('쿨다운이 남아 있어도 이동할 수 있고, L자 아닌 점유 칸도 그냥 맞교환이다', () => {
     const s = waveState();
-    const n = boardPiece('knight', 3, 4);
+    const n = boardPiece('knight', 3, 4);       // d4
     n.cooldown = HELD_COOLDOWN;                 // 끝까지 0으로 내리지 않는 것이 이 테스트의 요지다
-    const occupant = boardPiece('pawn', 4, 6);
+    const occupant = boardPiece('pawn', 3, 7);  // d7 — 같은 파일 세 칸 위, 예전이라면 L자가 아니라 거부됐다
     s.pieces.push(n, occupant);
     const ev: GameEvent[] = [];
 
-    expect(moveOnBoard(s, n.id, 3, 5, ev)).toBe(false);   // L자 아님 — 유일하게 남은 이동 제약
-
-    // 예전에는 쿨다운이 남아 있으면 L자여도 거부됐다('knightCooldown'). 사용자가 불쾌하다고
-    // 지적한 바로 그 동작이고, 근거였던 폭발이 사라져 게이트째 삭제됐다 — 감속은 "언제
-    // 움직였는가"가 아니라 "지금 어디 서 있는가"에만 달려 있어 이동을 막을 이유가 없다.
-    expect(moveOnBoard(s, n.id, 4, 6, ev)).toBe(true);
-    expect(n.square).toEqual({ file: 4, rank: 6 });
+    // 나이트 전용 거부 사유 둘이 연달아 사라진 자리다. 쿨다운 게이트('knightCooldown')는
+    // 폭발이 없어지며(v1.10), L자 게이트('knightPattern')는 사용자 결정으로(v1.11) 지워졌다.
+    // 둘을 한 줄에서 함께 재는 이유는 어느 하나만 되살아나도 이 한 줄이 빨개지기 때문이다 —
+    // 감속은 "언제 움직였는가"도 "어떻게 갔는가"도 아니라 "지금 어디 서 있는가"에만 달려 있다.
+    expect(moveOnBoard(s, n.id, 3, 7, ev)).toBe(true);
+    expect(n.square).toEqual({ file: 3, rank: 7 });
     expect(occupant.square).toEqual({ file: 3, rank: 4 });   // 점유자는 나이트의 이전 자리로 밀려난다
     expect(n.cooldown).toBe(HELD_COOLDOWN);     // 이동도 쿨다운을 재시작하지 않는다
     expect(ev).toEqual([]);
@@ -212,19 +231,20 @@ describe('나이트 (스펙 5.3 + 검토 노트 3)', () => {
     expect(e.hp).toBe(e.maxHp);                 // 그러나 ×2 할 피해가 없다
     expect(ev).toEqual([]);
   });
-  it('연속 L자 이동에 대기가 없다 — 쿨다운은 더 이상 이동 게이트가 아니다', () => {
+  it('연속 이동에 대기가 없다 — 쿨다운은 더 이상 이동 게이트가 아니다', () => {
     const s = waveState();
     const n = boardPiece('knight', 3, 4);       // d4
     n.cooldown = HELD_COOLDOWN;
     s.pieces.push(n);
-    const e1 = enemyAt(1, 4, 5);                // e5 — 1차 목적지 (4,6)의 옛 3×3 폭발 범위 안
-    const e2 = enemyAt(1, 2, 4);                // c4 — 2차 목적지 (2,5)의 옛 3×3 폭발 범위 안
+    const e1 = enemyAt(1, 3, 6);                // d6 — 1차 목적지 (3,7)의 옛 3×3 폭발 범위 안
+    const e2 = enemyAt(1, 1, 4);                // b4 — 2차 목적지 (0,4)의 옛 3×3 폭발 범위 안
     s.enemies.push(e1, e2);
     const ev: GameEvent[] = [];
 
-    expect(moveOnBoard(s, n.id, 4, 6, ev)).toBe(true);
-    expect(isKnightMove({ file: 4, rank: 6 }, { file: 2, rank: 5 })).toBe(true);
-    expect(moveOnBoard(s, n.id, 2, 5, ev)).toBe(true);   // 한 틱도 기다리지 않고 곧바로 두 번째
+    // 두 수 모두 L자가 아니다(직선 3칸 → 대각선 3칸). 예전에는 첫 수가 L자 게이트에, 둘째 수가
+    // 쿨다운 게이트에 걸렸다 — 이제 어느 쪽도 없어 연달아 그냥 통과한다.
+    expect(moveOnBoard(s, n.id, 3, 7, ev)).toBe(true);
+    expect(moveOnBoard(s, n.id, 0, 4, ev)).toBe(true);   // 한 틱도 기다리지 않고 곧바로 두 번째
 
     expect(n.cooldown).toBe(HELD_COOLDOWN);     // 두 번 움직여도 쿨다운은 손대지 않는다
     expect(e1.hp).toBe(e1.maxHp);
@@ -278,14 +298,17 @@ describe('보드 위 기물 맞교환 — 점유 칸으로의 이동은 스왑�
   it('나이트끼리 맞교환해도 아무 능력도 터지지 않고, 밀려난 쪽의 감속 범위도 새 칸을 따라간다', () => {
     const s = waveState();
     const mover = boardPiece('knight', 3, 4);       // d4
-    const displaced = boardPiece('knight', 4, 6);   // e6 — d4에서 L자로 도달 가능한 점유 칸, 자신도 나이트
+    // d7 — 같은 파일 세 칸 위. 예전에는 이 자리를 "d4에서 L자로 도달 가능한 점유 칸"으로 골라야
+    // 했지만(v1.11에 제약이 사라졌다), 이제는 오히려 L자가 **아닌** 칸을 골라 둔다. 나이트도
+    // 다른 기물과 똑같이 맞교환한다는 것이 이 스위트가 지켜야 할 사실이기 때문이다.
+    const displaced = boardPiece('knight', 3, 7);
     s.pieces.push(mover, displaced);
-    const e = enemyAt(1, 4, 5);   // mover의 새 위치(4,6) 옛 3×3 폭발 범위 안
+    const e = enemyAt(1, 4, 6);   // mover의 새 위치(3,7) 옛 3×3 폭발 범위 안
     s.enemies.push(e);
     const ev: GameEvent[] = [];
 
-    expect(moveOnBoard(s, mover.id, 4, 6, ev)).toBe(true);
-    expect(mover.square).toEqual({ file: 4, rank: 6 });
+    expect(moveOnBoard(s, mover.id, 3, 7, ev)).toBe(true);
+    expect(mover.square).toEqual({ file: 3, rank: 7 });
     expect(displaced.square).toEqual({ file: 3, rank: 4 });   // 밀려난 나이트는 mover의 이전 자리로
 
     // 예전 규칙은 "직접 움직인 기물만 폭발한다"였고, 그 구분이 필요했던 이유는 폭발이 조작에
@@ -298,7 +321,7 @@ describe('보드 위 기물 맞교환 — 점유 칸으로의 이동은 스왑�
     // 전후가 같은 집합이어서 아무것도 증명하지 못한다 — 자리를 서로 바꿨을 뿐이기 때문이다.
     const displacedField = slowCoverage(s, mover);
     expect(displacedField.has(squareKey({ file: 2, rank: 2 }))).toBe(true);    // 새 자리 (3,4)의 L자 칸
-    expect(displacedField.has(squareKey({ file: 6, rank: 5 }))).toBe(false);   // 그건 mover 자리 (4,6)의 칸
+    expect(displacedField.has(squareKey({ file: 4, rank: 5 }))).toBe(false);   // 그건 mover 자리 (3,7)의 칸
   });
 
   it('제자리로의 이동은 아무 일도 하지 않고 false를 반환한다 (no-op)', () => {
@@ -313,11 +336,18 @@ describe('보드 위 기물 맞교환 — 점유 칸으로의 이동은 스왑�
     expect(ev.length).toBe(0);
   });
 
-  it('나이트의 제자리 이동도 no-op이다 (애초에 L자가 아니라 canLandAt에서도 걸러진다)', () => {
+  it('나이트의 제자리 이동도 똑같이 no-op이다 — 이제 이것을 막는 것은 sameSquare 가드 하나뿐이다', () => {
+    // 예전에는 제자리가 L자가 아니라는 이유로 canLandAt에서도 한 번 더 걸렸다. 그 이중 방어가
+    // v1.11에 한 겹 벗겨졌으므로(L자 게이트 삭제) 나이트를 일반 기물과 따로 재는 의미가
+    // 오히려 지금 생겼다 — moveOnBoard 앞머리의 sameSquare 가드가 빠지면 위 룩 테스트와 함께
+    // 여기도 무너져야 한다. 두 기물이 같은 이유로 함께 실패하는 것이 정상이다.
     const s = waveState();
     const n = boardPiece('knight', 3, 4);
     s.pieces.push(n);
-    expect(moveOnBoard(s, n.id, 3, 4, [])).toBe(false);
+    const ev: GameEvent[] = [];
+    expect(moveOnBoard(s, n.id, 3, 4, ev)).toBe(false);
+    expect(n.square).toEqual({ file: 3, rank: 4 });
+    expect(ev.length).toBe(0);
   });
 
   it('트레이 → 점유된 보드 칸은 여전히 거부된다 (스왑은 board→board 전용, 트레이엔 밀려날 상대가 없다)', () => {
@@ -349,15 +379,21 @@ describe('가드 보강 — 종료 페이즈·텔레포트 방지·범위 검증
     s.paused = true;
     expect(reorderSlots(s, a.id, 3)).toBe(false);
   });
-  it('placeFromSlot: 이미 보드 위인 기물은 재배치할 수 없다 (L자 제한 우회 방지)', () => {
+  it('placeFromSlot: 이미 보드 위인 기물은 이 경로를 탈 수 없다 (한 칸에 두 기물이 겹치는 것을 막는다)', () => {
+    // 원래 근거는 "L자 제한 우회 방지"였는데 그 제약이 v1.11에 사라졌다. 그래도 가드는 남아야
+    // 한다 — 근거가 더 무거운 쪽으로 바뀌었을 뿐이다. resolveLanding은 출발지가 보드면 점유 칸을
+    // 맞교환으로 판정하는데, placeFromSlot에는 밀려난 기물을 되돌려 놓는 코드가 없다(맞교환은
+    // moveOnBoard 전용이다). 그래서 이 가드가 빠지면 두 기물이 같은 칸에 겹치고, pieceAt류가
+    // 전부 첫 일치만 집으므로 아래 깔린 쪽이 영원히 조작 불가능해진다.
     const s = waveState();
     const n = boardPiece('knight', 3, 4);
-    s.pieces.push(n);
+    const occupant = boardPiece('rook', 5, 5);
+    s.pieces.push(n, occupant);
     const ev: GameEvent[] = [];
-    // (0,1)은 canPlaceAt 자체는 통과하는 빈 칸이지만 (3,4)에서 L자가 아니다 —
-    // 이미 보드 위인 기물은 placeFromSlot으로 재배치할 수 없어야 이 우회가 막힌다.
-    expect(placeFromSlot(s, n.id, 0, 1, ev)).toBe(false);
+    expect(placeFromSlot(s, n.id, 5, 5, ev)).toBe(false);   // 겹침을 만들 수 있는 위험한 쪽
+    expect(placeFromSlot(s, n.id, 0, 1, ev)).toBe(false);   // 빈 칸이어도 경로 자체가 막힌다
     expect(n.square).toEqual({ file: 3, rank: 4 });
+    expect(occupant.square).toEqual({ file: 5, rank: 5 });
     expect(ev.length).toBe(0);
   });
   it('placeFromSlot/moveOnBoard도 8랭크 목적지를 거부한다', () => {
@@ -369,12 +405,22 @@ describe('가드 보강 — 종료 페이즈·텔레포트 방지·범위 검증
     s.pieces.push(r);
     expect(moveOnBoard(s, r.id, 2, 8, [])).toBe(false);
 
+    // 나이트도 8랭크만은 못 간다. 이동 제약이 통째로 사라진 뒤(v1.11) **유일하게 남은 제약**이라
+    // 여기서 사유까지 확인한다: true/false만 보면 "L자 게이트가 되살아나 우연히 같은 답을 냈다"와
+    // 구별되지 않기 때문이다. 룩과 나란히 두는 것은 둘이 정말 같은 사유로 걸리는지를 보기 위함이다.
     const n = boardPiece('knight', 3, 6);
-    // L자여도 8랭크(스폰 구역)에는 착지할 수 없다. 감속 오라는 8랭크에도 걸리므로(slowSquares)
-    // "덮는 칸"과 "갈 수 있는 칸"이 여기서 갈라진다 — 두 함수를 분리해 둔 이유가 이 줄이다.
     s.pieces.push(n);
-    expect(isKnightMove({ file: 3, rank: 6 }, { file: 4, rank: 8 })).toBe(true);
+    const spawnRank = { file: 4, rank: 8 };
+    expect(resolveLanding(s, n, spawnRank, false))
+      .toMatchObject({ kind: 'reject', reason: 'outOfBounds' });
+    expect(resolveLanding(s, r, { file: 2, rank: 8 }, false))
+      .toMatchObject({ kind: 'reject', reason: 'outOfBounds' });
     expect(moveOnBoard(s, n.id, 4, 8, [])).toBe(false);
+
+    // 그런데 감속 오라는 8랭크에도 걸린다(slowSquares) — (3,6)의 L자 칸인 (4,8)이 그것이다.
+    // "덮는 칸"과 "갈 수 있는 칸"이 정확히 여기서 갈라지고, 두 범위를 별도 함수로 둔 이유가
+    // 이 두 줄이다: 같은 칸이 능력에는 닿지만 착지에는 닫혀 있다.
+    expect(slowCoverage(s).has(squareKey(spawnRank))).toBe(true);
   });
   it('recallToSlot: 범위를 벗어난 preferredSlot은 무시하고 빈 슬롯에 배정한다', () => {
     const s = waveState();

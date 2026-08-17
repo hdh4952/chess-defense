@@ -1,4 +1,4 @@
-import { CONFIG, TRAITS } from '../config';
+import { TRAITS } from '../config';
 import type { PieceType, Square } from '../types';
 import { inBoard } from './grid';
 
@@ -54,26 +54,24 @@ export function attackTargets(type: PieceType, sq: Square): Square[] {
   }
 }
 
+/**
+ * 나이트 L자 오프셋 8방향.
+ *
+ * ⚠️ v1.11까지는 이 표를 **행마(knightMoves)와 감속(slowSquares)이 함께** 썼고, 둘은 필터가
+ * 달랐다(행마는 8랭크 제외, 감속은 포함). 나이트의 L자 이동 제약이 사라지면서 행마 쪽
+ * 소비자가 없어져, 지금 이 표를 읽는 것은 감속 하나뿐이다 — 즉 **L자는 이제 이동 규칙이
+ * 아니라 능력 범위다.**
+ */
 const L_OFFSETS = [[1, 2], [2, 1], [2, -1], [1, -2], [-1, -2], [-2, -1], [-2, 1], [-1, 2]] as const;
-
-/** 나이트 행마 도착 후보. 8랭크 금지 (스펙 5.3). 점유 검사는 pieces.ts 담당 */
-export function knightMoves(sq: Square): Square[] {
-  return L_OFFSETS
-    .map(([df, dr]) => ({ file: sq.file + df, rank: sq.rank + dr }))
-    .filter(s => inBoard(s.file, s.rank) && s.rank <= CONFIG.board.ranks - 1);
-}
 
 /**
  * 감속 오라가 덮는 칸 — L자 오프셋 8칸 중 보드 안쪽 (v1.10).
  *
- * ★ **knightMoves()와 반드시 다른 함수여야 한다.** 오프셋 표는 공유하지만 필터가 다르다:
- * 저쪽은 **착지 후보**라 8랭크(스폰 구역)를 빼고, 이쪽은 **능력 범위**라 8랭크를 포함한다
- * (사용자 결정). 적은 8랭크에서 스폰돼 내려오므로, 빼면 판에 들어오는 바로 그 지점에 감속
- * 구멍이 생기고 6랭크 나이트는 8칸 중 2칸을 잃는다.
- *
- * 한 함수에 플래그(`includeSpawnRank`)로 합치고 싶어지는데, 그러면 두 호출부 중 하나는
- * 언젠가 틀린 쪽을 고른다 — 기본값이 어느 쪽이든 잘못 고르는 쪽이 조용히 동작하기 때문이다.
- * 이름이 갈라져 있으면 "이동"과 "감속" 중 무엇을 원하는지 호출부가 매번 명시하게 된다.
+ * 필터가 `inBoard` **하나뿐이라는 것**이 규칙이다. 8랭크(적 스폰 구역)를 포함한다(사용자
+ * 결정) — 적은 거기서 스폰돼 내려오므로, 빼면 판에 들어오는 바로 그 지점에 감속 구멍이
+ * 생기고 6랭크 나이트는 8칸 중 2칸을 잃는다. 배치 금지 규칙(inLandableBounds, pieces.ts)을
+ * 여기로 끌어오고 싶어지는 자리인데, **그 둘은 다른 축이다**: 저쪽은 "기물이 설 수 있는가",
+ * 이쪽은 "능력이 닿는가"다.
  */
 export function slowSquares(sq: Square): Square[] {
   return L_OFFSETS

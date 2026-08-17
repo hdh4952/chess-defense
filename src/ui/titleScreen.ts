@@ -1,6 +1,6 @@
 import { CONFIG, TRAITS, slowPercent, tierMultiplier } from '../config';
 import { sellPrice } from '../core/economy';
-import { attackTargets, knightMoves, queenLines, slowTargets } from '../core/patterns';
+import { attackTargets, queenLines, slowTargets } from '../core/patterns';
 import { ALLY_SPRITE_URL } from '../render/sprites';
 import { tierRingColor } from '../render/tiers';
 import type { PieceType, Square } from '../types';
@@ -109,11 +109,12 @@ function goldRow(type: PieceType): string {
 }
 
 /** 사거리 그림의 범례. 칠해진 칸이 무엇을 뜻하는지는 기물마다 다르다 — 주황은 공격,
- * 파랑은 버프, **얼음색은 감속**이고, 점선은 이동 후보다. 나이트는 감속 8칸과 이동 8칸이
- * 거의 같은 집합이라(8랭크에서만 갈린다) 두 표시가 겹쳐 보이는데, 그 어긋남 자체가 정보다. */
+ * 파랑은 버프, **얼음색은 감속**이다.
+ * ⚠️ v1.11에서 "점선 = L자 이동" 표시가 사라졌다. 모든 기물이 아무 칸으로나 재배치되므로
+ * 기물별로 알려줄 이동 규칙이 없다 — 나이트의 L자는 이제 감속 범위에만 남아 있다. */
 const RANGE_LEGEND: Record<PieceType, string> = {
   pawn: '칠해진 칸 = 공격 범위',
-  knight: '얼음 칸 = 감속 범위 (8랭크 포함) · 점선 = L자 이동',
+  knight: '얼음 칸 = 감속 범위 (8랭크 포함) · 공격은 하지 않는다',
   bishop: '칠해진 칸 = 공격 범위 (보드 끝까지)',
   rook: '칠해진 칸 = 공격 범위 (보드 끝까지)',
   queen: '칠해진 칸 = 버프 범위 (보드 끝까지)',
@@ -126,24 +127,20 @@ const squareKey = (s: Square): string => `${s.file},${s.rank}`;
 
 /** 사거리 미리보기 — 실제 공격 패턴 함수를 그대로 호출한다 (설명과 게임 규칙의 단일 출처).
  * 퀸은 attackTargets가 빈 배열이므로(공격이 없다) 버프 라인인 queenLines를 보여준다. */
-function rangeSquares(
-  type: PieceType,
-): { targets: Set<string>; moves: Set<string>; slows: Set<string> } {
+function rangeSquares(type: PieceType): { targets: Set<string>; slows: Set<string> } {
   const t = TRAITS[type];
   // ★ 감속을 공격 사거리와 **합치지 않는다.** 예전에는 폭발 범위를 사거리에 합집합으로 얹었는데,
   // 그때는 둘 다 "여기 있으면 맞는다"라 같은 색이 맞았다. 감속은 피해를 주지 않으므로 같은
   // 색으로 칠하면 거짓말이 된다 — 특히 나이트는 이제 공격력이 0이다.
   const attack = t.buffFactor > 0 ? queenLines(RANGE_CENTER) : attackTargets(type, RANGE_CENTER);
-  const move = t.moveL ? knightMoves(RANGE_CENTER) : [];
   return {
     targets: new Set(attack.map(squareKey)),
-    moves: new Set(move.map(squareKey)),
     slows: new Set(slowTargets(type, RANGE_CENTER).map(squareKey)),
   };
 }
 
 function buildRangeBoard(type: PieceType): HTMLElement {
-  const { targets, moves, slows } = rangeSquares(type);
+  const { targets, slows } = rangeSquares(type);
   const board = document.createElement('div');
   board.className = 'range-board';
   // rank는 위로 갈수록 커진다 — 보드와 같은 방향으로 그려야 폰이 "적 쪽(위)"을 친다는 게 보인다.
@@ -156,7 +153,6 @@ function buildRangeBoard(type: PieceType): HTMLElement {
       const key = squareKey({ file, rank });
       if (targets.has(key)) cell.classList.add('is-target');
       if (slows.has(key)) cell.classList.add('is-slow');
-      if (moves.has(key)) cell.classList.add('is-move');
       if (file === RANGE_CENTER.file && rank === RANGE_CENTER.rank) {
         cell.classList.add('is-self');
         cell.innerHTML =

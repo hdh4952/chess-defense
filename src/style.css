@@ -102,8 +102,9 @@ canvas { display: block; }
 .panel-detail { margin: 14px 0 0; font-size: 14px; line-height: 1.6; color: #cfc9be; }
 
 /* 사거리 미리보기 5×5. 칸 색은 보드 하이라이트와 같은 의미로 읽히도록 맞춘다:
-   is-target = 공격(퀸은 버프)이 닿는 칸, is-slow = 감속 오라가 덮는 칸,
-   is-move = 나이트가 L자로 갈 수 있는 칸. */
+   is-target = 공격(퀸은 버프)이 닿는 칸, is-slow = 감속 오라가 덮는 칸.
+   ⚠️ v1.11에서 is-move(나이트가 L자로 갈 수 있는 칸, 파란 점선)가 사라졌다 — 모든 기물이
+   아무 칸으로나 재배치되므로 기물별로 그릴 이동 후보가 없다. */
 .range-board {
   display: grid; grid-template-columns: repeat(5, 40px); grid-auto-rows: 40px;
   gap: 2px; background: #1a1918; padding: 4px; border-radius: 6px;
@@ -118,7 +119,6 @@ canvas { display: block; }
    유지되고 안쪽 선만 얼음색이라 두 축이 한 칸에서 갈린다. */
 .range-cell.is-slow { background: #2f4d5c; box-shadow: inset 0 0 0 2px #A8E8FF; }
 .range-cell.is-target.is-slow { background: #8a6f2a; }
-.range-cell.is-move { outline: 2px dashed #6fa8dc; outline-offset: -3px; }
 .range-cell.is-self { background: #35332f; }
 .range-icon { width: 80%; height: 80%; object-fit: contain; }
 .range-legend { margin: 6px 0 0; max-width: 216px; font-size: 11px; line-height: 1.5; color: #9d968a; }

@@ -1,4 +1,4 @@
-import { CONFIG, TRAITS } from '../config';
+import { CONFIG } from '../config';
 import type { GameEvent, GameState, Piece, PieceType, Square } from '../types';
 import { recalcQueenBuffs } from './buff';
 import { freeSlotIndex, SLOT_CAPACITY } from './economy';
@@ -22,18 +22,21 @@ export function canPlaceAt(state: GameState, file: number, rank: number): boolea
   return inLandableBounds({ file, rank }) && !pieceAt(state, file, rank);
 }
 
-export function isKnightMove(a: Square, b: Square): boolean {
-  const df = Math.abs(a.file - b.file);
-  const dr = Math.abs(a.rank - b.rank);
-  return (df === 1 && dr === 2) || (df === 2 && dr === 1);
-}
+/*
+ * ⚠️ 여기 있던 isKnightMove()가 v1.11에서 삭제됐다 — 나이트도 다른 기물과 똑같이 아무 칸으로나
+ * 재배치된다(사용자 결정). L자를 판정할 이유가 이동 규칙에는 더 이상 없다. L자 자체는
+ * patterns.ts의 slowSquares(감속 범위)에 살아 있다.
+ */
 
 export type RejectReason =
   | 'outOfBounds'        // 보드 밖 또는 8랭크(스폰 구역)
-  // ⚠️ v1.10에서 'knightCooldown'이 사라졌다. 그 사유는 "미리보기가 약속한 폭발을 실제로도
-  // 터뜨리기 위해" 쿨다운 중 이동을 막는 장치였는데, 폭발 자체가 없어져 막을 대상이 없다.
-  // 되살리려면 근거부터 새로 만들어야 한다 — 감속은 쿨다운과 아무 관계가 없다.
-  | 'knightPattern'      // L자 행마가 아님
+  // ⚠️ 나이트 전용 거부 사유 둘이 연달아 사라졌다.
+  //   v1.10 'knightCooldown' — "미리보기가 약속한 폭발을 실제로도 터뜨리기 위해" 쿨다운 중
+  //     이동을 막던 장치. 폭발이 없어져 막을 대상이 사라졌다.
+  //   v1.11 'knightPattern'  — L자 행마가 아니면 거부하던 사유. 나이트도 다른 기물과 똑같이
+  //     아무 칸으로나 재배치된다(사용자 결정).
+  // 그 결과 **보드 위 기물의 이동에는 남은 제약이 하나도 없다** — 8랭크 금지(outOfBounds)만
+  // 남았고 그것은 모든 기물에 공통이다.
   | 'typeMismatch'       // 트레이 기물 → 다른 종류가 점유 (밀려날 상대가 없어 맞교환 불가)
   | 'tierMismatch'       // 같은 종류지만 티어가 다르다 (같은 티어끼리만 합쳐진다)
   | 'tierOverflow';      // 같은 종류·같은 티어지만 이미 상한 단계다
@@ -69,23 +72,21 @@ const reject = (occupant: Piece | null, reason: RejectReason): Landing =>
  * highlights는 it.dragging의 유무로, drag.ts는 드래그 경로인지로 같은 값을 넘긴다 — 두 곳이
  * 같은 사실에서 같은 플래그를 유도하므로 미리보기와 실제 결과가 갈라질 수 없다.
  *
- * 게이트 순서가 곧 규칙이다. 특히 합성 분기는 반드시 경계·나이트 게이트 *뒤*에 온다 — 앞으로
- * 당기면 8랭크(스폰 구역) 금지와 나이트 L자/쿨다운 제약을 합성 경로가 통째로 우회한다.
+ * 게이트 순서가 곧 규칙이다. 합성 분기는 반드시 경계 검사 *뒤*에 온다 — 앞으로 당기면
+ * 8랭크(스폰 구역) 금지를 합성 경로가 통째로 우회한다.
+ *
+ * ⚠️ 예전에는 그 앞에 나이트 전용 게이트 둘(L자 행마·이동 쿨다운)이 더 있었고, 이 문단은
+ * "그 셋 뒤에 와야 한다"고 적혀 있었다. 둘 다 사라져(v1.10 쿨다운 → v1.11 L자) **지금 남은
+ * 착지 제약은 8랭크 금지 하나뿐이며 그것은 전 기물 공통이다.**
  */
 export function resolveLanding(
   state: GameState, piece: Piece, square: Square, allowMerge: boolean,
 ): Landing {
   if (!inLandableBounds(square)) return reject(null, 'outOfBounds');
 
+  // ⚠️ 여기 있던 보드발 전용 게이트 블록이 통째로 비었다(v1.10 쿨다운 → v1.11 L자). 지금은
+  // 출발지가 보드든 트레이든 **같은 규칙**을 탄다 — fromBoard는 아래 맞교환 판정에만 쓰인다.
   const fromBoard = piece.square !== null;
-  if (fromBoard) {
-    // 남은 이동 제약은 행마 규칙 하나뿐이다. 쿨다운 게이트는 폭발과 함께 사라졌다(v1.10) —
-    // 감속은 서 있기만 하면 걸리는 상태라 "언제 움직였는가"와 무관하고, 따라서 이동을
-    // 제한할 근거가 없다. 사용자가 지적한 "이동 쿨타임이 불쾌하다"의 최종 해소이기도 하다.
-    if (TRAITS[piece.type].moveL && !isKnightMove(piece.square!, square)) {
-      return reject(null, 'knightPattern');
-    }
-  }
 
   const occupant = pieceAt(state, square.file, square.rank);
   if (!occupant) return { kind: 'place', occupant: null, resultTier: null };
@@ -202,12 +203,15 @@ export function placeFromSlot(
 }
 
 /**
- * 보드 → 보드. 웨이브 중에도 무제한 (나이트만 L자 — 쿨다운 제약은 v1.10에서 사라졌다).
+ * 보드 → 보드. **어느 칸으로든, 웨이브 중에도 무제한이다** — 기물 종류에 따른 이동 제약이
+ * v1.11에 하나도 남지 않았다(8랭크 금지만 공통으로 걸린다).
  * 목적지가 점유돼 있으면 실격이 아니라 맞교환이다 (게임 규칙 변경, 사용자 승인) — 두 기물의
- * square를 서로 맞바꾼다. 제자리(자기 자신의 현재 칸)로의 이동은 아무 효과가 없는 명시적
- * no-op이다: 나이트는 애초에 L자가 아니라 canLandAt에서 걸러지지만, 그 외 기물은 canLandAt이
- * 점유를 더 이상 실격 사유로 보지 않으므로 별도 가드 없이는 "자기 자신과 맞교환"을 그대로
- * 통과시켜 버린다.
+ * square를 서로 맞바꾼다.
+ *
+ * ⚠️ 제자리(자기 자신의 현재 칸)로의 이동을 막는 것은 이제 **아래 sameSquare 가드 하나뿐이다.**
+ * 예전에는 나이트가 L자 게이트에도 함께 걸려 이중으로 막혔지만 그 겹이 벗겨졌다 — canLandAt은
+ * 점유를 실격 사유로 보지 않으므로(맞교환 대상이므로) 이 가드를 지우면 모든 기물이
+ * "자기 자신과 맞교환"을 그대로 통과시킨다.
  * 쿨다운은 기물(ID)에 묶여 있지 칸에 묶여 있지 않으므로, 맞교환 자체는 어느 쪽의 cooldown도
  * 건드리지 않는다. 버프는 스왑이 끝난 뒤 정확히 한 번만 재계산한다(양쪽 칸이 모두 바뀌었으므로
  * 재계산 전에 두 square 갱신이 끝나 있어야 한다).

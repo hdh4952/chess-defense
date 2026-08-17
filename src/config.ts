@@ -238,10 +238,18 @@ export interface PieceTraits {
    * 아무 관계가 없다. 그래서 hasMoveCooldown()도 함께 사라졌다.
    */
   slow: boolean;
-  /** 보드 위 이동이 L자로 제한되는가. slow와 근거가 다르다 — 이쪽은 **행마 규칙**이고
-   *  slow는 **능력 범위**다. 두 집합이 거의 같아 보이지만 8랭크에서 갈린다:
-   *  이동은 8랭크(스폰 구역)로 갈 수 없고, 감속은 8랭크에도 걸린다. */
-  moveL: boolean;
+  /*
+   * ⚠️ v1.11에서 `moveL`(보드 위 이동이 L자로 제한되는가)이 사라졌다 — 나이트도 다른 기물과
+   * 똑같이 아무 칸으로나 재배치된다(사용자 결정). 나이트가 이 필드를 참으로 갖는 **유일한**
+   * 기물이었으므로, 남겨 두면 어떤 기물도 참이 아닌 축이 되어 아무것도 서술하지 못한다.
+   *
+   * 함께 사라진 것: `isKnightMove` · `knightMoves` · RejectReason `'knightPattern'` ·
+   * highlights의 초록 이동 후보 표시. 되살리려면 그 넷을 함께 복원해야 한다.
+   *
+   * ★ **L자 자체는 사라지지 않았다** — 이제 이동이 아니라 `slow`(감속 범위)에 산다.
+   * 나이트의 체스적 정체성이 행마에서 능력으로 옮겨간 것이고, patterns.ts의 L_OFFSETS는
+   * 그래서 여전히 쓰인다.
+   */
   /** 퀸 라인 버프 계수. 0이면 버프를 주지 않는다(buff.ts). */
   buffFactor: number;
   /** 상점에 노출되고 구매할 수 있는가. */
@@ -249,26 +257,24 @@ export interface PieceTraits {
 }
 
 export const TRAITS: Record<PieceType, PieceTraits> = {
-  pawn:   { pattern: 'pawn',   slow: false, moveL: false, buffFactor: 0, purchasable: true },
-  knight: { pattern: 'none',   slow: true,  moveL: true,  buffFactor: 0, purchasable: true },
-  bishop: { pattern: 'bishop', slow: false, moveL: false, buffFactor: 0, purchasable: true },
-  rook:   { pattern: 'rook',   slow: false, moveL: false, buffFactor: 0, purchasable: true },
-  queen:  { pattern: 'none',   slow: false, moveL: false, buffFactor: 1, purchasable: true },
+  pawn:   { pattern: 'pawn',   slow: false, buffFactor: 0, purchasable: true },
+  knight: { pattern: 'none',   slow: true,  buffFactor: 0, purchasable: true },
+  bishop: { pattern: 'bishop', slow: false, buffFactor: 0, purchasable: true },
+  rook:   { pattern: 'rook',   slow: false, buffFactor: 0, purchasable: true },
+  queen:  { pattern: 'none',   slow: false, buffFactor: 1, purchasable: true },
 
-  // 융합물은 재료 둘의 특성을 겸한다. **moveL은 물려받지 않는다** — 나이트의 L자 제약을
-  // 상속하면 융합물이 인접 칸으로 한 칸 미는 조작조차 못 하게 되어, 룩보다 기동성이
-  // *낮아진다*(룩은 이미 보드 위 아무 칸으로나 순간이동한다).
+  // 융합물은 재료 둘의 특성을 겸한다. 물려받는 나이트 능력은 v1.10부터 **감속**이다(폭발이
+  // 아니라) — 융합물의 설계 근거가 "재료의 주기 공격 + 나이트의 능력 겸업"이므로 나이트의
+  // 정체성이 바뀌면 따라간다(사용자 결정). 즉 아치비숍은 "비숍처럼 쏘면서 L자 8칸을 늦춘다"다.
   //
-  // ★ 물려받는 나이트 능력은 v1.10부터 **감속**이다(폭발이 아니라). 융합물의 설계 근거가
-  // "재료의 주기 공격 + 나이트의 능력 겸업"이므로 나이트의 정체성이 바뀌면 따라간다
-  // (사용자 결정). 즉 아치비숍은 "비숍처럼 쏘면서 L자 8칸을 늦춘다"가 된다.
-  // moveL은 여전히 false이므로 **감속 범위와 이동 범위가 아예 다른 기물**이고, 이것이
-  // slow와 moveL을 별도 필드로 둔 이유가 처음으로 실전에서 드러나는 지점이다.
-  archbishop: { pattern: 'bishop', slow: true, moveL: false, buffFactor: 0, purchasable: false },
-  chancellor: { pattern: 'rook',   slow: true, moveL: false, buffFactor: 0, purchasable: false },
+  // ⚠️ v1.11부터 이동 규칙에서는 융합물과 재료가 구분되지 않는다 — 나이트의 L자 제약이
+  // 사라져 **모든 기물이 아무 칸으로나 재배치된다.** 예전에는 "융합물은 moveL을 물려받지
+  // 않는다"가 의도적 결정이었지만, 이제 물려받을 제약 자체가 없다.
+  archbishop: { pattern: 'bishop', slow: true, buffFactor: 0, purchasable: false },
+  chancellor: { pattern: 'rook',   slow: true, buffFactor: 0, purchasable: false },
   // 아마존은 퀸의 버프를 물려받되 계수를 절반으로 둔다 — 퀸의 티어는 보드 전체 화력의
   // 지수라(§5.4) 버프를 겸하는 기물이 늘면 그 지수가 곱으로 겹친다.
-  amazon:     { pattern: 'none',   slow: true, moveL: false, buffFactor: 0.5, purchasable: false },
+  amazon:     { pattern: 'none',   slow: true, buffFactor: 0.5, purchasable: false },
 };
 
 /**

@@ -9,6 +9,7 @@ import type { UiCueKind } from '../src/audio/cues';
 import type { GameEvent, GameState, Piece, PieceType } from '../src/types';
 import { boardPiece, waveState } from './helpers';
 import { buildHighlights } from '../src/render/highlights';
+import { CONFIG } from '../src/config';
 
 /** UiAudio 스텁 — DragController가 어떤 UI 큐를 어떤 순서로 재생 요청했는지만 기록한다.
  *  (실제 재생/스로틀은 cues.ts/audio/index.ts 쪽 유닛 테스트가 이미 검증한다 — 여기서는
@@ -567,7 +568,7 @@ describe('DragController — 클릭-투-무브 (스펙 7.5 동작표 7행, 자�
   });
 });
 
-describe('DragController — 이동 제약 없음 / 일시정지 (v1.10, 스펙 7.7)', () => {
+describe('DragController — 이동 제약 없음 / 일시정지 (v1.10 쿨다운 → v1.11 L자, 스펙 7.7)', () => {
   it('★ 쿨다운이 남아 있어도 나이트를 집을 수 있다 — 이동 게이트가 사라졌다', () => {
     // 사용자가 "이동 쿨타임 있는게 불쾌하다"고 지적했던 바로 그 동작이다. 폭발이 감속으로
     // 바뀌면서 게이트의 근거 자체가 없어졌다 — 감속은 "언제 움직였는가"와 무관하기 때문이다.
@@ -585,16 +586,19 @@ describe('DragController — 이동 제약 없음 / 일시정지 (v1.10, 스펙 
     expect(p.cooldown).toBe(2.4);                          // 집는 것만으로 쿨다운이 바뀌지는 않는다
   });
 
-  it('★ 쿨다운 중인 나이트도 L자로 실제로 이동한다', () => {
+  it('★ 쿨다운 중인 나이트도 드롭까지 실제로 커밋된다', () => {
     // 위 테스트가 "집힌다"만 재는 것과 달리, 이건 드롭까지 가서 규칙(resolveLanding)에도
     // 쿨다운 거부가 남아 있지 않은지 확인한다. 두 곳 중 하나만 고치면 집히기는 하는데
     // 놓으면 원위치로 돌아오는 상태가 된다.
+    // 목적지 (2,2)→(3,4)는 옛 L자 규칙에서도 허용되던 칸이다 — 이 테스트가 재려는 건 쿨다운
+    // 하나뿐이므로 행마까지 얽힌 칸을 쓰면 실패 원인이 둘로 갈린다. 행마 제약이 사라졌다는
+    // 사실은 바로 아래 테스트가 따로 고정한다.
     const { state } = setup('wave');
     const p = boardPiece('knight', 2, 2);
     p.cooldown = 2.4;
     state.pieces.push(p);
 
-    drag_(squareCenter(2, 2), squareCenter(3, 4));         // (2,2) → (3,4)는 L자
+    drag_(squareCenter(2, 2), squareCenter(3, 4));
     expect(p.square).toEqual({ file: 3, rank: 4 });
   });
 
@@ -610,13 +614,31 @@ describe('DragController — 이동 제약 없음 / 일시정지 (v1.10, 스펙 
     expect(drag.interaction.selectedPieceId).toBe(p.id);
   });
 
-  it('L자가 아닌 칸에 놓으면 여전히 거부된다 — 사라진 것은 쿨다운이지 행마 규칙이 아니다', () => {
-    const { state } = setup('wave');
+  it('★ L자가 아닌 칸에도 나이트가 놓인다 — v1.11에서 행마 규칙마저 사라졌다', () => {
+    // v1.10에서는 이 자리에 "사라진 것은 쿨다운이지 행마 규칙이 아니다"라며 **거부**를 고정한
+    // 테스트가 있었다. 그 규칙이 없어졌으므로 지우는 대신 단언을 뒤집는다 — 삭제하면 누군가
+    // resolveLanding에 L자 게이트를 되살려도 아무도 실패하지 않기 때문이다. 이 테스트가
+    // 초록인 한 "나이트도 다른 기물과 똑같다"는 사용자 결정이 코드에 살아 있다.
+    const { state, audio } = setup('wave');
     const p = boardPiece('knight', 2, 2);
     state.pieces.push(p);
 
-    drag_(squareCenter(2, 2), squareCenter(2, 5));         // 직선 — L자가 아니다
-    expect(p.square).toEqual({ file: 2, rank: 2 });
+    drag_(squareCenter(2, 2), squareCenter(2, 5));         // 직선 — 옛 규칙이라면 거부됐을 칸
+    expect(p.square).toEqual({ file: 2, rank: 5 });
+    expect(audio.played).toEqual(['uiPlace']);             // 거부음이 아니라 배치음이 난다
+  });
+
+  it('★ 나이트도 8랭크(스폰 구역)에는 못 놓는다 — 전 기물에 공통으로 남은 유일한 제약', () => {
+    // 위 테스트의 짝. "제약이 전부 사라졌다"가 아니라 "나이트 전용 제약만 사라졌고 공통 제약은
+    // 그대로"임을 고정해야, 게이트를 걷어내다 inLandableBounds까지 함께 무너뜨린 경우를 잡는다.
+    // 거부 경로(uiInvalid)가 살아 있다는 증거이기도 하다 — 나이트는 이제 거부될 일이 이것뿐이다.
+    const { state, audio } = setup('wave');
+    const p = boardPiece('knight', 2, 2);
+    state.pieces.push(p);
+
+    drag_(squareCenter(2, 2), squareCenter(2, CONFIG.board.ranks));   // 최상단 랭크 = 적 스폰 구역
+    expect(p.square).toEqual({ file: 2, rank: 2 });                   // 원위치 복귀
+    expect(audio.played).toEqual(['uiInvalid']);
   });
 
   it('일시정지 중에는 드래그 시작 자체가 막힌다 — ghost도 뜨지 않는다 (Finding 2: onDown 가드에 실질적 검증)', () => {

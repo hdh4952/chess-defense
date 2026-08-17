@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG, TRAITS } from '../src/config';
+import type { PieceTraits } from '../src/config';
 import { updateCombat } from '../src/core/combat';
-import { attackTargets, knightMoves, slowSquares, slowTargets } from '../src/core/patterns';
+import { attackTargets, slowSquares, slowTargets } from '../src/core/patterns';
 import { FUSION_RECIPES } from '../src/core/fusion';
 import { buyPiece, canBuy } from '../src/core/economy';
-import type { GameEvent, PieceType } from '../src/types';
+import { squareKey } from '../src/core/grid';
+import { resolveLanding } from '../src/core/pieces';
+import type { GameEvent, PieceType, Square } from '../src/types';
 import { boardPiece, enemyAt, waveState } from './helpers';
 
 /**
@@ -17,15 +20,58 @@ import { boardPiece, enemyAt, waveState } from './helpers';
  *
  * v1.10에서 `blast`가 `slow`로 교체됐다. 이 파일이 하는 일은 그대로다 — 축이 하나 바뀌었을
  * 뿐 "표의 필드마다 그 필드를 읽는 코드가 전수로 붙어 있는가"를 묻는다.
+ *
+ * v1.11에서 `moveL`이 **삭제**됐다(나이트도 다른 기물과 똑같이 아무 칸으로나 재배치된다).
+ * 그 축을 재던 단언들은 지우지 않고 방향을 돌려 남겼다: 표에 남은 축이 정확히 넷인지, 그리고
+ * 사라진 L자가 어디로 갔는지(행마 → 감속 범위)를 묻는다. 축은 사라져도 스스로 실패를
+ * 만들지 않으므로, 여기서 묻지 않으면 아무도 그 변화를 지키지 못한다.
  */
 
 const ALL = Object.keys(TRAITS) as PieceType[];
 
 const CENTER = { file: 3, rank: 4 };
 
+/**
+ * PieceTraits에 있어야 할 축 전부 — **표에서 유도하지 않고 바깥에 적는다.** 유도하면 축이
+ * 늘거나 줄 때 기대값도 함께 움직여 아무것도 지키지 못한다. `satisfies`가 컴파일 시점에
+ * 누락·오타·추가를 잡고(축을 건드리면 이 리터럴이 가장 먼저 빨개진다), 아래 두 테스트가
+ * 런타임에 "그 축들이 실제로 기물을 서술하는가"를 묻는다.
+ */
+const AXIS_SET = {
+  pattern: 0, slow: 0, buffFactor: 0, purchasable: 0,
+} satisfies Record<keyof PieceTraits, 0>;
+const AXES = (Object.keys(AXIS_SET) as (keyof PieceTraits)[]).sort();
+
+/** 보드의 모든 칸. 이동 규칙을 8종에 대해 전수로 비교하려고 CONFIG에서 유도한다. */
+const ALL_SQUARES: Square[] = Array.from(
+  { length: CONFIG.board.files * CONFIG.board.ranks },
+  (_, i) => ({ file: i % CONFIG.board.files, rank: Math.floor(i / CONFIG.board.files) + 1 }),
+);
+
 describe('TRAITS — 전수성과 일관성', () => {
   it('CONFIG.pieces와 정확히 같은 키를 갖는다', () => {
     expect(ALL.sort()).toEqual(Object.keys(CONFIG.pieces).sort());
+  });
+
+  it('★ 표의 축은 정확히 넷이다 — pattern · slow · buffFactor · purchasable', () => {
+    // 위 테스트가 표의 **행**(기물)을 잠근다면 이것은 **열**(축)을 잠근다. v1.11에서 moveL이
+    // 빠져나간 자리라 특히 필요하다: 축이 하나 사라지거나 늘어도 그 자체로는 아무 테스트도
+    // 실패시키지 않는데, 이 파일의 모든 테스트는 "축마다 그것을 읽는 코드가 전수로 붙어
+    // 있는가"라는 한 가지 질문의 반복이라 축 목록이 곧 이 스위트의 범위다. 목록이 표를 따라
+    // 저절로 늘면 새 축은 아무도 검사하지 않은 채 들어온다.
+    for (const type of ALL) {
+      expect(Object.keys(TRAITS[type]).sort(), type).toEqual(AXES);
+    }
+  });
+
+  it('★ 네 축은 저마다 표를 가른다 — 값이 하나뿐인 축은 아무 기물도 서술하지 못한다', () => {
+    // moveL이 필드째 삭제된 이유가 정확히 이것이다. 나이트가 유일한 true였는데 그가 false가
+    // 되자 8종 전부 false인 열만 남았고, 그런 열은 기물을 하나도 구분하지 못하면서 읽는 쪽에는
+    // 계속 분기를 요구한다. 같은 질문을 새 축을 넣으려는 손에게도 던진다 — 표를 가르지 못하는
+    // 값은 TRAITS가 아니라 CONFIG.pieces나 patterns.ts에 속한다(이 표의 세 축 분리 규칙).
+    for (const axis of AXES) {
+      expect(new Set(ALL.map(t => TRAITS[t][axis])).size, axis).toBeGreaterThan(1);
+    }
   });
 
   it('사거리는 pattern 하나로만 갈린다 — 감속 기물이라고 칸이 붙지 않는다', () => {
@@ -104,7 +150,7 @@ describe('TRAITS — 전수성과 일관성', () => {
   });
 });
 
-describe('★ 감속은 넷만의 능력이고, 행마 규칙(moveL)과는 다른 축이다', () => {
+describe('★ 감속은 넷만의 능력이다 — 그리고 L자는 이제 행마가 아니라 여기 산다', () => {
   it('감속 기물은 나이트와 나이트를 재료로 쓰는 융합물 셋뿐이다', () => {
     // 목록을 TRAITS에서 유도하지 않고 **바깥에서** 적는다. 표로부터 유도하면 표가 바뀔 때
     // 기대값도 함께 바뀌어 아무것도 지키지 못한다. 새 기물에 slow를 붙이는 것은 밸런스
@@ -124,25 +170,39 @@ describe('★ 감속은 넷만의 능력이고, 행마 규칙(moveL)과는 다�
     for (const type of fromKnight) expect(TRAITS[type].slow, type).toBe(true);
   });
 
-  it('slow와 moveL은 서로 다른 축이다 — 아치비숍은 감속하되 L자로 움직이지 않는다', () => {
-    // 두 필드는 나이트에서만 함께 true라 "같은 것을 두 번 적은 것"처럼 보이고, 실제로 한
-    // 번은 합치자는 말이 나온다. 융합물이 정확히 그 착각을 깨는 자리다: 감속(능력)은 물려받고
-    // 행마 제약은 물려받지 않는다 — 상속했다면 아치비숍이 인접 칸으로 미는 조작조차 못 해
-    // 룩보다 기동성이 낮아진다. 합쳐진 필드 하나로는 이 기물을 표현할 방법이 없다.
-    expect(TRAITS.archbishop.slow).toBe(true);
-    expect(TRAITS.archbishop.moveL).toBe(false);
+  it('★ 이동 규칙에는 기물 종류별 분기가 없다 — 8종이 정확히 같은 칸에 내린다', () => {
+    // 여기 있던 것은 "slow와 moveL은 서로 다른 축"이라는 테스트였다. moveL이 사라져 비교
+    // 대상이 없어졌지만, 그 테스트가 실제로 지키던 것 — **감속(능력)과 행마는 다른 규칙을
+    // 탄다** — 은 그대로 유효하고 오히려 더 강해졌다: 이제 행마는 TRAITS의 어떤 축도 보지
+    // 않는다. 그 사실을 표 쪽에서 묻는 자리가 이 파일이라 삭제하지 않고 방향만 돌린다.
+    //
+    // ★ 이 단언의 값어치는 **예전에 거부되던 이동이 지금 성공한다**는 데 있다. v1.11 이전에는
+    // 나이트만 착지 후보가 L자 8칸(knightMoves)으로 좁혀졌고 나머지는 'knightPattern'으로
+    // 거부됐다. 게이트를 지우기만 하면 그것을 되살려도 실패하는 테스트가 하나도 없다.
+    const from = { file: 3, rank: 4 };
+    // 남은 제약은 8랭크(적 스폰 구역) 금지 하나뿐이다. 바깥에서 적어야 inLandableBounds가
+    // 조건을 하나 더 얻을 때 여기가 먼저 빨개진다.
+    const landable = ALL_SQUARES.filter(sq => sq.rank <= CONFIG.board.ranks - 1);
 
-    // 포함 관계가 한 방향뿐이다: moveL이면 반드시 slow지만 그 역은 아니다. 역까지 성립하면
-    // 두 필드가 정말 같은 것이 되므로, 아래 세 줄이 함께 초록일 때만 분리가 정당하다.
-    expect(ALL.filter(t => TRAITS[t].moveL)).toEqual(['knight']);
-    for (const type of ALL) if (TRAITS[type].moveL) expect(TRAITS[type].slow, type).toBe(true);
-    expect(ALL.some(t => TRAITS[t].slow && !TRAITS[t].moveL)).toBe(true);
+    for (const type of ALL) {
+      const s = waveState();
+      const p = boardPiece(type, from.file, from.rank);
+      s.pieces.push(p);
+      // 자기 칸은 'self'(no-op)라 거부가 아니다 — 그것도 8종이 똑같으므로 함께 센다.
+      const ok = ALL_SQUARES.filter(sq => resolveLanding(s, p, sq, false).kind !== 'reject');
+      expect(ok.map(squareKey), type).toEqual(landable.map(squareKey));
+    }
 
-    // 두 축은 칸 집합에서도 갈린다 — 감속은 8랭크(스폰 구역)를 덮고 행마는 그리로 갈 수 없다.
-    // 그래서 두 필드는 서로 다른 함수를 부른다(slowSquares / knightMoves). 하나로 합치는
-    // 순간 나이트는 적이 판에 들어오는 바로 그 랭크를 놓치거나, 스폰 구역으로 걸어 들어간다.
-    const sq = { file: 3, rank: 6 };
-    expect(slowSquares(sq).some(s => s.rank === CONFIG.board.ranks)).toBe(true);
-    expect(knightMoves(sq).some(s => s.rank === CONFIG.board.ranks)).toBe(false);
+    // 위 루프가 공허하지 않다는 증거. 예전 규칙이 나이트에게 허용하던 칸은 L자 8칸뿐이었는데
+    // 지금은 1~7랭크 전체다 — 즉 L자는 좁아진 것이 아니라 **행마에서 능력으로 자리를 옮겼다.**
+    const lShaped = slowSquares(from);
+    expect(lShaped).toHaveLength(8);
+    expect(landable.length).toBeGreaterThan(lShaped.length);
+    // 옮겨간 자리는 이동이 결코 갈 수 없는 8랭크까지 덮는다(적이 판에 들어오는 바로 그 랭크다).
+    // 두 축이 같은 L_OFFSETS 표를 쓰면서도 필터가 다른 이유였고, 행마 쪽이 사라진 지금은
+    // slowSquares가 그 표의 유일한 소비자다 — 8랭크를 여기서 빼면 감속에 구멍이 생긴다.
+    const near = { file: 3, rank: 6 };
+    expect(slowSquares(near).some(sq => sq.rank === CONFIG.board.ranks)).toBe(true);
+    expect(landable.some(sq => sq.rank === CONFIG.board.ranks)).toBe(false);
   });
 });

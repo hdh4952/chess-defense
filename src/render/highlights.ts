@@ -1,6 +1,6 @@
 import { canLandAt, findPiece, resolveLanding } from '../core/pieces';
 import { TRAITS } from '../config';
-import { attackTargets, knightMoves, queenLines, slowTargets } from '../core/patterns';
+import { attackTargets, queenLines, slowTargets } from '../core/patterns';
 import { sameSquare } from '../core/grid';
 import type { GameState, Interaction, Piece, Square } from '../types';
 import { SLOW_RGB } from './palette';
@@ -12,7 +12,9 @@ import type { ViewState } from './renderer';
 // 호출부는 전부 이 상수를 참조한다.
 export const HIGHLIGHT_COLORS = {
   range: 'rgba(235, 97, 80, 0.5)',       // 기물이 공격할 수 있는 칸
-  move: 'rgba(90, 200, 90, 0.40)',       // 나이트 이동 가능 칸
+  // ⚠️ v1.11에서 `move`(나이트 이동 가능 칸, 초록)가 사라졌다. 그 색이 답하던 질문이
+  // "이 기물이 어디로 갈 수 있는가"였는데, 이제 모든 기물이 어디로든 갈 수 있어 질문 자체가
+  // 없어졌다. 팔레트에 남겨 두면 다음 사람이 쓰이지 않는 색의 용도를 찾게 된다.
   // 퀸의 버프 칸 (+ 8방향 라인). #009FD9에 알파 0.5 — 불투명하면 28칸이 보드를 통째로 덮어
   // 격자와 스폰 표식이 가려지고, 위에 얹히는 선택 표식(노랑 0.5)이 초록으로 변하며, 같은 색인
   // 8방향 라인이 칸 색에 묻혀 사라진다.
@@ -98,15 +100,14 @@ export function buildHighlights(
   const piece = activePiece(state, it);
   if (!piece) return { highlights, lines, mergePreview };
 
-  const onBoard = piece.square !== null;
   const anchor: Square | null = it.hoverSquare ?? piece.square;   // 미리보기 기준 칸
   if (!anchor) return { highlights, lines, mergePreview };
 
   // 합성 미리보기 — allowMerge를 "드래그 중인가"에서 유도한다. drag.ts의 드롭 경로가 넘기는
   // 값과 같은 사실에서 나온 같은 값이므로, 미리보기가 실제로는 일어나지 않을 합성을 약속할 수
   // 없다(합성은 드래그 전용이라 클릭-투-무브 중에는 여기서도 null이 된다). 판정 자체를
-  // resolveLanding 하나에 위임하는 것도 같은 이유다 — 8랭크·나이트 L자/쿨다운·티어 상한 게이트를
-  // 미리보기가 따로 재구현하지 않는다.
+  // resolveLanding 하나에 위임하는 것도 같은 이유다 — 8랭크 금지와 티어 상한 게이트를
+  // 미리보기가 따로 재구현하지 않는다. (나이트 L자·쿨다운 게이트는 v1.10~v1.11에서 사라졌다.)
   if (it.dragging && it.hoverSquare) {
     const landing = resolveLanding(state, piece, it.hoverSquare, true);
     if (landing.kind === 'merge') {
@@ -119,23 +120,12 @@ export function buildHighlights(
     }
   }
 
-  // ── 나이트류(L자 이동 제한): 이동 후보를 초록으로 깔고, 그중 hover한 칸의 **착지 후 오라**를
-  // 미리 보여준다. 현재 칸의 오라를 여기서 또 칠하지 않는 이유는 renderer가 이미 상시로 그리고
-  // 있기 때문이다 — 여기서 겹쳐 칠하면 같은 칸에 알파가 두 겹 얹혀 "저기는 더 느리다"로 읽힌다.
-  if (TRAITS[piece.type].moveL && onBoard) {
-    // canLandAt 하나로 L자 게이트를 적용한다 (검토 Item 1). 점유 칸은 착지 실격 사유가 아니다 —
-    // legalMoves는 점유된 L자 칸도 포함하고, moveOnBoard도 그 칸에서 스왑을 수행한다.
-    // 초록 하이라이트와 hover 일치 판정 양쪽에 이 legalMoves 하나만 쓴다 (리뷰 Finding 1).
-    const legalMoves = knightMoves(piece.square!).filter(m => canLandAt(state, piece, m));
-    for (const m of legalMoves) highlights.push({ square: m, color: C.move });
-    if (it.hoverSquare && legalMoves.some(m => sameSquare(m, it.hoverSquare!))) {
-      const preview = previewRange(piece, it.hoverSquare);
-      for (const sq of preview.attack) highlights.push({ square: sq, color: C.range });
-      for (const sq of preview.slow) highlights.push({ square: sq, color: C.slow });
-    }
-    pushSelected(highlights, piece);
-    return { highlights, lines, mergePreview };
-  }
+  // ⚠️ 여기 있던 "나이트류(L자 이동 제한)" 분기가 v1.11에서 사라졌다. 나이트도 다른 기물과
+  // 똑같이 아무 칸으로나 재배치되므로(사용자 결정) 착지 후보를 따로 그릴 것이 없다 — 모든
+  // 칸이 후보다. 그 분기가 쓰던 초록색(C.move)도 함께 사라졌다.
+  //
+  // 그 결과 이 함수에는 **기물 종류별 분기가 하나도 남지 않았다.** 아래 가산 블록 하나가
+  // 8종 전부를 처리한다(공격 사거리 · 감속 범위 · 버프 라인을 각각 독립으로 얹는 구조).
 
   // ── 그 외 전부: hover가 실제로 착지 불가능한 칸이면 미리보기 자체를 그리지 않는다. 그러지
   // 않으면 moveOnBoard/placeFromSlot이 거부할 이동·배치를 미리 약속하게 된다 (검토 Item 1).

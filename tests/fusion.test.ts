@@ -27,6 +27,17 @@ function trayPiece(type: PieceType, tier = 1, slot = 0): Piece {
   };
 }
 
+/**
+ * 감속을 가진 기물 전부 — 순수 나이트 + 융합물 셋. 목록을 리터럴로 적지 않는 이유는 감속
+ * 기물이 늘면 그 기물만 조용히 감시 밖으로 빠지기 때문이다.
+ *
+ * ★ v1.11부터 이 목록은 **이동 규칙 회귀의 감시자**이기도 하다. 예전에는 나이트만 L자로
+ * 움직여서 "융합물은 되는데 나이트는 안 되는" 이동이 있었고, 그래서 나이트는 늘 대조군으로
+ * 따로 떨어져 있었다. 이제 넷이 한 목록에서 같은 단언을 통과한다는 사실 자체가 "행마 제약이
+ * 사라졌다"의 표현이다 — 게이트가 되살아나면 나이트만 이 루프에서 떨어져 나간다.
+ */
+const SLOWERS = (Object.keys(TRAITS) as PieceType[]).filter(t => TRAITS[t].slow);
+
 describe('fusionResult — 레시피', () => {
   it('교환법칙이 성립한다 — 어느 쪽을 집든 같은 결과', () => {
     // 플레이어는 나이트를 비숍 위로도, 비숍을 나이트 위로도 끌 수 있다. 방향에 따라 결과가
@@ -57,7 +68,8 @@ describe('융합 판정 — resolveLanding', () => {
   it('나이트 + 비숍 → 아치비숍, 양방향 모두', () => {
     for (const [moverType, occType] of [['knight', 'bishop'], ['bishop', 'knight']] as const) {
       const s = waveState();
-      // 나이트가 움직이는 쪽이면 L자 행마를 지켜야 한다(d4 → e6).
+      // d4 → e6은 그냥 임의의 빈 칸 이동이다. v1.11 이전에는 "나이트가 움직이는 쪽이면 L자
+      // 행마를 지켜야 한다"는 이유로 이 좌표를 골랐는데, 그 제약은 사라졌다(아래 테스트).
       const mover = boardPiece(moverType, 3, 4);
       s.pieces.push(mover, boardPiece(occType, 4, 6));
       expect(resolveLanding(s, mover, { file: 4, rank: 6 }, true))
@@ -93,15 +105,19 @@ describe('융합 판정 — resolveLanding', () => {
     expect(resolveLanding(s, mover, { file: 4, rank: 6 }, false)).toMatchObject({ kind: 'swap' });
   });
 
-  it('나이트가 움직이는 쪽이면 L자 게이트를 지켜야 한다 (의도된 비대칭)', () => {
-    // 나이트를 비숍 위로 끌면 L자 거리에서만 융합되고, 비숍을 나이트 위로 끌면 거리 제약이
-    // 없다. 같은 레시피가 방향에 따라 다른 조건을 갖지만, 이는 "나이트의 행마"가 이동하는
-    // 쪽에만 걸리는 기존 성질의 귀결이지 융합이 만든 예외가 아니다.
-    const s = waveState();
-    const knight = boardPiece('knight', 3, 4);
-    s.pieces.push(knight, boardPiece('bishop', 3, 5));   // 바로 위 = L자 아님
-    expect(resolveLanding(s, knight, { file: 3, rank: 5 }, true))
-      .toMatchObject({ kind: 'reject', reason: 'knightPattern' });
+  it('★ 나이트가 움직이는 쪽이어도 거리 제약이 없다 — 방향에 따른 비대칭이 사라졌다', () => {
+    // 예전에는 이 자리에서 knightPattern으로 **거부**됐다. 나이트를 비숍 위로 끌 때만 L자
+    // 거리가 요구돼, 같은 레시피가 드래그 방향에 따라 다른 조건을 갖는 비대칭이 있었다.
+    // v1.11에서 L자 행마가 사라지면서 그 비대칭도 함께 사라졌다 — 그래서 일부러 **L자가
+    // 아닌 바로 위 칸**을 골라 양방향이 똑같이 융합되는지를 본다. 삭제하지 않고 뒤집어 둔
+    // 이유가 여기 있다: 게이트가 되살아나면 knight → bishop 쪽이 즉시 reject로 떨어진다.
+    for (const [moverType, occType] of [['knight', 'bishop'], ['bishop', 'knight']] as const) {
+      const s = waveState();
+      const mover = boardPiece(moverType, 3, 4);
+      s.pieces.push(mover, boardPiece(occType, 3, 5));   // d4 → d5, 바로 위 = L자 아님
+      expect(resolveLanding(s, mover, { file: 3, rank: 5 }, true), moverType)
+        .toMatchObject({ kind: 'merge', resultType: 'archbishop', resultTier: 1 });
+    }
   });
 
   it('8랭크는 융합 경로로도 뚫리지 않는다', () => {
@@ -218,38 +234,39 @@ describe('융합 커밋', () => {
 });
 
 describe('융합물의 그 이후', () => {
-  it('★ 감속은 물려받고 L자 행마는 물려받지 않는다 — 두 범위가 아예 다르다', () => {
-    // slow와 moveL을 굳이 별도 필드로 둔 이유가 실전에서 처음 드러나는 지점이다. 행마까지
-    // 상속하면 융합물이 옆 칸으로 한 칸 미는 조작조차 못 해 룩보다 기동성이 *낮아진다*.
-    // 그 결과 한 기물 안에서 "갈 수 있는 칸"과 "늦추는 칸"이 완전히 갈라진다 — 둘을 한
-    // 함수로 합치려는 유혹이 생길 때마다 이 단언이 먼저 깨져야 한다.
+  it('★ 감속은 물려받되 이동 규칙은 나이트와 **같다** — L자는 능력 범위에만 남았다', () => {
+    // 제목의 뒷부분이 v1.11에서 뒤집혔다. 예전 요점은 "L자 행마는 물려받지 않는다"였고
+    // (slow와 moveL을 별도 필드로 둔 이유가 그것이었다) 순수 나이트가 같은 이동에서 거부되는
+    // 것을 대조군으로 붙였다. 이제 나이트에게도 행마 제약이 없어 moveL 필드째 사라졌으므로,
+    // 대조군을 **같은 목록 안으로** 옮긴다: 넷이 한 루프에서 같은 단언을 통과한다.
+    //
+    // 원래 요점 자체는 그대로 살아 있다 — 한 기물 안에서 "갈 수 있는 칸"과 "늦추는 칸"이
+    // 완전히 갈라진다. 오히려 더 극단적이 됐다: 갈 수 있는 칸은 전부인데 늦추는 칸은 8칸뿐이라,
+    // 둘을 한 함수로 합치려는 유혹이 생길 때마다 이 단언이 먼저 깨져야 한다.
     const from: Square = { file: 3, rank: 4 };
-    for (const [, , result] of FUSION_RECIPES) {
-      expect(TRAITS[result].slow, result).toBe(true);
-      expect(TRAITS[result].moveL, result).toBe(false);
+    const side: Square = { file: from.file + 1, rank: from.rank };   // 옆 칸(e4) — L자가 아니다
+    // 융합물 셋이 빠짐없이 감속을 물려받는다는 것이 아래 루프가 넷을 도는 전제다.
+    for (const [, , result] of FUSION_RECIPES) expect(TRAITS[result].slow, result).toBe(true);
 
+    for (const type of SLOWERS) {
       const s = waveState();
-      const p = boardPiece(result, from.file, from.rank);
+      const p = boardPiece(type, from.file, from.rank);
       s.pieces.push(p);
-      // 옆 칸(e4)은 L자가 아니다. 나이트라면 거부되는 이동인데 융합물은 그냥 간다.
-      expect(resolveLanding(s, p, { file: 4, rank: 4 }, false).kind, result).toBe('place');
-      // 그런데 감속이 닿는 칸은 여전히 나이트와 똑같은 L자 8칸이라, 방금 갈 수 있었던 그
-      // 칸이 오히려 오라 밖이다.
-      const slow = slowTargets(result, from);
-      expect(slow, result).toHaveLength(slowSquares(from).length);
-      expect(slow.some(q => q.file === 4 && q.rank === 4), result).toBe(false);
+      // 예전에는 나이트만 여기서 knightPattern으로 거부됐다. 이제 넷 다 그냥 간다.
+      expect(resolveLanding(s, p, side, false).kind, type).toBe('place');
+      // 그런데 감속이 닿는 칸은 여전히 L자 8칸이라, 방금 갈 수 있었던 그 칸이 오히려 오라 밖이다.
+      const slow = slowTargets(type, from);
+      expect(slow, type).toHaveLength(slowSquares(from).length);
+      expect(slow.some(q => q.file === side.file && q.rank === side.rank), type).toBe(false);
     }
-    // 대조군 — 같은 이동을 나이트에게 시키면 행마에서 걸린다.
-    const s = waveState();
-    s.pieces.push(boardPiece('knight', from.file, from.rank));
-    expect(resolveLanding(s, s.pieces[0], { file: 4, rank: 4 }, false))
-      .toMatchObject({ kind: 'reject', reason: 'knightPattern' });
   });
 
   it('융합물의 감속은 8랭크에도 닿는다 — 이동으로는 못 가는 칸이다', () => {
-    // 두 범위가 갈리는 극단이자, slowSquares가 knightMoves와 별도 함수여야 하는 이유.
-    // 스폰 구역으로 **이동**은 어느 기물도 못 하지만, 적이 판에 들어오는 바로 그 칸을
-    // 오라가 덮지 못하면 입구 크기의 구멍이 생긴다.
+    // 두 범위가 갈리는 극단이자, slowSquares가 배치 규칙(inLandableBounds)과 별도 필터를
+    // 가져야 하는 이유. 스폰 구역으로 **이동**은 어느 기물도 못 하지만, 적이 판에 들어오는
+    // 바로 그 칸을 오라가 덮지 못하면 입구 크기의 구멍이 생긴다.
+    // (v1.11 이전에는 이 대비가 knightMoves ↔ slowSquares 두 함수 사이에 있었다. 행마 쪽이
+    //  사라져 L_OFFSETS를 읽는 곳이 감속 하나만 남았어도, 두 축이 다르다는 사실은 그대로다.)
     const from: Square = { file: 4, rank: 6 };
     const s = waveState();
     const p = boardPiece('archbishop', from.file, from.rank);
@@ -343,31 +360,37 @@ describe('겸업 기물의 미리보기와 설명 (S4c)', () => {
     expect(colors.has(HIGHLIGHT_COLORS.range)).toBe(false);
   });
 
-  it('순수 나이트는 여전히 자기 칸에서 능력 범위를 그리지 않는다 (회귀 방지)', () => {
-    // 근거가 바뀌었다. 예전에는 "폭발이 착지 지점에 묶여 있어서"였지만, 이제는 renderer가
-    // 감속 칸을 **상시로** 그리기 때문이다 — 여기서 또 칠하면 같은 칸에 알파가 두 겹 얹혀
-    // "저기는 더 느리다"로 읽히는데, 감속은 정확히 ×0.7 한 번뿐이라 그 그림 자체가 거짓말이다.
+  it('★ 순수 나이트의 미리보기가 아치비숍과 같아졌다 — 종류별 분기가 사라진 결과', () => {
+    // 예전 제목은 "나이트는 자기 칸에서 능력 범위를 그리지 않는다"였다. 그런데 그것은 규칙이
+    // 아니라 **조기반환의 부산물**이었다: 나이트 브랜치가 초록 이동 후보만 그리고 return해서
+    // 감속 범위까지 함께 잘려 나갔던 것이고, 같은 감속 기물인 아치비숍은 v1.10부터 줄곧 자기
+    // 칸 기준으로 오라를 그려 왔다(위 아치비숍 테스트). v1.11에서 이동 제약과 함께 그 브랜치가
+    // 사라지면서 둘이 같아졌으므로, 지킬 불변식을 "안 그린다"에서 **"둘이 같다"**로 옮긴다 —
+    // buildHighlights에 기물 종류별 분기가 다시 생기면 여기가 깨진다.
     const s = waveState();
-    const n = boardPiece('knight', 3, 4);
+    const from: Square = { file: 3, rank: 4 };
+    const n = boardPiece('knight', from.file, from.rank);
     s.pieces.push(n);
+    const slowAt = (hl: ReturnType<typeof buildHighlights>, sq: Square): boolean =>
+      hl.highlights.some(h => h.square.file === sq.file && h.square.rank === sq.rank
+        && h.color === HIGHLIGHT_COLORS.slow);
+
     const idle = buildHighlights(s, {
       dragging: null, selectedPieceId: n.id, hoverSquare: null,
     });
-    expect(idle.highlights.every(h => h.color !== HIGHLIGHT_COLORS.slow)).toBe(true);
+    for (const sq of slowSquares(from)) expect(slowAt(idle, sq), `${sq.file},${sq.rank}`).toBe(true);
+    // 주황(사거리)만은 여전히 한 칸도 없다. 나이트의 공격력은 0이라(v1.10) 그 색이 한 칸이라도
+    // 나오면 그것은 없는 공격을 약속하는 그림이다 — 아마존과 같은 근거다.
     expect(idle.highlights.every(h => h.color !== HIGHLIGHT_COLORS.range)).toBe(true);
 
-    // 반대로 L자 착지 후보를 hover하면 **그 칸 기준** 오라를 미리 보여준다. 위 단언이
-    // "감속을 못 그린다"가 아니라 "지금 서 있는 칸에는 안 그린다"라는 뜻임을 이 대조가 고정한다.
-    const dest: Square = { file: 4, rank: 6 };
+    // ★ 옆 칸을 hover하면 **그 칸 기준** 오라가 그려진다. 예전에는 L자가 아니라 canLandAt이
+    // 거부해 미리보기가 통째로 접혔고 선택 표식만 남았다 — 즉 이 루프는 "이동 제약이 없다"를
+    // 미리보기 쪽에서 다시 한 번 잡는다. 게이트가 되살아나면 여기가 빈 채로 실패한다.
+    const dest: Square = { file: from.file + 1, rank: from.rank };
     const hover = buildHighlights(s, {
       dragging: null, selectedPieceId: n.id, hoverSquare: dest,
     });
-    for (const sq of slowSquares(dest)) {
-      expect(hover.highlights.some(
-        h => h.square.file === sq.file && h.square.rank === sq.rank
-          && h.color === HIGHLIGHT_COLORS.slow,
-      ), `${sq.file},${sq.rank}`).toBe(true);
-    }
+    for (const sq of slowSquares(dest)) expect(slowAt(hover, sq), `${sq.file},${sq.rank}`).toBe(true);
   });
 });
 
@@ -428,9 +451,6 @@ describe('★ 공격 쿨다운이 이동을 막지 않는다 (S4 회귀)', () =>
   // v1.10에서 게이트가 통째로 사라졌는데도 이 스위트를 남기는 이유는, 되살아날 유혹이 있는
   // 규칙이기 때문이다. 감속은 "언제 움직였는가"와 무관한 상태라 이동을 제한할 근거가 아예
   // 없다는 것을, 아래 셋이 서로 다른 각도(이동 허용 · 감속 즉시 적용 · interval의 뜻)에서 짚는다.
-  //
-  // 목록을 리터럴로 적지 않는 이유: 감속 기물이 늘면 그 기물만 조용히 감시 밖으로 빠진다.
-  const SLOWERS = (Object.keys(TRAITS) as PieceType[]).filter(t => TRAITS[t].slow);
 
   it('주기 공격 직후에도 감속 기물을 옮길 수 있다', () => {
     for (const type of SLOWERS) {
@@ -439,9 +459,11 @@ describe('★ 공격 쿨다운이 이동을 막지 않는다 (S4 회귀)', () =>
       s.pieces.push(p);
       s.enemies.push(enemyAt(1, 3, 4), enemyAt(1, 5, 6));
       updateCombat(s, 1 / 60, []);
-      // 나이트류(L자)는 L자 칸으로, 나머지는 아무 칸으로.
-      const dest = TRAITS[type].moveL ? { file: 4, rank: 6 } : { file: 6, rank: 2 };
-      expect(resolveLanding(s, p, dest, false).kind, `${type} (쿨다운 ${p.cooldown})`).not.toBe('reject');
+      // 목적지는 종류와 무관하게 같은 칸이다. v1.11 이전에는 여기서 나이트류만 L자 칸을 따로
+      // 골라 줘야 했는데, 그 분기가 사라진 것 자체가 이동 제약이 없어졌다는 증거다 —
+      // d4 → g2는 L자가 아니므로 예전 나이트라면 쿨다운과 무관하게 거부됐을 이동이다.
+      const dest = { file: 6, rank: 2 };
+      expect(resolveLanding(s, p, dest, false).kind, `${type} (쿨다운 ${p.cooldown})`).toBe('place');
     }
   });
 

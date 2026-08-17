@@ -1,11 +1,14 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
-import { CONFIG } from '../src/config';
-import { bishopTargets, knightMoves, slowSquares } from '../src/core/patterns';
+import { CONFIG, TRAITS } from '../src/config';
+import { bishopTargets, slowSquares } from '../src/core/patterns';
 import type { PieceType } from '../src/types';
 import { createTitleScreen, RANGE_CENTER, RANGE_RADIUS } from '../src/ui/titleScreen';
 
 const TYPES: PieceType[] = ['pawn', 'knight', 'bishop', 'rook', 'queen'];
+/** 탭에 실제로 실리는 전 기물(융합물 포함). TAB_ORDER와 같은 출처에서 뽑아 두면 기물이
+ *  늘어도 전수 검사가 저절로 따라온다 — 여기에 목록을 다시 적으면 그 순간 갈라진다. */
+const ALL_TYPES: PieceType[] = Object.keys(TRAITS) as PieceType[];
 
 function mount(onBattle: () => void = () => {}): HTMLElement {
   const app = document.createElement('div');
@@ -99,9 +102,10 @@ describe('createTitleScreen', () => {
     expect(markedSquares(app, 'bishop', 'is-target')).toEqual(expected);
   });
 
-  it('★ 나이트 패널은 감속 칸(얼음)과 L자 이동칸(점선)을 따로 표시한다', () => {
-    // 두 집합이 **다르다는 것**이 이 패널이 가르치는 전부다. 감속은 8랭크를 포함하고 이동은
-    // 아니라서, 5×5 창 안에서도 두 표시가 어긋나는 칸이 보인다.
+  it('★ 나이트 패널이 칠하는 칸은 감속 하나뿐이다 — 공격도, 이동 후보도 아니다', () => {
+    // v1.11 전에는 이 패널이 감속(얼음)과 L자 이동칸(점선) **둘**을 그렸고, 두 집합이 다르다는
+    // 것이 가르칠 내용이었다. 이동 제한이 사라져 그릴 이동 후보가 없어졌으므로 이제 이 패널이
+    // 말하는 것은 감속 하나다. ★ 그래도 L자는 남아 있다 — 행마가 아니라 능력 범위로.
     const app = mount();
     // 나이트는 이제 공격하지 않는다 — 주황(is-target)이 한 칸도 없어야 한다.
     expect(markedSquares(app, 'knight', 'is-target').size).toBe(0);
@@ -110,9 +114,22 @@ describe('createTitleScreen', () => {
     expect(slows).toEqual(new Set(slowSquares(RANGE_CENTER).map(s => `${s.file},${s.rank}`)));
     expect(slows.size).toBe(8);
     expect(slows.has(`${RANGE_CENTER.file},${RANGE_CENTER.rank}`)).toBe(false);   // 자기 칸 제외
+  });
 
-    const expectedMoves = new Set(knightMoves(RANGE_CENTER).map(s => `${s.file},${s.rank}`));
-    expect(markedSquares(app, 'knight', 'is-move')).toEqual(expectedMoves);
+  it('★ 어떤 패널도 이동 후보를 그리거나 이동 규칙을 말하지 않는다 (전 기물)', () => {
+    // v1.11에서 나이트의 L자 이동 제약이 사라지면서, 기물마다 다른 "갈 수 있는 칸"이라는
+    // 개념 자체가 없어졌다(is-move 클래스와 범례의 "점선 = L자 이동"이 함께 삭제됐다).
+    // 나이트만 보면 나중에 다른 기물에 이동 제한이 되살아나도 이 화면은 조용하므로 전수로 훑는다.
+    const app = mount();
+    for (const type of ALL_TYPES) {
+      const panel = app.querySelector<HTMLElement>(`.title-panel[data-piece-type="${type}"]`);
+      expect(panel, type).not.toBeNull();   // 셀렉터가 헛돌아 "0칸"으로 통과하는 것을 막는다
+      expect(markedSquares(app, type, 'is-move').size, type).toBe(0);
+      expect(panel!.querySelector('.range-legend')!.textContent, type).not.toContain('이동');
+    }
+    // 위 루프가 markedSquares 오타로 언제나 빈 집합을 보는 상태에서 통과하지 않도록, 같은
+    // 헬퍼가 실제로 칠해진 칸을 찾아낸다는 것을 대조군으로 함께 고정한다.
+    expect(markedSquares(app, 'knight', 'is-slow').size).toBeGreaterThan(0);
   });
 
   it('★ 융합물 패널은 공격 칸과 감속 칸을 둘 다 표시한다', () => {
@@ -123,13 +140,14 @@ describe('createTitleScreen', () => {
       .toEqual(new Set(slowSquares(RANGE_CENTER).map(s => `${s.file},${s.rank}`)));
   });
 
-  it('나이트 패널은 칠해진 두 색이 각각 무엇인지 범례로 밝힌다', () => {
+  it('나이트 패널 범례는 칠해진 얼음색이 감속임을 밝힌다', () => {
+    // 범례가 설명해야 할 색이 둘("감속" + "L자 이동")에서 하나로 줄었다 — 이동 문구가 빠졌는지는
+    // 위의 전수 검사가 지킨다. 여기서는 남은 하나가 여전히 제 뜻을 말하는지만 본다.
     const app = mount();
     const legend = app.querySelector<HTMLElement>(
       '.title-panel[data-piece-type="knight"] .range-legend',
     )!;
     expect(legend.textContent).toContain('감속');
-    expect(legend.textContent).toContain('L자 이동');
     // ★ 8랭크 포함은 이 기물의 핵심 성질인데 그림만으로는 5×5 창 밖이라 안 보인다 — 글로 말한다.
     expect(legend.textContent).toContain('8랭크');
     expect(legend.textContent).not.toContain('폭발');

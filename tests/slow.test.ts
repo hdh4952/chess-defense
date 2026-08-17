@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { CONFIG, TRAITS, enemyCount, slowPercent } from '../src/config';
 import { createEnemy, moveEnemies } from '../src/core/enemy';
 import { squareKey } from '../src/core/grid';
-import { knightMoves, slowSquares, slowTargets } from '../src/core/patterns';
+import { slowSquares, slowTargets } from '../src/core/patterns';
+import { canPlaceAt } from '../src/core/pieces';
 import { slowCoverage, slowFactorAt, updateSlowAura } from '../src/core/slow';
 import { createInitialState } from '../src/core/state';
 import { stepGame } from '../src/core/step';
@@ -60,42 +61,43 @@ describe('감속 오라 — 범위', () => {
       .toEqual(keys([{ file: 1, rank: 3 }, { file: 2, rank: 2 }]));
   });
 
-  it('★ 8랭크(스폰 구역)를 포함한다 — knightMoves(배치용)는 제외한다', () => {
+  it('★ 8랭크(스폰 구역)를 포함한다 — 기물이 설 수 없는 칸에도 능력은 닿는다', () => {
     // 사용자 결정. 적은 8랭크에서 스폰돼 내려오므로, 빼면 판에 들어오는 바로 그 지점에
-    // 감속 구멍이 생긴다. 두 함수를 같은 테스트에서 나란히 부르는 것이 핵심이다 —
-    // 감속 범위를 knightMoves로 구현하려는 회귀가 가장 자연스러운 실수이기 때문이다.
+    // 감속 구멍이 생긴다.
+    //
+    // ⚠️ v1.11 이전에는 이 테스트가 knightMoves(L자 착지 후보)와 나란히 비교했다. 그 함수가
+    // 사라진 지금 대조군은 **배치 규칙**(canPlaceAt)이다 — 비교의 요지는 그대로다:
+    // "기물이 설 수 있는가"와 "능력이 닿는가"는 다른 축이고, 8랭크에서 정확히 갈린다.
     const from: Square = { file: 3, rank: 6 };
     expect(slowSquares(from)).toHaveLength(8);
     expect(slowSquares(from)).toContainEqual({ file: 4, rank: 8 });
     expect(slowSquares(from)).toContainEqual({ file: 2, rank: 8 });
 
-    expect(knightMoves(from)).toHaveLength(6);
-    expect(knightMoves(from).every(s => s.rank <= RANKS - 1)).toBe(true);
-
-    const moveKeys = new Set(keys(knightMoves(from)));
-    expect(keys(slowSquares(from)).filter(k => !moveKeys.has(k)))
-      .toEqual(keys([{ file: 4, rank: 8 }, { file: 2, rank: 8 }]));
+    const s = waveState();
+    expect(canPlaceAt(s, 4, 8)).toBe(false);      // 그 칸에 기물을 놓을 수는 없는데
+    expect(slowFactorAt({ ...s, pieces: [boardPiece('knight', 3, 6)] }, { file: 4, rank: 8 }))
+      .toBe(M);                                   // 감속은 걸린다
   });
 
-  it('★ 전 보드에서 knightMoves ⊆ slowSquares이고, 차이는 오직 8랭크뿐이다', () => {
-    // "두 함수는 8랭크 하나로만 갈라진다"가 이 설계의 계약이다. 전수 순회가 아니면 특정
-    // 좌표에서만 우연히 맞는 구현을 통과시킨다.
-    let diffTotal = 0;
+  it('★ 전 보드에서 감속 범위는 랭크 상한을 걸지 않는다 — 필터가 inBoard 하나뿐이다', () => {
+    // 전수 순회가 아니면 특정 좌표에서만 우연히 맞는 구현을 통과시킨다. 배치 규칙
+    // (rank ≤ 7)을 여기로 끌어오는 회귀가 가장 자연스러운 실수라, 8랭크에 실제로 떨어지는
+    // 칸이 몇 개인지를 세어 공허 방지까지 건다.
+    const s = waveState();
+    let spawnRankHits = 0;
     for (const sq of allSquares()) {
-      const slowKeys = new Set(keys(slowSquares(sq)));
-      for (const m of knightMoves(sq)) {
-        expect(slowKeys.has(squareKey(m)), `${squareKey(sq)} → ${squareKey(m)}`).toBe(true);
-      }
-      const moveKeys = new Set(keys(knightMoves(sq)));
-      for (const s of slowSquares(sq)) {
-        if (moveKeys.has(squareKey(s))) continue;
-        expect(s.rank, `${squareKey(sq)} → ${squareKey(s)}`).toBe(RANKS);
-        diffTotal++;
+      for (const t of slowSquares(sq)) {
+        // 오프셋의 수학적 성질: |Δfile|,|Δrank| 조합이 반드시 {1,2}다
+        const df = Math.abs(t.file - sq.file), dr = Math.abs(t.rank - sq.rank);
+        expect([df, dr].sort().join(','), `${squareKey(sq)} → ${squareKey(t)}`).toBe('1,2');
+        expect(t.rank >= 1 && t.rank <= RANKS).toBe(true);
+        if (t.rank === RANKS) {
+          spawnRankHits++;
+          expect(canPlaceAt(s, t.file, t.rank)).toBe(false);   // 능력은 닿지만 배치는 불가
+        }
       }
     }
-    // ★ 공허 방지. 이 단언이 없으면 두 함수가 **완전히 같아져도**(= 8랭크를 잃는 회귀)
-    // 위 루프가 전부 통과해 초록으로 남는다.
-    expect(diffTotal).toBeGreaterThan(0);
+    expect(spawnRankHits).toBeGreaterThan(0);
   });
 
   it('slowTargets는 감속 기물에게만 범위를 준다 — 전수', () => {
@@ -322,8 +324,9 @@ describe('8랭크(스폰 구역)에서의 실제 효과', () => {
     moveEnemies(s, dt);
     expect(e.y - y0).toBeCloseTo(e.speed * M * dt, 9);
 
-    // 같은 나이트는 그 칸으로 **이동할 수는 없다** — 두 축이 갈라진다는 증거를 나란히 둔다.
-    expect(knightMoves({ file: 3, rank: 6 })).not.toContainEqual({ file: 4, rank: 8 });
+    // 같은 나이트가 그 칸에 **설 수는 없다** — 두 축이 갈라진다는 증거를 나란히 둔다.
+    // (v1.11에서 L자 이동 제약이 사라졌지만 8랭크 금지는 전 기물 공통으로 남아 있다.)
+    expect(canPlaceAt(s, 4, 8)).toBe(false);
   });
 });
 
@@ -445,36 +448,50 @@ describe('미리보기와 실제 규칙', () => {
     expect(sizeA + sizeB - both.size).toBeGreaterThan(0);
   });
 
-  it('★ 하버 미리보기는 착지 후의 오라를 보여준다 — 이동칸(초록)과 다른 집합이다', () => {
-    // 나이트를 선택하면 L자 이동 후보가 초록으로 깔린다. 그중 한 칸에 hover하면 **거기 섰을
-    // 때** 감속될 칸이 얼음색으로 뜬다 — 현재 칸의 오라가 아니다(그건 상시 오라가 담당한다).
-    // 여기서 겹쳐 칠하면 같은 칸에 알파가 두 겹 얹혀 중첩처럼 보인다.
+  it('★ 하버 미리보기는 착지 후의 오라를 보여준다 — 현재 칸 기준이 아니다', () => {
+    // 나이트를 선택하고 어느 칸에 hover하면 **거기 섰을 때** 감속될 칸이 얼음색으로 뜬다.
+    // 현재 칸의 오라가 아니다(그건 렌더러의 상시 오라가 담당한다) — 여기서 겹쳐 칠하면
+    // 같은 칸에 알파가 두 겹 얹혀 중첩처럼 보인다.
+    //
+    // ⚠️ v1.11에서 초록 이동 후보 표시가 사라졌다. 예전에는 이 테스트가 "얼음 ≠ 초록"을
+    // 함께 쟀지만, 모든 기물이 아무 칸으로나 가므로 그릴 후보 자체가 없다.
     const s = waveState();
     const n = boardPiece('knight', 3, 4);
     s.pieces.push(n);
-    const dest: Square = { file: 4, rank: 6 };        // 합법 L자 착지 칸
-    expect(knightMoves({ file: 3, rank: 4 })).toContainEqual(dest);
+    const dest: Square = { file: 6, rank: 2 };        // L자가 **아닌** 먼 칸 — 이제 갈 수 있다
 
     const { highlights } = buildHighlights(
       s, { dragging: null, selectedPieceId: n.id, hoverSquare: dest },
     );
-    const move = keys(highlights.filter(h => h.color === HIGHLIGHT_COLORS.move).map(h => h.square));
     const slow = keys(highlights.filter(h => h.color === HIGHLIGHT_COLORS.slow).map(h => h.square));
 
-    // 얼음 칸은 **착지 칸 기준**이다 — 현재 칸(3,4) 기준이 아니라는 것이 이 단언의 전부다.
+    // 얼음 칸은 **hover한 칸 기준**이다 — 현재 칸(3,4) 기준이 아니라는 것이 이 단언의 전부다.
     expect(slow).toEqual(keys(slowSquares(dest)));
     expect(slow).not.toEqual(keys(slowSquares({ file: 3, rank: 4 })));
-    expect(move).toEqual(keys(knightMoves({ file: 3, rank: 4 })));
-    // 착지하면 8랭크까지 덮는다 — 이동으로는 갈 수 없는 줄이다.
-    expect(slow).toContain(squareKey({ file: 5, rank: 8 }));
-    expect(move).not.toContain(squareKey({ file: 5, rank: 8 }));
-    // 두 색은 반드시 다르다 — 같으면 위 구분이 화면에서는 보이지 않는다.
-    expect(HIGHLIGHT_COLORS.slow).not.toBe(HIGHLIGHT_COLORS.move);
+  });
+
+  it('★ 이동 후보를 그리는 색은 더 이상 없다 — 어떤 기물도 초록 칸을 만들지 않는다', () => {
+    // v1.11에서 HIGHLIGHT_COLORS.move가 팔레트에서 사라졌다. 그 색이 답하던 질문("이 기물이
+    // 어디로 갈 수 있는가")이 없어졌기 때문이다 — 이제 답은 모든 기물에 대해 "어디로든"이다.
+    // 이 단언이 없으면 누군가 종류별 이동 분기를 되살려도 아무도 모른다.
+    expect('move' in HIGHLIGHT_COLORS).toBe(false);
+    const palette = new Set(Object.values(HIGHLIGHT_COLORS));
+    for (const type of ALL) {
+      const s = waveState();
+      const p = boardPiece(type, 3, 4);
+      s.pieces.push(p);
+      const { highlights } = buildHighlights(
+        s, { dragging: null, selectedPieceId: p.id, hoverSquare: null },
+      );
+      // 팔레트에 없는 색이 새어 나오지 않는다 = 사라진 채널이 되살아나지 않았다
+      for (const h of highlights) expect(palette.has(h.color), `${type}: ${h.color}`).toBe(true);
+    }
   });
 
   it('★ 융합물은 공격 칸(주황)과 감속 칸(얼음)을 둘 다 그린다', () => {
-    // 아치비숍은 slow=true이면서 moveL=false다 — 감속 범위와 이동 범위가 아예 다른 유일한
-    // 종류이고, previewRange가 두 배열을 갈라 돌려주는 이유가 여기서 처음 실전이 된다.
+    // previewRange가 두 배열(공격·감속)을 갈라 돌려주는 이유가 여기서 실전이 된다 — 겸업
+    // 기물만이 두 축을 동시에 갖는다. (v1.11 이전에는 아치비숍이 slow=true·moveL=false인
+    // 유일한 종류라는 것이 근거였는데, moveL 축 자체가 사라져 근거가 더 단순해졌다.)
     const s = waveState();
     const a = boardPiece('archbishop', 3, 4);
     s.pieces.push(a);

@@ -86,12 +86,41 @@ describe('resolveLanding — 판정표 (합성 규칙 결정표 §3.1)', () => {
       .toMatchObject({ kind: 'reject', reason: 'outOfBounds' });
   });
 
-  it('나이트는 합성이어도 L자 행마를 지켜야 한다', () => {
+  it('나이트도 L자가 아닌 칸에서 끌어와 합성된다 — 판정이 뒤집혔다', () => {
+    // v1.11 전까지 이 자리에는 "나이트는 합성이어도 L자 행마를 지켜야 한다"가 있었다(거부 사유
+    // 'knightPattern'). 나이트의 이동 제약이 통째로 사라지면서(사용자 결정) 불변식이 뒤집힌다:
+    // 예전에 거부되던 **바로 그 배치**가 이제 성사돼야 한다. 삭제만 하고 넘어가면 누가 게이트를
+    // 되살려도 아무 테스트가 울지 않으므로, 같은 좌표를 그대로 물려받아 반대 방향으로 단언한다.
     const s = waveState();
-    const n = boardPiece('knight', 3, 4);
-    s.pieces.push(n, boardPiece('knight', 3, 5));     // 같은 티어지만 바로 위 = L자가 아님
-    expect(resolveLanding(s, n, { file: 3, rank: 5 }, true))
-      .toMatchObject({ kind: 'reject', reason: 'knightPattern' });
+    const mover = boardPiece('knight', 3, 4);
+    const occupant = boardPiece('knight', 3, 5);      // 같은 티어, 바로 위 = L자가 아닌 인접 칸
+    s.pieces.push(mover, occupant);
+    const sq = { file: 3, rank: 5 };
+
+    expect(resolveLanding(s, mover, sq, true)).toMatchObject({ kind: 'merge', resultTier: 2 });
+    // 판정표뿐 아니라 커밋 경로까지 열려 있어야 한다 — 한쪽에만 가드가 남으면 미리보기는
+    // 마젠타로 합성을 약속해 놓고 손을 떼는 순간 조용히 실패한다.
+    expect(moveOnBoard(s, mover.id, sq.file, sq.rank, [], true)).toBe(true);
+    expect(occupant.tier).toBe(2);
+    expect(s.pieces).toHaveLength(1);
+  });
+
+  it('나이트 합성 판정은 출발지와 무관하다 — 보드발이 트레이발과 같은 결과를 낸다', () => {
+    // 사라진 게이트는 **보드발 전용**이었다. 그래서 예전에는 같은 칸·같은 제스처인데도 출발지에
+    // 따라 결과가 갈렸다(트레이발은 합성, 보드발은 L자가 아니면 거부). 두 경로를 나란히 세워
+    // 두면 보드발에만 조건이 다시 붙는 회귀가 한쪽 줄로 드러난다.
+    const s = waveState();
+    const target = boardPiece('knight', 4, 4);
+    const fromBoard = boardPiece('knight', 4, 5);     // 바로 위 = L자가 아니다
+    const fromTray = slotPiece('knight');
+    s.pieces.push(target, fromBoard, fromTray);
+    const sq = { file: 4, rank: 4 };
+
+    expect(resolveLanding(s, fromBoard, sq, true)).toMatchObject({ kind: 'merge', resultTier: 2 });
+    expect(resolveLanding(s, fromTray, sq, true)).toMatchObject({ kind: 'merge', resultTier: 2 });
+    // 남은 제약은 8랭크 금지 하나뿐이고 그것은 모든 기물에 공통이다 — 나이트에게만 더 걸리는
+    // 사유가 부활하면 여기가 아니라 위 두 줄이 먼저 깨진다.
+    expect(canLandAt(s, fromBoard, { file: 4, rank: CONFIG.board.ranks })).toBe(false);
   });
 
   it('티어 합이 상한을 넘으면 출발지와 무관하게 거부다 — 초과분을 깎지도, 조용히 맞교환하지도 않는다', () => {
@@ -182,7 +211,9 @@ describe('합성 커밋 — 생존자·쿨다운·이벤트', () => {
     // 데미지 단언은 지킬 대상이 없어졌다 — 감속은 티어와 무관하고 나이트 공격력은 0이다.
     const s = waveState();
     const mover = boardPiece('knight', 3, 4);
-    const occupant = boardPiece('knight', 4, 6);       // d4 → e6 = L자
+    // d4 → e6. v1.11부터 이 좌표가 L자인 것은 **이동 조건이 아니라** 아래 감속 단언의 조건이다
+    // (어느 칸으로 끌어도 합성 자체는 된다) — 출발 칸이 생존자의 감속 8칸에 들어와야 한다.
+    const occupant = boardPiece('knight', 4, 6);
     s.pieces.push(mover, occupant);
     const onSurvivor = enemyAt(1, 4, 6);               // 예전 폭발이 중심으로 삼던 칸
     const onL = enemyAt(1, 3, 4);                      // 합성 결과 기물의 L자 칸(= 출발 칸)
