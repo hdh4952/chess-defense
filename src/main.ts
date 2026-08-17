@@ -103,7 +103,15 @@ function startGame(root: HTMLDivElement): void {
       // 벌어진다 (회귀 2). realDt를 이미 계산해 둔 지역 변수에 담아 뒀으므로, last는 tick() 호출
       // 성패와 무관하게 이 시점에 곧바로 갱신한다.
       last = now;
-      tick(realDt, dt => stepGame(state, dt * state.speedMultiplier, events));
+      // ★ 히트스톱 — 무거운 타격(룩 계열) 순간 시뮬레이션만 아주 짧게 멈춘다 (v1.15).
+      //
+      // ⚠️ **tick()에 0을 넘기는 것이 중요하다.** tick 호출을 아예 건너뛰면 accumulator에
+      // 아무것도 더해지지 않는 것은 같지만, realDt를 넘기고 콜백에서 stepGame만 생략하면
+      // accumulator가 계속 불어나 히트스톱이 풀리는 순간 밀린 프레임을 한꺼번에 재생한다 —
+      // 이 파일이 위에서 이미 겪었다고 적어 둔 "멈춤 후 급가속"(회귀 2) 그 자체다.
+      // 이펙트·플래시는 계속 흐른다: 세계만 멈추고 연출은 흐르는 것이 타격감의 정체다.
+      const frozen = fx.tickHitstop(realDt);
+      tick(frozen ? 0 : realDt, dt => stepGame(state, dt * state.speedMultiplier, events));
 
       for (const ev of events) { banners.onEvent(ev); fx.onEvent(ev); enemyFx.onEvent(ev); }
       // paused는 명시적으로 넘긴다 — stepGame이 일시정지 중 일찍 반환해 attack 이벤트 자체가

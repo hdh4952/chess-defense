@@ -57,9 +57,14 @@ describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스�
       const { ctx, records } = makeStubCtx();
       fx.draw(ctx as unknown as CanvasRenderingContext2D);
 
-      // crack은 line()을 2번(밝은 테두리 + 갈색 본선) 호출하므로 moveTo 수 == crack 이펙트 수 * 2
+      // ★ v1.15에서 세 겹이 됐다: **잔광 → 밝은 테두리 → 갈색 코어**. 잔광은 넓어지며
+      // 옅어지고 코어는 얇아진다(두 방향이 반대라야 "터진 뒤 잦아든다"로 읽힌다).
+      // 겹 수를 상수로 두고 유도하는 이유는, 겹이 늘 때 이 테스트가 **의도적으로** 깨져
+      // 누가 연출을 바꿨다는 사실이 드러나야 하기 때문이다 — 자동으로 따라가면 잔광이
+      // 실수로 빠져도 초록으로 남는다.
+      const PASSES = 3;
       const moveTos = records.filter(r => r.method === 'moveTo');
-      expect(moveTos).toHaveLength(expectedEnds.length * 2);
+      expect(moveTos).toHaveLength(expectedEnds.length * PASSES);
       const fromC = center(from);
       for (const m of moveTos) expect(m.args).toEqual([fromC.x, fromC.y]);
 
@@ -121,13 +126,69 @@ describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스�
       const { ctx, records } = makeStubCtx();
       fx.draw(ctx as unknown as CanvasRenderingContext2D);
 
+      // crack과 같이 v1.15에서 세 겹이 됐다(금빛 잔광 → 어두운 테두리 → 밝은 코어).
+      const PASSES = 3;
       const moveTos = records.filter(r => r.method === 'moveTo');
-      expect(moveTos).toHaveLength(expectedEnds.length * 2); // beam도 2겹(어두운 테두리 + 밝은 광선)
+      expect(moveTos).toHaveLength(expectedEnds.length * PASSES);
 
       const lineTos = records.filter(r => r.method === 'lineTo');
       const endpoints = new Set(lineTos.map(l => `${l.args[0]},${l.args[1]}`));
       const expectedEndpoints = new Set(expectedEnds.map(sq => { const c = center(sq); return `${c.x},${c.y}`; }));
       expect(endpoints).toEqual(expectedEndpoints);
+    });
+
+    it('★ 히트스톱 — 룩 계열 타격에만 걸리고, 벽시계로 풀린다 (v1.15)', () => {
+      // 사용자 요청은 "룩/나이트만"이었지만 나이트는 v1.10에서 폭발을 잃고 공격 자체가
+      // 없어졌다(공격력 0). 요청의 의도는 "무거운 타격"이고, 이 게임에 남은 무거운 타격이
+      // crack(관통 균열 + 화면 진동)이라 pattern 'rook'(룩·챈슬러)이 그대로 이어받는다.
+      const fx = new Effects();
+      expect(fx.tickHitstop(1 / 60)).toBe(false);            // 아무 일 없으면 안 멈춘다
+
+      const from: Square = { file: 4, rank: 4 };
+      fx.onEvent({ kind: 'attack', pieceType: 'rook', from, targets: rookTargets(from) });
+      expect(fx.tickHitstop(0.01)).toBe(true);               // 걸렸다
+      expect(fx.tickHitstop(0.05)).toBe(true);               // 아직 남아 있다(이 호출이 소진시킨다)
+      expect(fx.tickHitstop(0.01)).toBe(false);              // 40ms를 넘겨 풀렸다
+    });
+
+    it('★ 룩 계열이 아닌 공격은 히트스톱을 걸지 않는다', () => {
+      // 폰(shock)·비숍(beam)에도 걸면 후반에 초당 수십 번 멈춰 게임이 끊긴다. 진동(shake)이
+      // crack에만 걸리는 것과 같은 근거이고, 같은 조건을 쓰는 것이 두 연출의 일관성이다.
+      for (const type of ['pawn', 'bishop'] as const) {
+        const fx = new Effects();
+        const from: Square = { file: 4, rank: 4 };
+        const targets = type === 'pawn' ? pawnTargets(from) : bishopTargets(from);
+        fx.onEvent({ kind: 'attack', pieceType: type, from, targets });
+        expect(fx.tickHitstop(0.01), type).toBe(false);
+      }
+    });
+
+    it('★ 연속 타격에도 최소 간격이 지켜진다 — 매 프레임 멈추면 게임이 끊긴다', () => {
+      // 룩 여러 기가 엇갈려 발사하는 것이 실전에서 흔하다. 스로틀이 없으면 그 구간 내내
+      // 시뮬레이션이 멈춰 "느려졌다"로 읽힌다 — 오디오 스로틀과 같은 이유다.
+      const fx = new Effects();
+      const from: Square = { file: 4, rank: 4 };
+      const fire = (): void => {
+        fx.onEvent({ kind: 'attack', pieceType: 'rook', from, targets: rookTargets(from) });
+      };
+      fire();
+      while (fx.tickHitstop(0.01)) { /* 첫 히트스톱을 소진한다 */ }
+      fire();                                                // 곧바로 다시 때렸다
+      expect(fx.tickHitstop(0.01)).toBe(false);               // 간격이 안 찼으므로 안 걸린다
+      for (let i = 0; i < 40; i++) fx.tickHitstop(0.01);      // 0.4초 흐름
+      fire();
+      expect(fx.tickHitstop(0.01)).toBe(true);                // 이제 다시 걸린다
+    });
+
+    it('★ 히트스톱은 update(dt)와 별개로 진행된다 — 일시정지 중에 영원히 갇히지 않는다', () => {
+      // update의 dt는 일시정지 중 0으로 눌린다. 히트스톱을 같은 dt로 감쇠시키면, 히트스톱이
+      // 걸린 순간 일시정지하면 절대 풀리지 않아 게임이 재개돼도 시뮬레이션이 멈춘 채 남는다.
+      const fx = new Effects();
+      const from: Square = { file: 4, rank: 4 };
+      fx.onEvent({ kind: 'attack', pieceType: 'rook', from, targets: rookTargets(from) });
+      fx.update(0);
+      expect(fx.tickHitstop(0.05)).toBe(true);
+      expect(fx.tickHitstop(0.01)).toBe(false);               // update(0)에도 벽시계로 풀렸다
     });
 
     // v1.10: 나이트의 폭발이 감속 오라로 바뀌면서 explosion(createRadialGradient 1) + ember

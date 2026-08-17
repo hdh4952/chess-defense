@@ -9,6 +9,20 @@ const SQ = CONFIG.board.squarePx;
 const center = (sq: Square) => ({ x: fileCenterX(sq.file), y: rankToTopY(sq.rank) + SQ / 2 });
 
 /**
+ * 히트스톱 길이(초). 사용자 요청 "30~50ms"의 중앙값이다.
+ *
+ * **벽시계 기준**이라 배속과 무관하게 항상 40ms다. 게임 시간 기준으로 두면 2배속에서 20ms가
+ * 되어 사실상 사라지는데, 타격감은 실제로 흐른 시간에 달려 있다.
+ */
+const HITSTOP_SECONDS = 0.04;
+
+/**
+ * 히트스톱 최소 간격(초). 룩 여러 기가 엇갈려 발사하면 매 프레임 발동해 게임이 끊기는 것처럼
+ * 보인다 — 오디오 스로틀(룩 200ms)과 같은 이유로 같은 자릿수를 쓴다.
+ */
+const HITSTOP_MIN_GAP = 0.25;
+
+/**
  * 감속 진입 라벨. 숫자는 CONFIG에서 유도한다 — 계수를 바꾸면 이 문구도 따라온다.
  * ★ v1.13부터 **티어마다 다르다**(T1 −30% · T2 −35% …). 상수로 굳히면 T3 오라에 들어간 적에게
  * −30%라고 거짓말하게 되므로, 이벤트가 실어 보낸 티어에서 그때그때 만든다.
@@ -48,6 +62,16 @@ export class Effects {
   // 소유·감쇠시키는 이 클래스 안에 둬야, 이 클래스를 쓰는 다른 어떤 호출부도 이 가드를 따로
   // 재구현할 필요가 없다.
   private lastShakeOffset: { x: number; y: number } = { x: 0, y: 0 };
+  /**
+   * 남은 히트스톱(초). 무거운 타격 순간 시뮬레이션을 아주 짧게 멈춰 타격감을 준다 (v1.15).
+   *
+   * ★ shake와 같은 자리에 두는 이유가 있다 — 둘 다 **화면 전체**에 걸리는 피드백이고,
+   * 둘 다 "이펙트 목록"이 아니라 스칼라 상태다. 그리고 둘 다 일시정지에서 진행을 멈춰야
+   * 하는데, 그 가드가 이미 이 클래스 안에 있다.
+   */
+  private hitstop = 0;
+  /** 마지막 히트스톱 이후 흐른 시간. 연속 발동을 막는 스로틀에 쓴다. */
+  private sinceHitstop = HITSTOP_MIN_GAP;
 
   onEvent(ev: GameEvent): void {
     if (ev.kind === 'attack') {
@@ -78,7 +102,17 @@ export class Effects {
           const c = center(far);
           this.list.push({ kind, x: from.x, y: from.y, x2: c.x, y2: c.y, t: 0, ttl: kind === 'beam' ? 0.3 : 0.25 });
         }
-        if (kind === 'crack') this.shake = Math.max(this.shake, 0.15);
+        if (kind === 'crack') {
+          this.shake = Math.max(this.shake, 0.15);
+          // ★ 히트스톱은 **룩 계열(pattern 'rook')**에만 걸린다 — 룩과 챈슬러다.
+          //   사용자 요청은 "룩/나이트만"이었지만 나이트는 v1.10에서 폭발을 잃고 공격 자체가
+          //   없어져(공격력 0) 걸 순간이 없다. 요청의 의도는 "무거운 타격"이고, 이 게임에
+          //   남은 무거운 타격이 crack(관통 균열 + 화면 진동)이라 그대로 이어받는다.
+          if (this.sinceHitstop >= HITSTOP_MIN_GAP && !prefersReducedMotion()) {
+            this.hitstop = HITSTOP_SECONDS;
+            this.sinceHitstop = 0;
+          }
+        }
       }
       // pattern 'none'은 주기 발사가 없으므로 attack 이벤트가 오지 않는다. 새 패턴을 추가하면
       // 여기 분기도 함께 늘려야 한다 — 안 늘리면 그 기물만 조용히 무연출이 된다.
@@ -175,6 +209,22 @@ export class Effects {
     return { x: (Math.random() - 0.5) * a, y: (Math.random() - 0.5) * a };
   }
 
+  /**
+   * 히트스톱을 벽시계 시간으로 진행시키고, **이번 프레임에 시뮬레이션을 멈춰야 하는가**를
+   * 돌려준다. 이펙트 자체(update/draw)는 계속 돈다 — 세계만 멈추고 연출은 흐르는 것이
+   * 타격감의 정체다.
+   *
+   * ⚠️ update(dt)와 **따로** 진행시키는 이유: update의 dt는 일시정지 중 0으로 눌리는데,
+   * 히트스톱은 일시정지와 무관하게(정지 중에는 애초에 발동하지 않으므로) 벽시계로 풀려야
+   * 한다. 같은 dt를 쓰면 히트스톱이 걸린 순간 일시정지하면 영원히 풀리지 않는다.
+   */
+  tickHitstop(realDt: number): boolean {
+    this.sinceHitstop += realDt;
+    if (this.hitstop <= 0) return false;
+    this.hitstop = Math.max(0, this.hitstop - realDt);
+    return true;
+  }
+
   shakeOffset(): { x: number; y: number } {
     // 캐시된 내부 객체를 그대로 참조로 돌려주면, 호출부가 이 반환값을 "이번 프레임 소유"라고 믿고
     // 직접 대입/변형할 때(예: main.ts가 view.shake에 그대로 얹는 패턴) Effects의 내부 상태를
@@ -198,17 +248,38 @@ export class Effects {
           ctx.strokeStyle = '#d8d8d0'; ctx.lineWidth = 2; ctx.stroke();
           break;
         }
-        case 'crack': {            // 룩 — 땅: 갈색 균열 + 밝은 테두리
+        // ★ crack·beam은 v1.15에서 세 겹이 됐다: **잔광 → 테두리 → 코어**.
+        //   잔광은 시간이 갈수록 **넓어지며 옅어지고**(잉크가 퍼지는 것처럼), 코어는 반대로
+        //   **얇아진다**. 두 방향이 반대라야 "번쩍 터진 뒤 잦아든다"로 읽힌다 — 둘 다 넓어지면
+        //   그냥 흐려지는 것이고, 둘 다 얇아지면 처음부터 약해 보인다.
+        //   폭을 k(1 → 0)로 만드는 것이 요점이고, 알파는 draw 앞머리에서 이미 k가 걸려 있다.
+        case 'crack': {            // 룩 — 땅: 갈색 균열 + 밝은 테두리 + 흙빛 잔광
+          if (!reduced) {
+            ctx.save();
+            ctx.globalAlpha *= 0.35 * k;
+            ctx.lineWidth = 6 + (1 - k) * 14;
+            ctx.strokeStyle = '#c9a06a';
+            line(ctx, f);
+            ctx.restore();
+          }
           ctx.lineWidth = 6; ctx.strokeStyle = '#f0e0c0';
           line(ctx, f);
-          ctx.lineWidth = 3.5; ctx.strokeStyle = '#7a5230';
+          ctx.lineWidth = 1.5 + k * 2.5; ctx.strokeStyle = '#7a5230';
           line(ctx, f);
           break;
         }
-        case 'beam': {             // 비숍 — 빛: 흰-금 광선 + 어두운 테두리
+        case 'beam': {             // 비숍 — 빛: 흰-금 광선 + 어두운 테두리 + 금빛 잔광
+          if (!reduced) {
+            ctx.save();
+            ctx.globalAlpha *= 0.4 * k;
+            ctx.lineWidth = 5 + (1 - k) * 16;
+            ctx.strokeStyle = '#ffe9a8';
+            line(ctx, f);
+            ctx.restore();
+          }
           ctx.lineWidth = 5; ctx.strokeStyle = '#4a4020';
           line(ctx, f);
-          ctx.lineWidth = 2; ctx.strokeStyle = '#fff6cf';
+          ctx.lineWidth = 0.8 + k * 2.2; ctx.strokeStyle = '#fff6cf';
           line(ctx, f);
           break;
         }
