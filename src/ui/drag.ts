@@ -4,6 +4,7 @@ import { sellPiece, sellPrice } from '../core/economy';
 import type { UiAudio } from '../audio';
 import type { GameEvent, GameState, Interaction } from '../types';
 import { PIECE_NAME, type Layout } from './layout';
+import { prefersReducedMotion } from '../render/enemyFx';
 import { ALLY_SPRITE_URL } from '../render/sprites';
 
 export interface RectLike { left: number; top: number; width: number; height: number }
@@ -55,6 +56,8 @@ export class DragController {
   private ghostImg: HTMLImageElement;
   private downAt: { x: number; y: number } | null = null;
   private zonesCache: DropZones | null = null;
+  /** 스냅 애니메이션이 끝나면 고스트를 감추는 타이머. 중첩 드롭에서 조기 감춤을 막으려고 들고 있다. */
+  private snapTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private state: GameState,
@@ -100,6 +103,7 @@ export class DragController {
     document.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('resize', this.invalidateZones);
     window.removeEventListener('scroll', this.invalidateZones, true);
+    if (this.snapTimer !== null) clearTimeout(this.snapTimer);
     this.ghost.remove();
   }
 
@@ -133,6 +137,35 @@ export class DragController {
 
   private hideGhost(): void {
     this.ghost.style.display = 'none';
+    this.ghost.style.transition = '';
+  }
+
+  /**
+   * 드롭 성공 시 고스트를 착지 칸 중심으로 **back-out 이징으로** 붙인 뒤 감춘다 (v1.15).
+   *
+   * ★ v1.15 이전에는 스냅 자체가 없었다 — 드롭 즉시 고스트를 감추고 기물이 새 칸에 나타났다.
+   * 그러면 "어디에 놓였는가"가 눈으로 따라가지지 않는다. back-out(살짝 지나쳐 되돌아옴)을
+   * 쓰는 이유는 그 오버슈트가 "칸에 딱 맞물렸다"는 감각을 주기 때문이고, 선형이면 그냥
+   * 순간이동처럼 보인다.
+   *
+   * CSS transition으로 하는 이유는 이 클래스가 프레임 루프를 갖지 않기 때문이다 — rAF를
+   * 새로 돌리면 일시정지·배속과의 관계를 또 정의해야 하는데, 이 연출은 게임 시간이 아니라
+   * **조작에 대한 반응**이라 벽시계로 도는 편이 맞다.
+   *
+   * 모션 축소 요청 시에는 곧바로 감춘다 — 정보가 아니라 순전히 움직임이다.
+   */
+  private snapGhostTo(square: { file: number; rank: number }): void {
+    if (this.ghost.style.display !== 'block' || prefersReducedMotion()) { this.hideGhost(); return; }
+    const board = this.layout.canvas.getBoundingClientRect();
+    const cell = board.width / CONFIG.board.files;
+    const x = board.left + (square.file + 0.5) * cell;
+    const y = board.top + (CONFIG.board.ranks - square.rank + 0.5) * (board.height / CONFIG.board.ranks);
+    // cubic-bezier의 셋째 값이 1을 넘으면 목표를 지나쳤다 되돌아온다 = back-out.
+    this.ghost.style.transition = 'left 160ms cubic-bezier(.34,1.56,.64,1), top 160ms cubic-bezier(.34,1.56,.64,1)';
+    this.ghost.style.left = `${x}px`;
+    this.ghost.style.top = `${y}px`;
+    if (this.snapTimer !== null) clearTimeout(this.snapTimer);
+    this.snapTimer = setTimeout(() => { this.hideGhost(); this.snapTimer = null; }, 170);
   }
 
   private clearSellPreview(): void {
@@ -183,9 +216,8 @@ export class DragController {
     this.downAt = null;
     const d = this.interaction.dragging;
     this.interaction.dragging = null;
-    this.hideGhost();
     this.clearSellPreview();
-    if (this.state.paused) return;
+    if (this.state.paused) { this.hideGhost(); return; }
 
     if (d && !wasClick) {                               // 드래그 드롭
       const target = pickDropTarget(e.clientX, e.clientY, this.zones());
@@ -193,10 +225,13 @@ export class DragController {
       // 명확한 의도의 제스처에만 붙인다). 아래 클릭-투-무브 경로는 이 인자를 넘기지 않으므로
       // 같은 종류 기물 위에 놓아도 예전 그대로 맞교환이다.
       const ok = dropAction(this.state, d.pieceId, target, this.events, true);
+      // 성공적으로 칸에 놓였을 때만 스냅한다 — 거부(원위치 복귀)나 판매에는 붙일 칸이 없다.
+      if (ok && target?.kind === 'square') this.snapGhostTo(target); else this.hideGhost();
       this.playDropCue(target, ok);
       this.interaction.selectedPieceId = null;           // 드래그 후에는 이전 클릭 선택을 남기지 않는다 (검토 Finding 1)
       return;
     }
+    this.hideGhost();
     if (!wasClick) return;
     // 클릭-투-무브 (스펙 7.5 권장)
     const sel = this.interaction.selectedPieceId;

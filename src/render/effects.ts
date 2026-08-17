@@ -31,12 +31,14 @@ const slowLabel = (tier: number): string => `−${slowPercent(tier)}%`;
 
 interface Fx {
   kind: 'shock' | 'crack' | 'beam' | 'puff' | 'coin' | 'mergeBurst' | 'frostTag' | 'spawnMark'
-    | 'splitArrow' | 'dmgNum' | 'blockMark';
+    | 'splitArrow' | 'dmgNum' | 'blockMark' | 'shard' | 'goldFly';
   x: number; y: number;
   x2?: number; y2?: number;      // 라인형(crack/beam)의 끝점
   amount?: number;               // coin 전용 — 표시할 골드 액수
   label?: string;                // frostTag 전용 — 티어에서 유도한 "−35%" 같은 문구
   enemyId?: string;              // dmgNum 전용 — 같은 적의 연속 피격을 합치는 키
+  vx?: number; vy?: number;      // shard 전용 — 파편 속도(px/s)
+  tx?: number; ty?: number;      // goldFly 전용 — 도착점(HUD 골드 표시의 캔버스 좌표)
   color?: string;                // mergeBurst 전용 — 결과 티어 색
   t: number; ttl: number;
 }
@@ -70,6 +72,18 @@ export class Effects {
    * 하는데, 그 가드가 이미 이 클래스 안에 있다.
    */
   private hitstop = 0;
+  /**
+   * 처치 골드 텍스트가 날아갈 도착점 — **HUD 골드 표시의 캔버스 좌표**다 (v1.15).
+   *
+   * ★ 이 저장소에서 캔버스와 DOM의 경계를 넘는 연출은 이것이 처음이다. 렌더는 HUD가 어디
+   * 있는지 모르고 알 이유도 없으므로, 좌표를 **밖에서 넣어 준다**(main.ts가 매 프레임
+   * getBoundingClientRect로 계산해 setGoldTarget으로 밀어 넣는다 — 드래그가 드롭 존 rect를
+   * 캐시하는 방식의 선례를 따른다).
+   *
+   * null이면 골드 비행을 아예 만들지 않는다 — 도착점을 모르는 채 (0,0)으로 날리면 화면
+   * 왼쪽 위로 텍스트가 쏟아진다.
+   */
+  private goldTarget: { x: number; y: number } | null = null;
   /** 마지막 히트스톱 이후 흐른 시간. 연속 발동을 막는 스로틀에 쓴다. */
   private sinceHitstop = HITSTOP_MIN_GAP;
 
@@ -191,11 +205,40 @@ export class Effects {
     if (ev.kind === 'enemyDied') {
       const c = center(ev.square);
       this.list.push({ kind: 'puff', ...c, t: 0, ttl: 0.25 });
+      if (!prefersReducedMotion()) {
+        // ★ 파편 — 처치가 "사라졌다"가 아니라 "부서졌다"로 읽히게 한다. 개수를 보스에서만
+        //   늘리는 이유는 후반 웨이브가 초당 수십 마리를 처치하기 때문이다: 일반 적에 8개를
+        //   주면 w19에서 파편이 수백 개가 되어 판이 안 보인다.
+        const n = ev.isBoss ? 14 : 5;
+        for (let i = 0; i < n; i++) {
+          const ang = (i / n) * Math.PI * 2;
+          const sp = 70 + (i % 3) * 45;
+          this.list.push({
+            kind: 'shard', ...c, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp,
+            t: 0, ttl: ev.isBoss ? 0.7 : 0.4,
+          });
+        }
+      }
+      // 골드 비행은 goldTarget이 설정된 뒤에만 만든다 — 도착점을 모르면 날아갈 곳이 없다.
+      if (this.goldTarget && !prefersReducedMotion()) {
+        this.list.push({
+          kind: 'goldFly', ...c, amount: ev.reward,
+          tx: this.goldTarget.x, ty: this.goldTarget.y, t: 0, ttl: 0.6,
+        });
+      }
     }
   }
 
   update(dt: number): void {
-    for (const f of this.list) f.t += dt;
+    for (const f of this.list) {
+      f.t += dt;
+      // 파편만 위치가 움직인다. 중력을 조금 주어 "부서져 떨어진다"로 읽히게 한다.
+      if (f.kind === 'shard') {
+        f.x += (f.vx ?? 0) * dt;
+        f.y += (f.vy ?? 0) * dt;
+        f.vy = (f.vy ?? 0) + 320 * dt;
+      }
+    }
     this.list = this.list.filter(f => f.t < f.ttl);
     if (dt > 0) {                    // dt===0(일시정지 프레임)에는 감쇠도 재추첨도 건너뛴다
       this.shake = Math.max(0, this.shake - dt);
@@ -218,6 +261,11 @@ export class Effects {
    * 히트스톱은 일시정지와 무관하게(정지 중에는 애초에 발동하지 않으므로) 벽시계로 풀려야
    * 한다. 같은 dt를 쓰면 히트스톱이 걸린 순간 일시정지하면 영원히 풀리지 않는다.
    */
+  /** HUD 골드 표시의 캔버스 좌표를 갱신한다. null이면 골드 비행을 끈다. */
+  setGoldTarget(p: { x: number; y: number } | null): void {
+    this.goldTarget = p;
+  }
+
   tickHitstop(realDt: number): boolean {
     this.sinceHitstop += realDt;
     if (this.hitstop <= 0) return false;
@@ -361,6 +409,30 @@ export class Effects {
           ctx.moveTo(f.x - r * 0.7, f.y + r * 0.7);
           ctx.lineTo(f.x + r * 0.7, f.y - r * 0.7);
           ctx.stroke();
+          break;
+        }
+        case 'shard': {            // 처치 파편 — 사방으로 튀며 떨어지는 작은 조각
+          ctx.fillStyle = '#8a8a8a';
+          const sz = 2 + k * 2;
+          ctx.fillRect(f.x - sz / 2, f.y - sz / 2, sz, sz);
+          break;
+        }
+        case 'goldFly': {          // 처치 골드 — 적이 죽은 자리에서 HUD 골드로 날아간다
+          // ★ 곡선으로 날린다. 직선이면 여러 개가 겹쳐 한 줄로 보이고, "어디로 가는가"가
+          //   읽히지 않는다. 진행률을 ease-in으로 두어 처음엔 느리게 뜬 뒤 빨려 들어간다.
+          const p = 1 - k;                        // 0 → 1
+          const e = p * p;                        // ease-in
+          const mx = (f.x + (f.tx ?? f.x)) / 2;
+          const my = Math.min(f.y, f.ty ?? f.y) - 70;   // 제어점을 위로 띄워 아치를 만든다
+          const bx = (1 - e) * (1 - e) * f.x + 2 * (1 - e) * e * mx + e * e * (f.tx ?? f.x);
+          const by = (1 - e) * (1 - e) * f.y + 2 * (1 - e) * e * my + e * e * (f.ty ?? f.y);
+          ctx.globalAlpha = Math.min(1, k / 0.25);
+          ctx.font = 'bold 13px system-ui';
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.lineWidth = 3.5; ctx.strokeStyle = '#3a2c05';
+          ctx.strokeText(`+${f.amount}`, bx, by);
+          ctx.fillStyle = '#ffd34d';
+          ctx.fillText(`+${f.amount}`, bx, by);
           break;
         }
         case 'coin': {             // 골드 획득 — 위로 떠오르며 사라지는 "+10G"

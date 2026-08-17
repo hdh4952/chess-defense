@@ -5,6 +5,7 @@ import { stepGame } from './core/step';
 import { createTicker } from './core/ticker';
 import { startWave } from './core/wave';
 import { createAudioController } from './audio';
+import { BOARD_H, BOARD_W } from './core/grid';
 import { Effects } from './render/effects';
 import { EnemyFx } from './render/enemyFx';
 import { buildHighlights } from './render/highlights';
@@ -125,6 +126,20 @@ function startGame(root: HTMLDivElement): void {
       // 적별 표시 상태(피격 플래시·체력바 보간)도 같은 규칙을 탄다 — 일시정지 중에는 멈춘다.
       // state를 함께 넘기는 이유는 죽은 적의 항목을 매 프레임 정리해야 하기 때문이다.
       enemyFx.update(state.paused ? 0 : realDt, state);
+
+      // ★ HUD 골드 표시의 **캔버스 좌표**를 매 프레임 넣어 준다 (v1.15). 이 저장소에서
+      // 캔버스와 DOM의 경계를 넘는 연출은 처음이라, 방향을 한쪽으로만 둔다: 렌더는 HUD가
+      // 어디 있는지 모르고, 좌표를 밖에서 밀어 넣는다(드래그가 드롭 존 rect를 캐시하는
+      // 방식의 선례를 따른다). getBoundingClientRect가 매 프레임 두 번이라 강제 레이아웃이
+      // 걱정되지만, 두 요소 모두 크기가 고정이고 읽기만 하므로 레이아웃 무효화는 없다.
+      const gRect = layout.hud.gold.getBoundingClientRect();
+      const cRect = layout.canvas.getBoundingClientRect();
+      fx.setGoldTarget(cRect.width > 0
+        ? {
+          x: (gRect.left + gRect.width / 2 - cRect.left) * (BOARD_W / cRect.width),
+          y: (gRect.top + gRect.height / 2 - cRect.top) * (BOARD_H / cRect.height),
+        }
+        : null);
 
       const view = createFrameView();   // EMPTY_VIEW와 참조를 공유하지 않는 신규 인스턴스 (스펙 무관 — Task 17 리뷰 수정)
       const hl = buildHighlights(state, drag.interaction);   // 사거리/이동/퀸 라인 미리보기 (스펙 7.7, Task 18)

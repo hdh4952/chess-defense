@@ -252,7 +252,32 @@ describe('DragController — 드래그 제스처 (스펙 7.5 동작표, 자동�
     expect(p.square).toEqual({ file: 5, rank: 5 });
     expect(p.cooldown).toBe(1.2);
     expect(drag.interaction.dragging).toBeNull();
-    expect(ghostEl().style.display).toBe('none');       // 드롭 후 고스트 제거
+    // ⚠️ v1.15부터 드롭 성공 시 고스트가 **곧바로 사라지지 않는다** — 착지 칸으로 back-out
+    // 이징으로 붙는 160ms 동안 보인 뒤 감춰진다("어디에 놓였는가"를 눈으로 따라가게 한다).
+    // 그 사실 자체를 단언한다: 아직 보이고, transition이 걸려 있고, 타이머가 지나면 사라진다.
+    expect(ghostEl().style.display).toBe('block');
+    expect(ghostEl().style.transition).toContain('cubic-bezier');
+  });
+
+  it('★ 스냅 애니메이션이 끝나면 고스트가 감춰진다 (v1.15)', () => {
+    // 감춤을 타이머에 맡기므로 그 타이머가 실제로 도는지 확인해야 한다 — 안 돌면 고스트가
+    // 착지 칸에 영원히 남아 그 위 기물을 가린다.
+    vi.useFakeTimers();
+    const { state } = setup('wave');
+    state.pieces.push(boardPiece('pawn', 0, 1));
+    drag_(squareCenter(0, 1), squareCenter(5, 5));
+    expect(ghostEl().style.display).toBe('block');
+    vi.advanceTimersByTime(200);
+    expect(ghostEl().style.display).toBe('none');
+  });
+
+  it('거부된 드롭에는 스냅이 붙지 않는다 — 붙일 칸이 없다', () => {
+    const { state } = setup('wave');
+    const p = boardPiece('pawn', 0, 1);
+    state.pieces.push(p);
+    drag_(squareCenter(0, 1), { x: 20, y: 20 });   // 존 바깥
+    expect(p.square).toEqual({ file: 0, rank: 1 });
+    expect(ghostEl().style.display).toBe('none');
   });
 
   it('2. 보드 → 판매 = 판매. 판매 슬롯 hover 시 환급 프리뷰 먼저 표시', () => {

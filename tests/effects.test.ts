@@ -306,7 +306,7 @@ describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스�
       expect(after.records).toHaveLength(0);
     });
 
-    it('enemyDied: 처치 연출(puff) 1개', () => {
+    it('enemyDied: 처치 연출(puff) 1개 + 파편 (v1.15)', () => {
       const fx = new Effects();
       fx.onEvent({ kind: 'enemyDied', enemyId: 'e1', square: { file: 3, rank: 2 }, isBoss: false, reward: 10 });
 
@@ -315,10 +315,44 @@ describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스�
 
       expect(records.filter(r => r.method === 'arc')).toHaveLength(1);
       expect(records.filter(r => r.method === 'fill')).toHaveLength(1);
-      // 채워진 원 하나로 끝난다. 예전에는 나이트 폭발의 ember(fillRect 14개)와 구분하려는
-      // 단언이었고, ember가 사라진 지금은 "처치 연출이 파티클로 번지지 않는다"는 상한이다 —
-      // 웨이브 후반에는 초당 수십 마리가 죽으므로 파티클이 붙는 순간 화면이 무너진다.
-      expect(records.filter(r => r.method === 'fillRect')).toHaveLength(0);
+      // ⚠️ v1.15에서 파편이 붙었다. 예전 이 자리의 단언은 "처치 연출이 파티클로 번지지
+      // 않는다"(fillRect 0)였고 그 근거는 "후반에는 초당 수십 마리가 죽는다"였다 — 그 근거는
+      // 여전히 유효하므로 파티클을 **넣되 개수를 조인다.** 일반 적 5개는 그 타협점이고,
+      // 상한을 못박아 두지 않으면 다음 사람이 8·12로 올려도 아무 신호가 없다.
+      expect(records.filter(r => r.method === 'fillRect')).toHaveLength(5);
+    });
+
+    it('★ 보스는 파편이 더 많다 — 그리고 일반 적의 개수가 상한이다', () => {
+      // 후반 웨이브가 초당 수십 마리를 처치하므로 일반 적의 파편 수가 화면 부하를 정한다.
+      // 보스는 한 판에 넷뿐이라 더 크게 터뜨려도 안전하다.
+      const count = (isBoss: boolean): number => {
+        const fx = new Effects();
+        fx.onEvent({ kind: 'enemyDied', enemyId: 'x', square: { file: 3, rank: 2 }, isBoss, reward: 10 });
+        const { ctx, records } = makeStubCtx();
+        fx.draw(ctx as unknown as CanvasRenderingContext2D);
+        return records.filter(r => r.method === 'fillRect').length;
+      };
+      expect(count(false)).toBeLessThanOrEqual(6);
+      expect(count(true)).toBeGreaterThan(count(false));
+    });
+
+    it('★ 골드 비행은 도착점을 모르면 만들어지지 않는다', () => {
+      // 이 저장소에서 캔버스와 DOM의 경계를 넘는 연출은 이것이 처음이다. 도착점을 모르는 채
+      // (0,0)으로 날리면 화면 왼쪽 위로 텍스트가 쏟아지므로, 좌표가 없으면 아예 만들지 않는다.
+      const fx = new Effects();
+      fx.onEvent({ kind: 'enemyDied', enemyId: 'e1', square: { file: 3, rank: 2 }, isBoss: false, reward: 42 });
+      const bare = makeStubCtx();
+      fx.draw(bare.ctx as unknown as CanvasRenderingContext2D);
+      expect(bare.records.filter(r => r.method === 'fillText')).toHaveLength(0);
+
+      const fx2 = new Effects();
+      fx2.setGoldTarget({ x: 100, y: 20 });
+      fx2.onEvent({ kind: 'enemyDied', enemyId: 'e1', square: { file: 3, rank: 2 }, isBoss: false, reward: 42 });
+      const withT = makeStubCtx();
+      fx2.draw(withT.ctx as unknown as CanvasRenderingContext2D);
+      const texts = withT.records.filter(r => r.method === 'fillText');
+      expect(texts).toHaveLength(1);
+      expect(texts[0].args[0]).toBe('+42');       // 보상 액수를 그대로 실어 보낸다
     });
 
     it('goldGained: 해당 칸에서 위로 떠오르는 "+N G" 1개 (테두리 + 채움)', () => {
