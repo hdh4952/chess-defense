@@ -3,7 +3,7 @@ import { buildHighlights, HIGHLIGHT_COLORS } from '../src/render/highlights';
 import { bishopTargets, pawnTargets, queenLines, rookTargets, slowSquares } from '../src/core/patterns';
 import { sameSquare } from '../src/core/grid';
 import { CONFIG, TRAITS } from '../src/config';
-import type { Interaction, Piece, PieceType, Square } from '../src/types';
+import type { Interaction, PieceType, Square } from '../src/types';
 import { boardPiece, waveState } from './helpers';
 
 // buildHighlights는 순수 함수 — DOM 없이 (state, interaction)만으로 테스트할 수 있다 (컨트롤러 결정,
@@ -19,10 +19,15 @@ import { boardPiece, waveState } from './helpers';
 // 없어졌다 — 모든 칸이 후보다. 그래서 이 파일에서 초록을 세던 단언은 전부 **감속 칸(얼음)과
 // 선택 표식만 센다**로 옮겨졌고, "예전에는 거부되던 hover가 이제 그려진다" 쪽을 적극적으로
 // 단언한다. L자 자체는 사라지지 않았다 — 이동이 아니라 감속 범위(slowSquares)로 옮겨갔을 뿐이다.
-
-function slotPiece(id: string, type: PieceType, slotIndex: number): Piece {
-  return { id, type, square: null, slotIndex, cooldown: 0, queenBuffCount: 0, tier: 1 };
-}
+//
+// ⚠️ v1.12에서 기물 보관함(트레이)이 사라졌다. Piece.square가 널이 아니게 되고 Interaction의
+// dragging에서 from('slot' | 'board')이 없어져 **드래그의 출발지는 언제나 보드다.** 그래서
+// 트레이 기물로만 만들 수 있던 두 그림 — 선택 표식이 찍히지 않는 미리보기, 트레이발 착지
+// 거부(RejectReason의 typeMismatch·tierMismatch) — 는 재현할 대상 자체가 없어졌다. 지우는
+// 대신 전부 보드발 드래그로 다시 썼고, 사라진 두 그림이 있던 자리에서는 반대편("이제는
+// 표식이 무조건 찍힌다" · "점유 칸도 미리보기를 막지 못한다")을 적극적으로 단언한다.
+// 그 결과 이 파일에는 보드 밖에 있는 기물이 하나도 등장하지 않는다 — slotPiece 헬퍼도 함께
+// 삭제됐다(square: null을 만들 수 없다).
 
 function noInteraction(overrides: Partial<Interaction> = {}): Interaction {
   return { dragging: null, selectedPieceId: null, hoverSquare: null, ...overrides };
@@ -54,48 +59,55 @@ describe('buildHighlights (스펙 7.7 사거리 미리보기) — 활성 기물 
 describe('buildHighlights — 폰/비숍/룩 (hover 칸 기준 attackTargets)', () => {
   it('드래그 중인 폰: hover 칸의 전방 대각선 2칸이 사거리 색으로 표시된다', () => {
     const s = waveState();
-    const p = slotPiece('pw', 'pawn', 0);
+    const from = { file: 0, rank: 1 };   // a1 — 드래그를 시작한 칸. hover 칸의 사거리와 겹치지 않는다
+    const p = boardPiece('pawn', from.file, from.rank);
     s.pieces.push(p);
     const anchor = { file: 3, rank: 4 };   // d4
-    const hl = buildHighlights(s, noInteraction({ dragging: { pieceId: p.id, from: 'slot' }, hoverSquare: anchor }));
+    const hl = buildHighlights(s, noInteraction({ dragging: { pieceId: p.id }, hoverSquare: anchor }));
 
     const expectedTargets = pawnTargets(anchor);
     expect(expectedTargets).toHaveLength(2);
     const squares = highlightSquares(hl);
-    // 기준 칸(origin) + 두 대각선(range) = 3개
-    expect(squares).toHaveLength(3);
+    // 기준 칸(origin) + 두 대각선(range) + 폰이 실제로 서 있는 칸의 선택 표식.
+    // v1.12 전에는 트레이발 드래그라 마지막 하나가 없어 3개였다 — 이제 모든 드래그가 보드발이다.
+    expect(squares).toHaveLength(expectedTargets.length + 2);
     for (const t of expectedTargets) expect(squares).toContainEqual(t);
+    expect(last(hl.highlights)).toEqual({ square: from, color: HIGHLIGHT_COLORS.selected });
     expect(hl.lines).toEqual([]);
   });
 
   it('a파일 가장자리에서는 대각선이 1칸만 나온다 (스펙 5.2 경계 처리)', () => {
     const s = waveState();
-    const p = slotPiece('pw2', 'pawn', 0);
+    const from = { file: 7, rank: 1 };   // h1 — 반대편 구석에서 끌어온다
+    const p = boardPiece('pawn', from.file, from.rank);
     s.pieces.push(p);
     const anchor = { file: 0, rank: 4 };   // a4
-    const hl = buildHighlights(s, noInteraction({ dragging: { pieceId: p.id, from: 'slot' }, hoverSquare: anchor }));
+    const hl = buildHighlights(s, noInteraction({ dragging: { pieceId: p.id }, hoverSquare: anchor }));
 
     const expectedTargets = pawnTargets(anchor);
     expect(expectedTargets).toHaveLength(1);
     const squares = highlightSquares(hl);
-    expect(squares).toHaveLength(2);   // origin + 대각선 1칸
+    expect(squares).toHaveLength(expectedTargets.length + 2);   // origin + 대각선 1칸 + 선택 표식
     expect(squares).toContainEqual(expectedTargets[0]);
   });
 
   it('드래그 중인 비숍: hover 칸 기준 4방향 대각선 전체(관통)가 표시된다', () => {
     const s = waveState();
-    const p = slotPiece('bp', 'bishop', 0);
+    const from = { file: 7, rank: 1 };   // h1 — d4와 직선·대각선 어느 관계도 아니라 사거리에 섞이지 않는다
+    const p = boardPiece('bishop', from.file, from.rank);
     s.pieces.push(p);
     const anchor = { file: 3, rank: 4 };   // d4
-    const hl = buildHighlights(s, noInteraction({ dragging: { pieceId: p.id, from: 'slot' }, hoverSquare: anchor }));
+    const hl = buildHighlights(s, noInteraction({ dragging: { pieceId: p.id }, hoverSquare: anchor }));
 
     const expected = bishopTargets(anchor);   // 자신 칸 포함 14칸
     expect(expected).toHaveLength(14);
+    expect(expected.some(t => sameSquare(t, from))).toBe(false);   // 전제: 출발 칸은 사거리 밖
     const squares = highlightSquares(hl);
     // range 하이라이트가 attackTargets 전체를 포함한다. attackTargets가 이미 자신 칸을 포함하므로
-    // origin을 별도로 중복 push하지 않는다 (리뷰 Finding 2) — 총 개수는 attackTargets와 정확히 같다.
-    expect(squares).toHaveLength(expected.length);
+    // origin을 별도로 중복 push하지 않는다 (리뷰 Finding 2) — 더해지는 것은 선택 표식 하나뿐이다.
+    expect(squares).toHaveLength(expected.length + 1);
     for (const t of expected) expect(squares).toContainEqual(t);
+    expect(last(hl.highlights)).toEqual({ square: from, color: HIGHLIGHT_COLORS.selected });
     expect(hl.lines).toEqual([]);
   });
 
@@ -253,24 +265,32 @@ describe('buildHighlights — 나이트 (이동 제약이 사라진 뒤: 감속 
     expect(hl.lines).toEqual([]);
   });
 
-  it('나이트를 슬롯에서 드래그해도 보드에서와 같은 그림이다 — hover 칸의 감속 링 + 기준 칸 표식', () => {
-    // 출발지가 보드든 트레이든 같은 규칙을 탄다(resolveLanding에서 보드발 전용 게이트 블록이
-    // 통째로 사라졌다). 그래서 이 그림은 위 '★ L자가 아닌 칸' 테스트와 선택 표식 하나 차이뿐이다.
+  it('★ 나이트를 드래그해도 클릭 선택과 한 칸도 다르지 않다 — 출발지 구분이 사라졌다 (v1.12)', () => {
+    // 원래 이 자리는 "슬롯에서 드래그해도 보드에서와 같다"였다. 트레이가 사라져 드래그의
+    // 출발지가 보드 하나뿐이므로 그 비교는 성립하지 않고, 남은 축은 **제스처**(드래그 vs 클릭
+    // 선택)다. 두 그림이 갈라지면 같은 칸을 두 방법으로 겨냥한 플레이어가 서로 다른 약속을
+    // 보게 되므로, 개수가 아니라 결과 객체 전체를 맞대어 고정한다.
     const s = waveState();
-    const n = slotPiece('nk', 'knight', 0);
+    const from = { file: 1, rank: 1 };   // b1
+    const n = boardPiece('knight', from.file, from.rank);
     s.pieces.push(n);
-    const anchor = { file: 4, rank: 4 };
-    const hl = buildHighlights(s, noInteraction({ dragging: { pieceId: n.id, from: 'slot' }, hoverSquare: anchor }));
+    const anchor = { file: 4, rank: 4 };   // e4 — 빈 칸이라 드래그 쪽만 합성 미리보기로 새지 않는다
+
+    const dragged = buildHighlights(s, noInteraction({ dragging: { pieceId: n.id }, hoverSquare: anchor }));
+    const clicked = buildHighlights(s, noInteraction({ selectedPieceId: n.id, hoverSquare: anchor }));
+    expect(dragged).toEqual(clicked);
 
     const ring = slowSquares(anchor);
     // ★ 3×3 폭발과 달리 감속 링은 **자기 칸을 포함하지 않는다.** 그래서 origin 표식이 따로
     // 찍히는 것이 맞다(리뷰 Finding 2의 "중복 금지"와 충돌하지 않는다) — 안 찍으면 링만 뜨고
     // 정작 기물이 어디에 서는지가 화면에서 사라진다. 폭발 시절과 달라진 의도된 동작이다.
     expect(ring.some(sq => sameSquare(sq, anchor))).toBe(false);
-    expect(hl.highlights).toContainEqual({ square: anchor, color: HIGHLIGHT_COLORS.origin });
-    for (const sq of ring) expect(hl.highlights).toContainEqual({ square: sq, color: HIGHLIGHT_COLORS.slow });
-    // 링 8칸 + origin 1칸. 트레이 기물이라 선택 표식은 찍히지 않는다(보드 칸이 없다).
-    expect(hl.highlights).toHaveLength(ring.length + 1);
+    expect(dragged.highlights).toContainEqual({ square: anchor, color: HIGHLIGHT_COLORS.origin });
+    for (const sq of ring) expect(dragged.highlights).toContainEqual({ square: sq, color: HIGHLIGHT_COLORS.slow });
+    // 링 8칸 + origin 1칸 + 선택 표식 1칸. 트레이 시절에는 보드 칸이 없어 마지막 하나가
+    // 빠졌지만, 이제 드래그 중인 기물도 반드시 어딘가에 서 있다.
+    expect(dragged.highlights).toHaveLength(ring.length + 2);
+    expect(last(dragged.highlights)).toEqual({ square: from, color: HIGHLIGHT_COLORS.selected });
   });
 });
 
@@ -424,9 +444,14 @@ describe('buildHighlights — 8종 전수 (기물 종류별 분기가 하나도 
 });
 
 describe('buildHighlights — 착지 불가능한 hover 칸은 미리보기를 그리지 않는다 (검토 Item 1)', () => {
-  // moveOnBoard/placeFromSlot이 실제로 거부할 칸(8랭크·점유·범위 밖)에 hover해도 종전에는 전체
-  // 사거리가 그대로 칠해져, "이 칸으로 이동/배치하면 이렇게 된다"는 미리보기가 실제로는 실행 불가능한
-  // 약속을 하고 있었다. canLandAt 도입 이후에는 이런 hover에서 하이라이트가 전혀 그려지지 않는다.
+  // moveOnBoard가 실제로 거부할 칸에 hover해도 종전에는 전체 사거리가 그대로 칠해져, "이 칸으로
+  // 옮기면 이렇게 된다"는 미리보기가 실제로는 실행 불가능한 약속을 하고 있었다. canLandAt 도입
+  // 이후에는 이런 hover에서 하이라이트가 전혀 그려지지 않는다.
+  //
+  // ⚠️ 거부 사유가 계속 줄어 이제 8랭크(스폰 구역) 하나뿐이다 — 점유는 v1.11에 맞교환이 되고,
+  // 트레이발 전용이던 typeMismatch·tierMismatch는 v1.12에 트레이와 함께 사라졌다. 그래서 이
+  // 블록은 두 방향을 함께 잡는다: 남은 사유 하나가 여전히 접는가, 사라진 사유들이 되살아나
+  // 접지는 않는가.
   it('보드 위 룩을 선택하고 8랭크(스폰 구역)에 hover하면 사거리 하이라이트는 없지만 선택 표식은 남는다', () => {
     const s = waveState();
     const p = boardPiece('rook', 2, 2);
@@ -438,15 +463,25 @@ describe('buildHighlights — 착지 불가능한 hover 칸은 미리보기를 �
     expect(hl.lines).toEqual([]);
   });
 
-  it('슬롯의 폰을 점유된 칸 위에 hover하면 사거리 하이라이트가 전혀 없다', () => {
+  it('★ 폰을 다른 종류가 점유한 칸 위로 드래그해도 사거리가 그대로 그려진다 (v1.12 — typeMismatch 삭제)', () => {
+    // 이 테스트는 뒤집혔다. 예전에는 트레이의 폰을 비숍이 점유한 칸에 hover하면 typeMismatch로
+    // 거부돼 하이라이트가 통째로 비었다("사거리 하이라이트가 전혀 없다"). 트레이가 사라지면서
+    // 그 사유가 RejectReason에서 삭제됐고 — 밀려난 기물이 되돌아갈 출발 칸이 항상 존재하므로 —
+    // 합성이 아닌 점유 칸은 전부 맞교환이 됐다. 여기서 접으면 미리보기가 실제로 가능한 맞교환을
+    // 숨기게 된다. 폰+비숍은 융합 레시피가 아니라 합성 미리보기로 새지도 않는다.
     const s = waveState();
-    const p = slotPiece('p-blocked', 'pawn', 0);
-    const blocker = boardPiece('bishop', 3, 4);
-    s.pieces.push(p, blocker);
-    const hl = buildHighlights(
-      s, noInteraction({ dragging: { pieceId: p.id, from: 'slot' }, hoverSquare: { file: 3, rank: 4 } }),
-    );
-    expect(hl.highlights).toEqual([]);
+    const from = { file: 0, rank: 1 };   // a1
+    const p = boardPiece('pawn', from.file, from.rank);
+    const anchor = { file: 3, rank: 4 };   // d4 — 비숍이 서 있는 칸
+    s.pieces.push(p, boardPiece('bishop', anchor.file, anchor.rank));
+    const hl = buildHighlights(s, noInteraction({ dragging: { pieceId: p.id }, hoverSquare: anchor }));
+
+    expect(hl.mergePreview).toBeNull();   // 맞교환이지 합성이 아니다
+    expect(hl.highlights).toEqual([
+      { square: anchor, color: HIGHLIGHT_COLORS.origin },
+      ...pawnTargets(anchor).map(sq => ({ square: sq, color: HIGHLIGHT_COLORS.range })),
+      { square: from, color: HIGHLIGHT_COLORS.selected },
+    ]);
     expect(hl.lines).toEqual([]);
   });
 });
@@ -497,7 +532,7 @@ describe('buildHighlights — hover 칸이 기물 자신의 현재 칸이면 미
     const b = boardPiece('bishop', 4, 3);
     s.pieces.push(b);
     const hl = buildHighlights(
-      s, noInteraction({ dragging: { pieceId: b.id, from: 'board' }, hoverSquare: { file: 4, rank: 3 } }),
+      s, noInteraction({ dragging: { pieceId: b.id }, hoverSquare: { file: 4, rank: 3 } }),
     );
 
     // 길이는 bishopTargets에서 그대로 유도한다(하드코딩하지 않음) — 핵심은 "0으로 비지 않고
@@ -542,30 +577,34 @@ describe('buildHighlights — hover 칸이 기물 자신의 현재 칸이면 미
 });
 
 describe('buildHighlights — 기준 칸 중복 방지 (리뷰 Finding 2)', () => {
+  // 두 테스트 모두 착지 예정 칸(anchor)과 출발 칸을 일부러 다르게 둔다 — 같은 칸이면 선택
+  // 표식이 anchor 위에 겹쳐 "origin이 몇 번 찍혔는가"를 세는 필터가 오염된다.
   it('폰처럼 attackTargets에 자기 칸이 없는 기물은 origin이 정확히 한 번만 추가된다', () => {
     const s = waveState();
-    const p = slotPiece('p-origin', 'pawn', 0);
+    const from = { file: 0, rank: 1 };   // a1
+    const p = boardPiece('pawn', from.file, from.rank);
     s.pieces.push(p);
     const anchor = { file: 3, rank: 4 };
-    const hl = buildHighlights(s, noInteraction({ dragging: { pieceId: p.id, from: 'slot' }, hoverSquare: anchor }));
+    const hl = buildHighlights(s, noInteraction({ dragging: { pieceId: p.id }, hoverSquare: anchor }));
     const squares = highlightSquares(hl);
 
     expect(pawnTargets(anchor).some(t => sameSquare(t, anchor))).toBe(false);   // 전제: 폰은 자기 칸을 공격하지 않음
     expect(squares.filter(sq => sameSquare(sq, anchor))).toHaveLength(1);        // origin 1회
-    expect(squares).toHaveLength(pawnTargets(anchor).length + 1);
+    expect(squares).toHaveLength(pawnTargets(anchor).length + 2);                // + origin + 선택 표식
   });
 
   it('비숍/룩처럼 attackTargets에 자기 칸이 포함된 기물은 anchor가 정확히 한 번만 나타난다', () => {
     const s = waveState();
-    const b = slotPiece('b-origin', 'bishop', 0);
+    const from = { file: 7, rank: 1 };   // h1 — anchor(d4)의 대각선 밖이라 사거리에 섞이지 않는다
+    const b = boardPiece('bishop', from.file, from.rank);
     s.pieces.push(b);
     const anchor = { file: 3, rank: 4 };
-    const hl = buildHighlights(s, noInteraction({ dragging: { pieceId: b.id, from: 'slot' }, hoverSquare: anchor }));
+    const hl = buildHighlights(s, noInteraction({ dragging: { pieceId: b.id }, hoverSquare: anchor }));
     const squares = highlightSquares(hl);
 
     expect(bishopTargets(anchor).some(t => sameSquare(t, anchor))).toBe(true);   // 전제: 비숍은 자기 칸도 공격
     expect(squares.filter(sq => sameSquare(sq, anchor))).toHaveLength(1);         // 중복 없음
-    expect(squares).toHaveLength(bishopTargets(anchor).length);
+    expect(squares).toHaveLength(bishopTargets(anchor).length + 1);               // + 선택 표식
   });
 });
 
@@ -658,13 +697,22 @@ describe('buildHighlights — 선택 기물 표식 (사용자 요청: 보드에�
     expect(hl.lines).toEqual([]);
   });
 
-  it('트레이(슬롯)의 기물을 선택/드래그해도 선택 표식은 찍히지 않는다 — piece.square가 없으므로 표시할 보드 칸이 없다', () => {
+  it('★ 드래그 중인 기물에도 선택 표식이 반드시 찍힌다 — 표시할 보드 칸이 언제나 있다 (v1.12)', () => {
+    // 이 테스트도 뒤집혔다. 예전에는 트레이 기물에 보드 칸이 없어 pushSelected가 아무것도
+    // push하지 않는 분기를 갖고 있었고, 여기서 "찍히지 않는다"를 단언했다. Piece.square가
+    // 널이 아니게 되면서 그 분기가 통째로 사라져 표식은 이제 무조건 찍힌다 — 스킵 분기가
+    // 되살아나면 드래그 중 "무엇을 들고 있는지"가 화면에서 사라진다.
     const s = waveState();
-    const p = slotPiece('tray-rook', 'rook', 0);
+    const from = { file: 5, rank: 2 };
+    const p = boardPiece('rook', from.file, from.rank);
     s.pieces.push(p);
-    const hl = buildHighlights(s, noInteraction({ dragging: { pieceId: p.id, from: 'slot' }, hoverSquare: { file: 3, rank: 3 } }));
+    const hover = { file: 3, rank: 3 };   // from은 이 칸의 룩 사거리 밖이라 표식과 섞이지 않는다
+    const hl = buildHighlights(s, noInteraction({ dragging: { pieceId: p.id }, hoverSquare: hover }));
 
-    expect(hl.highlights.some(h => h.color === HIGHLIGHT_COLORS.selected)).toBe(false);
+    expect(rookTargets(hover).some(t => sameSquare(t, from))).toBe(false);   // 전제
+    // 정확히 하나만, 그리고 hover 칸이 아니라 룩이 실제로 서 있는 칸에.
+    expect(hl.highlights.filter(h => h.color === HIGHLIGHT_COLORS.selected))
+      .toEqual([{ square: from, color: HIGHLIGHT_COLORS.selected }]);
   });
 
   it('아무것도 선택/드래그되지 않으면 선택 표식도 없다', () => {

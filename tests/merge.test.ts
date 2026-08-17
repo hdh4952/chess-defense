@@ -2,13 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { CONFIG, tierMultiplier } from '../src/config';
 import { pieceDamage, pieceGold, updateCombat } from '../src/core/combat';
 import { recalcQueenBuffs } from '../src/core/buff';
-import { sellPiece, sellPrice } from '../src/core/economy';
-import { moveOnBoard, placeFromSlot, resolveLanding, canLandAt } from '../src/core/pieces';
+import { buyPiece, canBuy, emptySquares, sellPiece, sellPrice } from '../src/core/economy';
+import { moveOnBoard, pieceAt, resolveLanding, canLandAt } from '../src/core/pieces';
 import { updateSlowAura } from '../src/core/slow';
 import { buildHighlights, HIGHLIGHT_COLORS } from '../src/render/highlights';
 import { TIER_COLORS, tierRingColor } from '../src/render/tiers';
 import { render, createFrameView } from '../src/render/renderer';
-import type { GameEvent, Interaction, Piece, PieceType } from '../src/types';
+import type { GameEvent, Interaction, PieceType } from '../src/types';
 import { makeStubCtx } from './canvasStub';
 import { boardPiece, enemyAt, waveState } from './helpers';
 
@@ -18,18 +18,20 @@ import { boardPiece, enemyAt, waveState } from './helpers';
  *   2) 능력치 — 전부 tier에 정비례한다 ("능력치 합"이 문자 그대로 성립하는지)
  *   3) 제스처 — 합성은 드래그 앤 드롭 전용이고 클릭-투-무브는 예전 그대로 맞교환이다
  * 수치는 전부 CONFIG에서 유도한다 (이 저장소의 관행 — 밸런스 재조정에 테스트가 깨지지 않게).
+ *
+ * ⚠️ v1.12에서 **축이 하나 사라졌다**: 기물 보관함(트레이)이 없어져 착지 경로가 보드 → 보드
+ * 하나뿐이다. 예전에는 같은 칸·같은 제스처인데도 출발지에 따라 결과가 갈렸고(트레이발은
+ * 거부, 보드발은 맞교환) 이 파일의 절반이 그 대조였다. 합성 규칙 자체는 한 줄도 바뀌지
+ * 않았으므로, 트레이발 단언은 지우지 않고 전부 보드발로 옮겨 살렸다 — 티어가 다를 때
+ * 거부가 아니라 맞교환이 되는 것 하나만 결과가 달라진다.
  */
-
-function slotPiece(type: PieceType, slotIndex = 0, tier = 1): Piece {
-  return { id: `sp-${type}-${slotIndex}-${tier}`, type, square: null, slotIndex, cooldown: 0, queenBuffCount: 0, tier };
-}
 
 function noInteraction(overrides: Partial<Interaction> = {}): Interaction {
   return { dragging: null, selectedPieceId: null, hoverSquare: null, ...overrides };
 }
 
 describe('resolveLanding — 판정표 (합성 규칙 결정표 §3.1)', () => {
-  it('보드 → 같은 종류 점유 칸: 드래그면 합성, 클릭-투-무브면 맞교환', () => {
+  it('같은 종류·같은 티어 점유 칸: 드래그면 합성, 클릭-투-무브면 맞교환', () => {
     const s = waveState();
     const mover = boardPiece('rook', 0, 1);
     const occupant = boardPiece('rook', 5, 5);
@@ -48,34 +50,36 @@ describe('resolveLanding — 판정표 (합성 규칙 결정표 §3.1)', () => {
     expect(resolveLanding(s, mover, { file: 5, rank: 5 }, true)).toMatchObject({ kind: 'swap' });
   });
 
-  it('트레이 → 같은 종류·같은 티어 점유 칸: 드래그면 합성, 아니면 거부', () => {
-    const s = waveState();
-    const tray = slotPiece('rook');
-    s.pieces.push(tray, boardPiece('rook', 4, 4));
-    expect(resolveLanding(s, tray, { file: 4, rank: 4 }, true)).toMatchObject({ kind: 'merge', resultTier: 2 });
-    expect(resolveLanding(s, tray, { file: 4, rank: 4 }, false)).toMatchObject({ kind: 'reject' });
-  });
+  /*
+   * ⚠️ 여기 있던 트레이발 판정 둘이 v1.12에서 삭제됐다 (기물 보관함이 사라져 **경로 자체가
+   * 없다**). 둘 다 "트레이발은 밀려날 자리가 없으므로 거부"를 고정하던 테스트다:
+   *   - '트레이 → 같은 종류·같은 티어 점유 칸: 드래그면 합성, 아니면 거부'
+   *     → 보드발 판본이 바로 위 첫 테스트다. 합성 쪽 단언은 그대로고, allowMerge=false만
+   *       거부가 아니라 맞교환이 된다.
+   *   - '트레이 → 다른 종류 점유 칸은 여전히 거부다 (밀려날 상대가 없다)'
+   *     → 보드발 판본이 그 아래 두 번째 테스트다(맞교환).
+   * 사유 상수 'typeMismatch' · 'tierMismatch'도 RejectReason에서 함께 삭제됐으므로, 되살리려면
+   * 타입부터 되살려야 한다 — 즉 이 삭제는 컴파일러가 지키고 있다.
+   */
 
   it('티어가 다르면 같은 종류여도 합성이 아니다 — 강화된 기물이 조용히 잡아먹히지 않는다', () => {
     const s = waveState();
     const t2 = boardPiece('rook', 0, 1, 2);
     const t1 = boardPiece('rook', 5, 5, 1);
     s.pieces.push(t2, t1);
-    // 보드발은 맞교환으로 흘려보낸다 (다른 종류 위에 놓았을 때와 같은 결과)
+    // v1.12 이전에는 이 줄 아래에 트레이발 대조군('tierMismatch' 거부)이 함께 서 있었다.
+    // 이제 출발지가 하나뿐이라 결과도 하나 — 맞교환이다.
     expect(resolveLanding(s, t2, { file: 5, rank: 5 }, true)).toMatchObject({ kind: 'swap' });
-    // 트레이발은 밀려날 자리가 없으므로 거부다
-    const tray = slotPiece('rook', 0, 3);
-    s.pieces.push(tray);
-    expect(resolveLanding(s, tray, { file: 5, rank: 5 }, true))
-      .toMatchObject({ kind: 'reject', reason: 'tierMismatch' });
-  });
 
-  it('트레이 → 다른 종류 점유 칸은 여전히 거부다 (밀려날 상대가 없다)', () => {
-    const s = waveState();
-    const tray = slotPiece('pawn');
-    s.pieces.push(tray, boardPiece('bishop', 4, 4));
-    expect(resolveLanding(s, tray, { file: 4, rank: 4 }, true))
-      .toMatchObject({ kind: 'reject', reason: 'typeMismatch' });
+    // 판정만 보고 넘어가면 커밋 쪽에 흡수 경로가 남아 있어도 초록이다. 실제로 끌어서,
+    // 어느 쪽 티어도 변하지 않고 아무도 배열에서 사라지지 않는 것까지 확인한다.
+    const events: GameEvent[] = [];
+    expect(moveOnBoard(s, t2.id, 5, 5, events, true)).toBe(true);
+    expect([t2.tier, t1.tier]).toEqual([2, 1]);
+    expect(s.pieces).toHaveLength(2);
+    expect(events).toHaveLength(0);                          // merged도 나지 않는다
+    expect(t2.square).toEqual({ file: 5, rank: 5 });
+    expect(t1.square).toEqual({ file: 0, rank: 1 });         // 자리만 맞바뀐다
   });
 
   it('8랭크(스폰 구역)는 합성 경로로도 뚫리지 않는다 — 게이트 순서가 규칙이다', () => {
@@ -105,26 +109,32 @@ describe('resolveLanding — 판정표 (합성 규칙 결정표 §3.1)', () => {
     expect(s.pieces).toHaveLength(1);
   });
 
-  it('나이트 합성 판정은 출발지와 무관하다 — 보드발이 트레이발과 같은 결과를 낸다', () => {
-    // 사라진 게이트는 **보드발 전용**이었다. 그래서 예전에는 같은 칸·같은 제스처인데도 출발지에
-    // 따라 결과가 갈렸다(트레이발은 합성, 보드발은 L자가 아니면 거부). 두 경로를 나란히 세워
-    // 두면 보드발에만 조건이 다시 붙는 회귀가 한쪽 줄로 드러난다.
+  it('나이트 합성 판정은 출발 칸과 무관하다 — 어느 방향에서 끌어도 같은 결과다', () => {
+    // v1.12 이전 이 테스트는 "보드발이 트레이발과 같은 결과를 낸다"였다. 사라진 L자 게이트가
+    // **보드발 전용**이었으므로 두 출발지를 나란히 세워 두는 것이 회귀 신호였는데, 트레이가
+    // 없어져 그 축 자체가 사라졌다. 축을 잃은 만큼 다른 축으로 갚는다 — 같은 목표 칸을 여러
+    // 방향에서 끌어와, 나이트에게만 붙는 조건이 부활하면 어느 방향에서든 걸리게 한다.
     const s = waveState();
     const target = boardPiece('knight', 4, 4);
-    const fromBoard = boardPiece('knight', 4, 5);     // 바로 위 = L자가 아니다
-    const fromTray = slotPiece('knight');
-    s.pieces.push(target, fromBoard, fromTray);
-    const sq = { file: 4, rank: 4 };
-
-    expect(resolveLanding(s, fromBoard, sq, true)).toMatchObject({ kind: 'merge', resultTier: 2 });
-    expect(resolveLanding(s, fromTray, sq, true)).toMatchObject({ kind: 'merge', resultTier: 2 });
+    const movers = [
+      boardPiece('knight', 4, 5),   // 바로 위 — 인접, L자 아님
+      boardPiece('knight', 3, 3),   // 대각 인접 — L자 아님
+      boardPiece('knight', 4, 1),   // 같은 파일 먼 칸 — L자 아님
+      boardPiece('knight', 6, 5),   // L자 (예전 게이트를 통과하던 유일한 부류)
+    ];
+    s.pieces.push(target, ...movers);
+    // resolveLanding은 순수 판정이라 상태를 건드리지 않는다 — 넷을 같은 보드에서 그대로 훑는다.
+    for (const m of movers) {
+      expect(resolveLanding(s, m, { file: 4, rank: 4 }, true))
+        .toMatchObject({ kind: 'merge', resultTier: 2 });
+    }
     // 남은 제약은 8랭크 금지 하나뿐이고 그것은 모든 기물에 공통이다 — 나이트에게만 더 걸리는
-    // 사유가 부활하면 여기가 아니라 위 두 줄이 먼저 깨진다.
-    expect(canLandAt(s, fromBoard, { file: 4, rank: CONFIG.board.ranks })).toBe(false);
+    // 사유가 부활하면 여기가 아니라 위 루프가 먼저 깨진다.
+    expect(canLandAt(s, movers[0], { file: 4, rank: CONFIG.board.ranks })).toBe(false);
   });
 
-  it('티어 합이 상한을 넘으면 출발지와 무관하게 거부다 — 초과분을 깎지도, 조용히 맞교환하지도 않는다', () => {
-    // 설계 초안은 보드발 초과를 "맞교환 폴백"으로 뒀지만 거부로 바꿨다. 같은 종류 위로 드래그하는
+  it('티어 합이 상한을 넘으면 거부다 — 초과분을 깎지도, 조용히 맞교환하지도 않는다', () => {
+    // 설계 초안은 초과를 "맞교환 폴백"으로 뒀지만 거부로 바꿨다. 같은 종류 위로 드래그하는
     // 조작의 의도는 언제나 합성인데, 합성이 불가능할 때 대신 자리를 바꿔 주면 공들여 짜 둔 배치가
     // 예고 없이 흐트러진다 — 미리보기(마젠타 + 결과 티어)도 뜨지 않은 상태라 플레이어에게는
     // 아무 예고가 없다. 거부하면 drag.ts가 uiInvalid를 울리고 기물이 원위치로 돌아간다.
@@ -150,12 +160,23 @@ describe('resolveLanding — 판정표 (합성 규칙 결정표 §3.1)', () => {
     expect(occupant.square).toEqual({ file: 0, rank: 1 });
   });
 
-  it('canLandAt은 resolveLanding(allowMerge=false)의 파생 — 합성 도입 전과 의미가 같다', () => {
+  it('canLandAt은 resolveLanding(allowMerge=false)의 파생 — 점유 칸도 맞교환이라 착지 가능이다', () => {
+    // v1.12 이전 이 단언은 트레이 기물로 세워졌고 점유 칸이 false였다(밀려날 자리가 없었다).
+    // 모든 기물이 보드 위에 있는 지금은 점유 칸이 언제나 맞교환 대상이므로 true다 — 판정이
+    // 뒤집혔을 뿐 "canLandAt = 합성을 빼고 본 resolveLanding"이라는 관계는 그대로다.
     const s = waveState();
-    const tray = slotPiece('rook');
-    s.pieces.push(tray, boardPiece('rook', 4, 4));
-    expect(canLandAt(s, tray, { file: 4, rank: 4 })).toBe(false);   // 트레이 → 점유 칸은 여전히 불가
-    expect(canLandAt(s, tray, { file: 4, rank: 5 })).toBe(true);
+    const mover = boardPiece('rook', 4, 5);
+    s.pieces.push(mover, boardPiece('rook', 4, 4));
+    const squares = [
+      { file: 4, rank: 4 },                        // 같은 종류 점유 → 맞교환
+      { file: 4, rank: 6 },                        // 빈 칸
+      { file: 4, rank: CONFIG.board.ranks },       // 8랭크 = 스폰 구역
+    ];
+    expect(squares.map(sq => canLandAt(s, mover, sq))).toEqual([true, true, false]);
+    // 파생이라는 사실 자체를 고정한다 — 두 함수가 갈라지면 미리보기와 실제 결과가 어긋난다.
+    for (const sq of squares) {
+      expect(canLandAt(s, mover, sq)).toBe(resolveLanding(s, mover, sq, false).kind !== 'reject');
+    }
   });
 });
 
@@ -177,23 +198,49 @@ describe('합성 커밋 — 생존자·쿨다운·이벤트', () => {
     });
   });
 
-  it('쿨다운은 생존자 것이 그대로 남는다 — 구매→합성이 쿨다운 초기화 버튼이 되면 안 된다', () => {
+  it('갓 산 기물을 겹쳐도 쿨다운이 초기화되지 않는다 — 구매→합성이 리셋 버튼이 되면 안 된다', () => {
+    // v1.12 이전에는 "갓 산 기물"이 트레이에 있어서 placeFromSlot으로 이 규칙을 확인했다.
+    // 구매가 곧 보드 스폰이 되면서 갓 산 기물은 그냥 **쿨다운 0인 보드 기물**이고, 검증
+    // 경로도 보드 → 보드 하나로 합쳐졌다. 막으려는 어뷰징은 그대로다(스펙 5.1의 안티파밍).
+    // 승계 규칙이 max라 드래그 방향과 무관하다는 사실은 fusion.test.ts가 전담한다.
     const s = waveState();
-    const fresh = slotPiece('rook');                   // 갓 산 기물: 쿨다운 0
+    const fresh = boardPiece('rook', 4, 5);            // 갓 산 기물: 쿨다운 0
     const tired = boardPiece('rook', 4, 4);
     tired.cooldown = 2.9;
     s.pieces.push(fresh, tired);
 
-    expect(placeFromSlot(s, fresh.id, 4, 4, [], true)).toBe(true);
+    expect(moveOnBoard(s, fresh.id, 4, 4, [], true)).toBe(true);
     expect(tired.cooldown).toBeCloseTo(2.9);
   });
 
-  it('트레이발 합성은 슬롯을 비워 다시 구매할 수 있게 한다', () => {
+  it('합성은 보드 칸을 하나 돌려준다 — 꽉 찬 보드에서 다시 구매할 수 있게 된다', () => {
+    // v1.12 이전 이 자리에는 "트레이발 합성은 슬롯을 비워 다시 구매할 수 있게 한다"가 있었다.
+    // 압박의 무대가 트레이 16칸에서 **보드 56칸**으로 옮겨갔을 뿐 불변식은 문자 그대로 같다:
+    // 두 기물이 하나가 되므로 자리가 하나 남고, 그 자리가 곧 다음 구매를 여는 열쇠다.
+    // (판매를 빼면 자리를 되찾는 방법은 이것뿐이다.)
     const s = waveState();
-    const tray = slotPiece('bishop', 0);
-    s.pieces.push(tray, boardPiece('bishop', 4, 4));
-    expect(placeFromSlot(s, tray.id, 4, 4, [], true)).toBe(true);
-    expect(s.pieces.some(p => p.slotIndex === 0)).toBe(false);
+    for (const sq of emptySquares(s)) s.pieces.push(boardPiece('pawn', sq.file, sq.rank));
+    expect(s.pieces).toHaveLength(CONFIG.board.files * (CONFIG.board.ranks - 1));  // 8랭크는 제외
+    expect(emptySquares(s)).toHaveLength(0);
+    expect(canBuy(s, 'pawn')).toBe(false);        // 자리가 없으면 구매 자체가 막힌다
+
+    const mover = pieceAt(s, 0, 1)!;
+    const survivor = pieceAt(s, 0, 2)!;
+    expect(moveOnBoard(s, mover.id, 0, 2, [], true)).toBe(true);
+    expect(survivor.tier).toBe(2);
+    expect(emptySquares(s)).toEqual([{ file: 0, rank: 1 }]);   // 흡수된 쪽의 칸이 정확히 돌아온다
+    expect(canBuy(s, 'pawn')).toBe(true);
+
+    // 그리고 새 기물은 **그 빈 칸**에 떨어진다. 스폰 위치를 플레이어가 고르지 않으므로
+    // pieceSpawned의 square가 실제 기물 위치와 같다는 것이 유일한 안내다 — 둘이 갈라지면
+    // 화면은 엉뚱한 칸을 가리키고 플레이어는 56칸에서 새 기물을 직접 찾아야 한다.
+    const events: GameEvent[] = [];
+    const bought = buyPiece(s, 'pawn', events, () => 0)!;
+    expect(bought.square).toEqual({ file: 0, rank: 1 });
+    expect(events).toContainEqual({
+      kind: 'pieceSpawned', square: bought.square, pieceType: 'pawn', bought: true,
+    });
+    expect(emptySquares(s)).toHaveLength(0);      // 겹쳐 놓지 않고 그 한 칸을 정확히 메웠다
   });
 
   it('같은 칸에 두 기물이 남지 않는다 — 흡수된 쪽은 배열에서 제거된다', () => {
@@ -201,7 +248,7 @@ describe('합성 커밋 — 생존자·쿨다운·이벤트', () => {
     const mover = boardPiece('pawn', 0, 1);
     s.pieces.push(mover, boardPiece('pawn', 1, 2));
     moveOnBoard(s, mover.id, 1, 2, [], true);
-    expect(s.pieces.filter(p => p.square?.file === 1 && p.square?.rank === 2)).toHaveLength(1);
+    expect(s.pieces.filter(p => p.square.file === 1 && p.square.rank === 2)).toHaveLength(1);
   });
 
   it('합성 직후에는 아무 능력도 발동하지 않는다 — 감속은 다음 틱이 생존자의 칸으로 건다', () => {
@@ -333,8 +380,9 @@ describe('합성 미리보기 — 드래그 중에만, 실제 판정과 같은 �
     const s = waveState();
     const mover = boardPiece('rook', 0, 1, 2);
     s.pieces.push(mover, boardPiece('rook', 5, 5, 2));
+    // v1.12부터 dragging에 from이 없다 — 드래그의 출발지는 언제나 보드다.
     const hl = buildHighlights(s, noInteraction({
-      dragging: { pieceId: mover.id, from: 'board' }, hoverSquare: { file: 5, rank: 5 },
+      dragging: { pieceId: mover.id }, hoverSquare: { file: 5, rank: 5 },
     }));
 
     expect(hl.mergePreview).toEqual({ square: { file: 5, rank: 5 }, tier: 3 });
@@ -357,7 +405,7 @@ describe('합성 미리보기 — 드래그 중에만, 실제 판정과 같은 �
     const mover = boardPiece('rook', 0, 1, max);
     s.pieces.push(mover, boardPiece('rook', 5, 5, max));
     const hl = buildHighlights(s, noInteraction({
-      dragging: { pieceId: mover.id, from: 'board' }, hoverSquare: { file: 5, rank: 5 },
+      dragging: { pieceId: mover.id }, hoverSquare: { file: 5, rank: 5 },
     }));
     expect(hl.mergePreview).toBeNull();
   });

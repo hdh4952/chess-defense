@@ -13,7 +13,6 @@ import { wireControls, wireMuteButton } from './ui/controls';
 import { updateHud } from './ui/hud';
 import { createLayout } from './ui/layout';
 import { updateShop, wireShop } from './ui/shop';
-import { updateSlots } from './ui/slots';
 import { updateTooltip } from './ui/tooltip';
 import { createTitleScreen } from './ui/titleScreen';
 import { DragController } from './ui/drag';
@@ -60,7 +59,7 @@ function startGame(root: HTMLDivElement): void {
   // 시작(uiPickup)은 무음이 맞다는 사용자 판단으로 완전히 제거됐다 — src/ui/drag.ts 참고.)
   const audio = createAudioController();
 
-  wireShop(layout, state, audio);
+  wireShop(layout, state, events, audio);
   wireControls(layout, state);
   layout.startBtn.addEventListener('click', () => { if (!state.paused) startWave(state); });
   const drag = new DragController(state, layout, events, audio);
@@ -140,7 +139,6 @@ function startGame(root: HTMLDivElement): void {
       updateTooltip(tooltip, state, drag.interaction, mousePos);   // 기물 hover 툴팁 (스펙 7.7, Task 18)
       updateHud(layout, state);
       updateShop(layout, state);
-      updateSlots(layout, state);
       events.length = 0;
     } catch (err) {
       // 조용히 삼키지 않고 콘솔에 남긴다 — 그래야 장시간 플레이 중 한 프레임이 죽어도 원인을 추적할

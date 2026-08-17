@@ -6,7 +6,7 @@ import { sellPrice } from '../src/core/economy';
 import { createLayout } from '../src/ui/layout';
 import type { UiAudio } from '../src/audio';
 import type { UiCueKind } from '../src/audio/cues';
-import type { GameEvent, GameState, Piece, PieceType } from '../src/types';
+import type { GameEvent, GameState } from '../src/types';
 import { boardPiece, waveState } from './helpers';
 import { buildHighlights } from '../src/render/highlights';
 import { CONFIG } from '../src/config';
@@ -23,12 +23,10 @@ function makeAudioSpy(): UiAudio & { played: UiCueKind[] } {
   };
 }
 
+// v1.12: 존이 둘로 줄었다. 기물 보관함이 사라지면서 DropZones.slots가 통째로 없어졌고,
+// 드래그의 목적지는 보드 칸 아니면 판매 슬롯뿐이다.
 const zones: DropZones = {
   board: { left: 100, top: 0, width: 640, height: 640 },
-  slots: [
-    { left: 0, top: 0, width: 40, height: 40 },
-    { left: 44, top: 0, width: 40, height: 40 },
-  ],
   sell: { left: 800, top: 0, width: 100, height: 100 },
 };
 
@@ -38,67 +36,54 @@ describe('pickDropTarget', () => {
     expect(pickDropTarget(100 + 639, 639, zones)).toEqual({ kind: 'square', file: 7, rank: 1 });
     expect(pickDropTarget(100 + 250, 500, zones)).toEqual({ kind: 'square', file: 3, rank: 2 });
   });
-  it('슬롯/판매/바깥 판정', () => {
-    expect(pickDropTarget(50, 20, zones)).toEqual({ kind: 'slot', index: 1 });
+  it('판매/바깥 판정 — 옛 슬롯 그리드 자리는 이제 아무 존도 아니다', () => {
     expect(pickDropTarget(850, 50, zones)).toEqual({ kind: 'sell' });
     expect(pickDropTarget(999, 999, zones)).toBeNull();
+    // ⚠️ 여기 있던 `{ kind: 'slot', index }` 단언이 v1.12에서 사라졌다 — 판정할 존 자체가 없다.
+    // 지우고 끝내지 않고 **같은 좌표가 이제 null이 되는 것**을 고정한다: 보드 왼쪽의 이 빈
+    // 공간이 다시 무언가를 삼키기 시작하면(존이 되살아나면) 여기서 먼저 빨개진다.
+    expect(pickDropTarget(50, 20, zones)).toBeNull();
   });
 });
 
 describe('dropAction (스펙 7.5 동작표)', () => {
-  function withSlotPiece(type: PieceType = 'pawn'): { s: GameState; p: Piece } {
-    const s = waveState();
-    const p: Piece = { id: 'x', type, square: null, slotIndex: 0, cooldown: 0, queenBuffCount: 0, tier: 1 };
-    s.pieces.push(p);
-    return { s, p };
-  }
+  // ⚠️ 이 스위트에 있던 슬롯 출발 케이스 넷(슬롯 → 보드 배치 · 슬롯 → 슬롯 재정렬 ·
+  // 슬롯 → 판매 · 슬롯 → 점유 칸 거부)이 v1.12에서 삭제됐다. dropAction의 `from` 인자와 함께
+  // 출발지 분기 자체가 없어졌기 때문이다 — 모든 기물이 보드 위에 있으므로 드래그는 언제나
+  // 보드에서 출발한다. 그 케이스들이 지키던 규칙 중 살아남은 것(8랭크 금지·판매)은 아래
+  // 보드 출발 케이스가 그대로 이어받는다.
 
-  it('슬롯 → 보드 빈칸 = 배치', () => {
-    const { s, p } = withSlotPiece();
-    expect(dropAction(s, 'x', 'slot', { kind: 'square', file: 2, rank: 3 }, [])).toBe(true);
-    expect(p.square).toEqual({ file: 2, rank: 3 });
-  });
-  it('슬롯 → 슬롯 = 재정렬, 슬롯 → 판매 = 판매', () => {
-    const { s, p } = withSlotPiece();
-    expect(dropAction(s, 'x', 'slot', { kind: 'slot', index: 3 }, [])).toBe(true);
-    expect(p.slotIndex).toBe(3);
-    const gold = s.gold;
-    expect(dropAction(s, 'x', 'slot', { kind: 'sell' }, [])).toBe(true);
-    expect(s.gold).toBe(gold + 50);
-  });
-  it('보드 → 보드/슬롯/판매', () => {
+  it('보드 → 보드 빈칸 = 이동, 보드 → 판매 = 판매', () => {
     const s = waveState();
     const p = boardPiece('rook', 0, 1);
     s.pieces.push(p);
-    expect(dropAction(s, p.id, 'board', { kind: 'square', file: 5, rank: 5 }, [])).toBe(true);
-    expect(dropAction(s, p.id, 'board', { kind: 'slot', index: 2 }, [])).toBe(true);
-    expect(p.slotIndex).toBe(2);
-    p.square = { file: 0, rank: 1 }; p.slotIndex = null;
+
+    expect(dropAction(s, p.id, { kind: 'square', file: 5, rank: 5 }, [])).toBe(true);
+    expect(p.square).toEqual({ file: 5, rank: 5 });
+
     const gold = s.gold;
-    expect(dropAction(s, p.id, 'board', { kind: 'sell' }, [])).toBe(true);
-    expect(s.gold).toBe(gold + 250);
+    expect(dropAction(s, p.id, { kind: 'sell' }, [])).toBe(true);
+    expect(s.gold).toBe(gold + sellPrice('rook'));
+    expect(s.pieces).toHaveLength(0);   // 보드에서 기물을 치우는 유일한 수단이 판매다
   });
+
   it('보드 → 점유된 보드 칸 = 맞교환 (게임 규칙 변경, 사용자 승인)', () => {
     const s = waveState();
     const p = boardPiece('rook', 0, 1);
     const occupant = boardPiece('bishop', 5, 5);
     s.pieces.push(p, occupant);
-    expect(dropAction(s, p.id, 'board', { kind: 'square', file: 5, rank: 5 }, [])).toBe(true);
+    expect(dropAction(s, p.id, { kind: 'square', file: 5, rank: 5 }, [])).toBe(true);
     expect(p.square).toEqual({ file: 5, rank: 5 });
     expect(occupant.square).toEqual({ file: 0, rank: 1 });
   });
+
   it('무효 드롭(8랭크/null)은 false — 원위치 복귀 의미', () => {
-    const { s } = withSlotPiece();
-    expect(dropAction(s, 'x', 'slot', { kind: 'square', file: 0, rank: 8 }, [])).toBe(false);
-    expect(dropAction(s, 'x', 'slot', null, [])).toBe(false);
-  });
-  it('슬롯 → 점유된 보드 칸은 여전히 false (스왑은 board→board 전용, 트레이엔 밀려날 상대가 없다)', () => {
-    const { s, p } = withSlotPiece();
-    const occupant = boardPiece('bishop', 4, 4);
-    s.pieces.push(occupant);
-    expect(dropAction(s, p.id, 'slot', { kind: 'square', file: 4, rank: 4 }, [])).toBe(false);
-    expect(p.square).toBeNull();
-    expect(occupant.square).toEqual({ file: 4, rank: 4 });
+    const s = waveState();
+    const p = boardPiece('pawn', 2, 2);
+    s.pieces.push(p);
+    expect(dropAction(s, p.id, { kind: 'square', file: 0, rank: CONFIG.board.ranks }, [])).toBe(false);
+    expect(dropAction(s, p.id, null, [])).toBe(false);
+    expect(p.square).toEqual({ file: 2, rank: 2 });
   });
 });
 
@@ -108,18 +93,19 @@ describe('dropAction (스펙 7.5 동작표)', () => {
 // 지원하므로 (MouseEvent를 상속) 실제 브라우저 이벤트와 동일한 타입을 사용한다).
 //
 // happy-dom의 getBoundingClientRect()는 기본적으로 전부 0을 반환하므로, 각
-// 테스트에서 캔버스/슬롯 칸/판매 슬롯 요소에 고정된 사각형을 오버라이드한다.
+// 테스트에서 캔버스/판매 슬롯 요소에 고정된 사각형을 오버라이드한다.
 // (DragController에는 테스트용 seam을 추가하지 않는다 — 인스턴스 오버라이드만 사용)
 // ---------------------------------------------------------------------------
 
 const SQ = 80;              // 보드 오버라이드 사각형의 칸당 픽셀 (CONFIG.board.squarePx와 동일)
-// 슬롯 그리드(4x4, x/y: 0~176) · 보드(x: 300~940) · 판매 슬롯(x: 1000~1100)이
-// 서로 절대 겹치지 않도록 넉넉히 띄운다 — pickDropTarget은 판매→슬롯→보드 순으로
-// 판정하므로, 좌표가 우연히 다른 존과 겹치면 의도한 존이 아닌 곳으로 판정될 수 있다.
+// 보드(x: 300~940)와 판매 슬롯(x: 1000~1100)이 서로 절대 겹치지 않도록 넉넉히 띄운다 —
+// pickDropTarget은 판매 → 보드 순으로 판정하므로, 좌표가 우연히 다른 존과 겹치면 의도한
+// 존이 아닌 곳으로 판정될 수 있다.
 const BOARD_LEFT = 300;
-const SLOT_SIZE = 40;
-const SLOT_GAP = 4;
 const SELL_RECT = { left: 1000, top: 0, width: 100, height: 100 };
+// 예전 슬롯 그리드(보드 왼쪽 0~176)가 있던 자리. v1.12에서 존이 사라졌으므로 그냥 빈 화면이고,
+// 여기로 떨어뜨린 기물은 "모든 존 바깥"과 똑같이 원위치로 돌아와야 한다.
+const OLD_TRAY_AREA = { x: 20, y: 20 };
 
 function overrideRect(el: Element, rect: { left: number; top: number; width: number; height: number }): void {
   el.getBoundingClientRect = () => ({
@@ -136,13 +122,6 @@ function overrideRect(el: Element, rect: { left: number; top: number; width: num
 function squareCenter(file: number, rank: number): { x: number; y: number } {
   const row = 8 - rank;
   return { x: BOARD_LEFT + file * SQ + SQ / 2, y: row * SQ + SQ / 2 };
-}
-
-/** 슬롯 인덱스(4x4)의 중심 화면 좌표 */
-function slotCenter(index: number): { x: number; y: number } {
-  const col = index % 4, row = Math.floor(index / 4);
-  const left = col * (SLOT_SIZE + SLOT_GAP), top = row * (SLOT_SIZE + SLOT_GAP);
-  return { x: left + SLOT_SIZE / 2, y: top + SLOT_SIZE / 2 };
 }
 
 const SELL_CENTER = { x: SELL_RECT.left + SELL_RECT.width / 2, y: SELL_RECT.top + SELL_RECT.height / 2 };
@@ -165,14 +144,6 @@ function setup(phase: GameState['phase'] = 'wave'): Rig {
   const layout = createLayout(app);
 
   overrideRect(layout.canvas, { left: BOARD_LEFT, top: 0, width: 640, height: 640 });
-  const cells = [...layout.slotGrid.children];
-  cells.forEach((cell, i) => {
-    const col = i % 4, row = Math.floor(i / 4);
-    overrideRect(cell, {
-      left: col * (SLOT_SIZE + SLOT_GAP), top: row * (SLOT_SIZE + SLOT_GAP),
-      width: SLOT_SIZE, height: SLOT_SIZE,
-    });
-  });
   overrideRect(layout.sellSlot, SELL_RECT);
 
   const state = createInitialState();
@@ -191,8 +162,10 @@ afterEach(() => {
 });
 
 /** DragController가 document.body에 붙인 고스트 (constructor에서 app 다음으로 추가됨).
- *  ⚠️ v1.10에서 쿨다운 라벨이 사라져 body의 자식이 하나로 줄었다 — 인덱스로 집는 이 헬퍼는
- *  그 개수에 의존하므로, 새 DOM 노드를 붙이면 여기부터 고쳐야 한다. */
+ *  ⚠️ 인덱스로 집으므로 body 직속 자식의 개수·순서에 의존한다. v1.12에서 슬롯 그리드가
+ *  사라졌지만 그것은 app **안쪽**(createLayout이 app.innerHTML에 그린다)이었으므로 body의
+ *  자식은 여전히 [app, ghost] 둘이고 인덱스는 밀리지 않았다. body에 새 노드를 붙이는 변경이
+ *  생기면 여기부터 고쳐야 한다. */
 function ghostEl(): HTMLDivElement { return document.body.children[1] as HTMLDivElement; }
 
 function pointer(type: string, x: number, y: number, button = 0): PointerEvent {
@@ -210,11 +183,11 @@ function click(at: { x: number; y: number }): void {
   document.dispatchEvent(pointer('pointerup', at.x, at.y));
 }
 
-function slotPiece(id: string, type: PieceType, slotIndex: number): Piece {
-  return { id, type, square: null, slotIndex, cooldown: 0, queenBuffCount: 0, tier: 1 };
-}
-
 describe('DragController — 합성은 드래그 전용 (제스처 분리, 사용자 결정)', () => {
+  // ⚠️ "트레이에서 드래그해 보드의 같은 종류 위에 놓아도 합성된다"가 v1.12에서 삭제됐다.
+  // 트레이발 드래그라는 경로가 없어졌을 뿐 합성 규칙 자체는 그대로이고, 아래 보드 → 보드
+  // 케이스가 같은 불변식(드래그면 합성)을 덮는다.
+
   it('드래그로 같은 종류 위에 놓으면 합성된다', () => {
     const { state, events } = setup('wave');
     const mover = boardPiece('rook', 0, 1);
@@ -259,59 +232,16 @@ describe('DragController — 합성은 드래그 전용 (제스처 분리, 사�
 
     document.dispatchEvent(pointer('pointerup', to.x, to.y));
   });
-
-  it('트레이에서 드래그해 보드의 같은 종류 위에 놓아도 합성된다', () => {
-    const { state } = setup('prepare');
-    const tray = slotPiece('m-tray', 'pawn', 0);
-    const onBoard = boardPiece('pawn', 2, 3);
-    state.pieces.push(tray, onBoard);
-
-    drag_(slotCenter(0), squareCenter(2, 3));
-
-    expect(state.pieces).toHaveLength(1);
-    expect(onBoard.tier).toBe(2);
-  });
 });
 
-describe('DragController — 드래그 제스처 (스펙 7.5 동작표 7행, 자동화된 Step 5 대체 1/2)', () => {
-  it('1. 슬롯 → 보드 빈칸 = 배치', () => {
-    const { state, drag } = setup('prepare');
-    const p = slotPiece('d1', 'pawn', 0);
-    state.pieces.push(p);
+// ⚠️ 아래 두 스위트(드래그 제스처 / 클릭-투-무브)에서 슬롯이 얽힌 행 넷이 v1.12에서 함께
+// 사라졌다: 슬롯 → 보드 배치 · 슬롯 → 슬롯 재정렬 · 슬롯 → 판매 · 보드 → 슬롯 회수(그리고
+// "이미 점유된 트레이 칸은 가장 낮은 빈 슬롯으로" 컨트롤러 룰링까지). 기물 보관함이 없어져
+// 동작표에서 그 행들이 통째로 빠졌기 때문이다 — 남은 행은 보드 → 보드와 보드 → 판매 둘뿐이고,
+// 두 스위트는 그 둘을 드래그/클릭 양쪽 제스처로 각각 덮는다.
 
-    drag_(slotCenter(0), squareCenter(2, 3));
-
-    expect(p.square).toEqual({ file: 2, rank: 3 });
-    expect(p.slotIndex).toBeNull();
-    expect(drag.interaction.dragging).toBeNull();
-    expect(ghostEl().style.display).toBe('none');       // 드롭 후 고스트 제거
-  });
-
-  it('2. 슬롯 → 슬롯 = 재정렬 (맞교환 포함)', () => {
-    const { state } = setup('prepare');
-    const p0 = slotPiece('d2a', 'pawn', 0);
-    const p1 = slotPiece('d2b', 'bishop', 3);
-    state.pieces.push(p0, p1);
-
-    drag_(slotCenter(0), slotCenter(3));
-
-    expect(p0.slotIndex).toBe(3);
-    expect(p1.slotIndex).toBe(0);                        // 점유자와 맞교환
-  });
-
-  it('3. 슬롯 → 판매 = 판매 (50% 환급)', () => {
-    const { state } = setup('prepare');
-    const p = slotPiece('d3', 'rook', 0);
-    state.pieces.push(p);
-    const goldBefore = state.gold;
-
-    drag_(slotCenter(0), SELL_CENTER);
-
-    expect(state.pieces.find(x => x.id === p.id)).toBeUndefined();
-    expect(state.gold).toBe(goldBefore + 250);            // rook 500 * 0.5
-  });
-
-  it('4. 보드 → 보드 빈칸 = 이동 (cooldown 유지, 웨이브 중에도 자유 이동)', () => {
+describe('DragController — 드래그 제스처 (스펙 7.5 동작표, 자동화된 Step 5 대체 1/2)', () => {
+  it('1. 보드 → 보드 빈칸 = 이동 (cooldown 유지, 웨이브 중에도 자유 이동)', () => {
     const { state, drag } = setup('wave');
     const p = boardPiece('rook', 0, 1);
     p.cooldown = 1.2;
@@ -322,33 +252,10 @@ describe('DragController — 드래그 제스처 (스펙 7.5 동작표 7행, 자
     expect(p.square).toEqual({ file: 5, rank: 5 });
     expect(p.cooldown).toBe(1.2);
     expect(drag.interaction.dragging).toBeNull();
+    expect(ghostEl().style.display).toBe('none');       // 드롭 후 고스트 제거
   });
 
-  it('5. 보드 → 슬롯 = 회수', () => {
-    const { state } = setup('wave');
-    const p = boardPiece('rook', 0, 1);
-    state.pieces.push(p);
-
-    drag_(squareCenter(0, 1), slotCenter(2));
-
-    expect(p.square).toBeNull();
-    expect(p.slotIndex).toBe(2);
-  });
-
-  it("컨트롤러 룰링: 보드 → 이미 점유된 트레이 칸 = 가장 낮은 빈 슬롯으로 재배치 (occupant는 그대로)", () => {
-    const { state } = setup('wave');
-    const p = boardPiece('rook', 0, 1);
-    const occupant = slotPiece('occ', 'pawn', 2);
-    state.pieces.push(p, occupant);
-
-    drag_(squareCenter(0, 1), slotCenter(2));             // 슬롯2는 occupant가 점유 중
-
-    expect(p.square).toBeNull();
-    expect(p.slotIndex).toBe(0);                          // 가장 낮은 빈 슬롯(0)으로 재배치
-    expect(occupant.slotIndex).toBe(2);                   // occupant는 밀려나지 않음
-  });
-
-  it('6. 보드 → 판매 = 판매. 판매 슬롯 hover 시 환급 프리뷰 먼저 표시', () => {
+  it('2. 보드 → 판매 = 판매. 판매 슬롯 hover 시 환급 프리뷰 먼저 표시', () => {
     const { state, layout, drag } = setup('wave');
     const p = boardPiece('pawn', 3, 3);
     state.pieces.push(p);
@@ -358,50 +265,45 @@ describe('DragController — 드래그 제스처 (스펙 7.5 동작표 7행, 자
     document.dispatchEvent(pointer('pointermove', SELL_CENTER.x, SELL_CENTER.y));
 
     expect(layout.sellSlot.classList.contains('armed')).toBe(true);
-    expect(layout.sellSlot.querySelector('#sell-preview')!.textContent).toBe('+50G');
+    expect(layout.sellSlot.querySelector('#sell-preview')!.textContent).toBe(`+${sellPrice('pawn')}G`);
 
     document.dispatchEvent(pointer('pointerup', SELL_CENTER.x, SELL_CENTER.y));
 
     expect(state.pieces.find(x => x.id === p.id)).toBeUndefined();
-    expect(state.gold).toBe(goldBefore + 50);
+    expect(state.gold).toBe(goldBefore + sellPrice('pawn'));
     expect(layout.sellSlot.classList.contains('armed')).toBe(false);
     expect(layout.sellSlot.querySelector('#sell-preview')!.textContent).toBe('');
     expect(drag.interaction.dragging).toBeNull();
   });
 
-  it('7. 무효 드롭(8랭크/트레이발 점유 칸/모든 존 바깥)은 상태를 전혀 바꾸지 않고 고스트/프리뷰를 정리한다', () => {
-    const { state, layout, drag, events } = setup('prepare');
-    const p = slotPiece('d7', 'pawn', 0);
+  it('3. 무효 드롭(8랭크/옛 트레이 자리/모든 존 바깥)은 상태를 전혀 바꾸지 않고 고스트/프리뷰를 정리한다', () => {
+    const { state, layout, drag, events } = setup('wave');
+    const p = boardPiece('pawn', 0, 1);
     state.pieces.push(p);
     const goldBefore = state.gold;
+    const home = { file: 0, rank: 1 };
 
-    drag_(slotCenter(0), squareCenter(0, 8));            // 8랭크 = 스폰 구역, 배치 불가
-    expect(p.square).toBeNull();
-    expect(p.slotIndex).toBe(0);
+    drag_(squareCenter(0, 1), squareCenter(0, CONFIG.board.ranks));   // 최상단 랭크 = 스폰 구역
+    expect(p.square).toEqual(home);
     expect(ghostEl().style.display).toBe('none');
     expect(layout.sellSlot.querySelector('#sell-preview')!.textContent).toBe('');
 
-    const occupant = boardPiece('bishop', 4, 4);
-    state.pieces.push(occupant);
-    // p는 슬롯(트레이)에서 드래그되는 중이다 — 점유 칸으로의 맞교환은 board→board에만 허용되고
-    // (게임 규칙 변경, 트레이엔 밀려날 상대가 없다), 트레이 → 점유 칸은 여전히 거부된다.
-    drag_(slotCenter(0), squareCenter(4, 4));            // 트레이 → 이미 점유된 칸: 여전히 거부
-    expect(p.square).toBeNull();
-    expect(p.slotIndex).toBe(0);
-    expect(occupant.square).toEqual({ file: 4, rank: 4 });
+    // 판매 슬롯이 사라진 자리가 아니라 **트레이가** 사라진 자리다 — 예전에는 여기 놓으면
+    // 회수(보드 → 슬롯)였다. 존이 없어졌으므로 이제는 그냥 원위치 복귀여야 한다.
+    drag_(squareCenter(0, 1), OLD_TRAY_AREA);
+    expect(p.square).toEqual(home);
 
-    drag_(slotCenter(0), { x: 5000, y: 5000 });          // 모든 존 바깥
-    expect(p.square).toBeNull();
-    expect(p.slotIndex).toBe(0);
+    drag_(squareCenter(0, 1), { x: 5000, y: 5000 });                  // 모든 존 바깥
+    expect(p.square).toEqual(home);
 
     expect(state.gold).toBe(goldBefore);
-    expect(state.pieces).toHaveLength(2);
+    expect(state.pieces).toHaveLength(1);
     expect(drag.interaction.dragging).toBeNull();
     expect(ghostEl().style.display).toBe('none');
     expect(events).toHaveLength(0);                      // 거부된 동작은 이벤트도 발생시키지 않는다 (Finding 9)
   });
 
-  it('8. 보드 → 점유된 보드 칸 드래그 드롭 = 두 기물이 서로 자리를 맞바꾼다 (게임 규칙 변경, 사용자 승인)', () => {
+  it('4. 보드 → 점유된 보드 칸 드래그 드롭 = 두 기물이 서로 자리를 맞바꾼다 (게임 규칙 변경, 사용자 승인)', () => {
     const { state, drag } = setup('wave');
     const mover = boardPiece('rook', 0, 1);
     const occupant = boardPiece('bishop', 5, 5);
@@ -415,49 +317,8 @@ describe('DragController — 드래그 제스처 (스펙 7.5 동작표 7행, 자
   });
 });
 
-describe('DragController — 클릭-투-무브 (스펙 7.5 동작표 7행, 자동화된 Step 5 대체 2/2)', () => {
-  it('1. 슬롯 → 보드 빈칸 = 배치 (드래그와 동일한 목적지·결과)', () => {
-    const { state, drag } = setup('prepare');
-    const p = slotPiece('c1', 'pawn', 0);
-    state.pieces.push(p);
-
-    click(slotCenter(0));
-    expect(drag.interaction.selectedPieceId).toBe(p.id);
-    click(squareCenter(2, 3));                            // 드래그 테스트 1번과 동일한 목적지
-
-    expect(p.square).toEqual({ file: 2, rank: 3 });        // 드래그와 동일한 결과
-    expect(p.slotIndex).toBeNull();
-    expect(drag.interaction.selectedPieceId).toBeNull();
-  });
-
-  it('2. 슬롯 → 슬롯 = 재정렬 (맞교환 포함)', () => {
-    const { state, drag } = setup('prepare');
-    const p0 = slotPiece('c2a', 'pawn', 0);
-    const p1 = slotPiece('c2b', 'bishop', 3);
-    state.pieces.push(p0, p1);
-
-    click(slotCenter(0));
-    click(slotCenter(3));
-
-    expect(p0.slotIndex).toBe(3);
-    expect(p1.slotIndex).toBe(0);
-    expect(drag.interaction.selectedPieceId).toBeNull();
-  });
-
-  it('3. 슬롯 → 판매 = 판매', () => {
-    const { state } = setup('prepare');
-    const p = slotPiece('c3', 'rook', 0);
-    state.pieces.push(p);
-    const goldBefore = state.gold;
-
-    click(slotCenter(0));
-    click(SELL_CENTER);
-
-    expect(state.pieces.find(x => x.id === p.id)).toBeUndefined();
-    expect(state.gold).toBe(goldBefore + 250);
-  });
-
-  it('4. 보드 → 보드 빈칸 = 이동, cooldown은 그대로 유지 (Finding 9 — 이전엔 cooldown:0이라 무의미했음)', () => {
+describe('DragController — 클릭-투-무브 (스펙 7.5 동작표, 자동화된 Step 5 대체 2/2)', () => {
+  it('1. 보드 → 보드 빈칸 = 이동, cooldown은 그대로 유지 (Finding 9 — 이전엔 cooldown:0이라 무의미했음)', () => {
     const { state, drag } = setup('wave');
     const p = boardPiece('pawn', 1, 1);
     p.cooldown = 0.8;
@@ -472,19 +333,7 @@ describe('DragController — 클릭-투-무브 (스펙 7.5 동작표 7행, 자�
     expect(drag.interaction.selectedPieceId).toBeNull();
   });
 
-  it('5. 보드 → 슬롯 = 회수', () => {
-    const { state } = setup('wave');
-    const p = boardPiece('rook', 0, 1);
-    state.pieces.push(p);
-
-    click(squareCenter(0, 1));
-    click(slotCenter(2));
-
-    expect(p.square).toBeNull();
-    expect(p.slotIndex).toBe(2);
-  });
-
-  it('6. 보드 → 판매 = 판매', () => {
+  it('2. 보드 → 판매 = 판매', () => {
     const { state } = setup('wave');
     const p = boardPiece('bishop', 2, 2);
     state.pieces.push(p);
@@ -499,33 +348,26 @@ describe('DragController — 클릭-투-무브 (스펙 7.5 동작표 7행, 자�
     expect(state.gold).toBe(goldBefore + sellPrice('bishop'));
   });
 
-  it('7. 무효 대상(8랭크/트레이발 점유 칸) 클릭은 상태를 바꾸지 않고 선택을 해제한다', () => {
-    const { state, drag, events } = setup('prepare');
-    const p = slotPiece('c7', 'pawn', 0);
+  it('3. 무효 대상(8랭크/옛 트레이 자리) 클릭은 상태를 바꾸지 않고 선택을 해제한다', () => {
+    const { state, drag, events } = setup('wave');
+    const p = boardPiece('pawn', 1, 1);
     state.pieces.push(p);
 
-    click(slotCenter(0));
-    click(squareCenter(0, 8));                            // 8랭크 = 배치 불가
+    click(squareCenter(1, 1));
+    click(squareCenter(0, CONFIG.board.ranks));           // 8랭크 = 배치 불가
 
-    expect(p.square).toBeNull();
-    expect(p.slotIndex).toBe(0);
+    expect(p.square).toEqual({ file: 1, rank: 1 });
     expect(drag.interaction.selectedPieceId).toBeNull();
 
-    // p는 슬롯(트레이)에서 선택된 상태다 — 트레이 → 점유 칸은 게임 규칙 변경 후에도 여전히
-    // 거부된다(맞교환은 board→board 전용, Finding 9도 함께 확인).
-    const occupant = boardPiece('bishop', 4, 4);
-    state.pieces.push(occupant);
-    click(slotCenter(0));
-    click(squareCenter(4, 4));
+    click(squareCenter(1, 1));
+    click(OLD_TRAY_AREA);                                 // 존이 사라진 자리 = target null
 
-    expect(p.square).toBeNull();
-    expect(p.slotIndex).toBe(0);
-    expect(occupant.square).toEqual({ file: 4, rank: 4 });
+    expect(p.square).toEqual({ file: 1, rank: 1 });
     expect(drag.interaction.selectedPieceId).toBeNull();
     expect(events).toHaveLength(0);
   });
 
-  it('8. 보드 → 점유된 보드 칸 클릭-투-무브 = 두 기물이 서로 자리를 맞바꾼다 (게임 규칙 변경, 사용자 승인)', () => {
+  it('4. 보드 → 점유된 보드 칸 클릭-투-무브 = 두 기물이 서로 자리를 맞바꾼다 (게임 규칙 변경, 사용자 승인)', () => {
     const { state, drag } = setup('wave');
     const mover = boardPiece('rook', 1, 1);
     const occupant = boardPiece('bishop', 4, 4);
@@ -581,7 +423,9 @@ describe('DragController — 이동 제약 없음 / 일시정지 (v1.10 쿨다�
 
     document.dispatchEvent(pointer('pointerdown', squareCenter(2, 2).x, squareCenter(2, 2).y));
 
-    expect(drag.interaction.dragging).toEqual({ pieceId: p.id, from: 'board' });
+    // ★ toEqual이라 여분의 키도 잡는다 — v1.12에서 `from`이 사라진 뒤 Interaction.dragging은
+    // pieceId 하나뿐이다. 출발지를 다시 들고 오려는 변경은 여기서 먼저 걸린다.
+    expect(drag.interaction.dragging).toEqual({ pieceId: p.id });
     expect(ghostEl().style.display).toBe('block');
     expect(p.cooldown).toBe(2.4);                          // 집는 것만으로 쿨다운이 바뀌지는 않는다
   });
@@ -691,22 +535,22 @@ describe('DragController — 클릭 선택 안정성 (검토 Finding 1)', () => 
     document.dispatchEvent(pointer('pointermove', SELL_CENTER.x, SELL_CENTER.y));
 
     expect(layout.sellSlot.classList.contains('armed')).toBe(true);
-    expect(layout.sellSlot.querySelector('#sell-preview')!.textContent).toBe('+50G');
+    expect(layout.sellSlot.querySelector('#sell-preview')!.textContent).toBe(`+${sellPrice('pawn')}G`);
     expect(state.pieces.find(x => x.id === p.id)).toBeDefined();  // 아직 판매되지 않았다 (프리뷰일 뿐)
 
     click(SELL_CENTER);                                        // 확정 클릭
     expect(state.pieces.find(x => x.id === p.id)).toBeUndefined();
-    expect(state.gold).toBe(goldBefore + 50);
+    expect(state.gold).toBe(goldBefore + sellPrice('pawn'));
   });
 
   it('드래그 완료 후 남아있던 클릭 선택으로 다른 기물이 팔리지 않는다 (재현 시나리오)', () => {
     const { state } = setup('wave');
-    const pawnA = slotPiece('stale-a', 'pawn', 0);
+    const pawnA = boardPiece('pawn', 7, 7);      // 드래그와 무관한 구석 기물 (예전엔 트레이에 있었다)
     const pieceB = boardPiece('rook', 0, 1);
     state.pieces.push(pawnA, pieceB);
     const goldBefore = state.gold;
 
-    click(slotCenter(0));                                      // 1. 트레이의 pawnA를 클릭해 선택
+    click(squareCenter(7, 7));                                 // 1. pawnA를 클릭해 선택
     drag_(squareCenter(0, 1), squareCenter(5, 5));              // 2. 관계없는 pieceB를 드래그로 이동
 
     expect(pieceB.square).toEqual({ file: 5, rank: 5 });        // 드래그 자체는 정상 동작
@@ -714,7 +558,7 @@ describe('DragController — 클릭 선택 안정성 (검토 Finding 1)', () => 
     click(SELL_CENTER);                                         // 3. 판매 슬롯 클릭 (pawnA를 겨냥한 적 없음)
 
     expect(state.pieces.find(x => x.id === pawnA.id)).toBeDefined();  // pawnA는 팔리지 않는다
-    expect(pawnA.slotIndex).toBe(0);
+    expect(pawnA.square).toEqual({ file: 7, rank: 7 });          // 자리도 그대로
     expect(state.gold).toBe(goldBefore);                        // 골드도 그대로
   });
 });
@@ -784,8 +628,9 @@ describe('DragController — pointercancel / Esc / 우클릭 / hover 정리 (검
 
 // ⚠️ 여기 있던 "쿨다운 라벨 타이머" 스위트가 v1.10에서 삭제됐다. 커서 옆에 남은 쿨다운을
 // 띄우던 기구(showCooldown + 중첩 타이머 방지, 검토 Finding 5) 자체가 사라졌기 때문이다.
-// ★ 그 기구는 원래 tierMismatch/tierOverflow 같은 **다른 거부 사유**를 알리는 데 재활용할
-// 후보였다(그 사유들은 지금 무음으로 거부된다). 되살릴 일이 생기면 이 커밋을 참고할 것.
+// ★ 그 기구는 원래 다른 거부 사유를 알리는 데 재활용할 후보였는데, 그 후보였던 사유 둘
+// (typeMismatch/tierMismatch)마저 v1.12에서 사라졌다 — 트레이발 착지에만 있던 분기였다.
+// 지금 남은 거부 사유는 outOfBounds와 tierOverflow뿐이고, 후자는 여전히 무음으로 거부된다.
 
 describe('DragController — zones() 캐시 (검토 Finding 6, 스펙 9.4)', () => {
   it('resize 전까지는 캐시된 사각형을 재사용하고, resize 후에는 새 레이아웃으로 갱신한다', () => {
@@ -877,6 +722,10 @@ describe('DragController — destroy() (검토 Finding 7)', () => {
 // 없으므로, DragController가 audio(UiAudio)를 올바른 지점에서 올바른 큐로 호출하는지 DOM
 // 레벨에서 직접 확인한다. v1.4: 집기/선택 시작(uiPickup)은 사용자가 실제로 들어보고 무음이
 // 낫다고 판단해 완전히 제거됐다 — 아래 스위트는 "소리가 안 난다"를 적극적으로 고정한다.
+//
+// ⚠️ v1.12에서 "트레이 내 재정렬은 의도적 무음"이라는 예외 하나가 사라졌다(재정렬 자체가
+// 없다). 그래서 playDropCue의 분기가 성공 = uiPlace / 판매 = uiSell / 거부 = uiInvalid
+// 셋으로 줄었고, 아래 스위트도 그 셋만 덮는다.
 // ---------------------------------------------------------------------------
 describe('DragController — UI 제스처 사운드 (스펙 §10.1 v1.3/v1.4)', () => {
   it('드래그가 실제로 시작돼도 아무 소리도 나지 않는다 (v1.4 — uiPickup 제거)', () => {
@@ -923,12 +772,12 @@ describe('DragController — UI 제스처 사운드 (스펙 §10.1 v1.3/v1.4)', 
     expect(audio.played).toEqual([]);
   });
 
-  it('슬롯 → 보드 빈칸 드래그 배치 성공은 uiPlace를 울린다 (집기 소리 없이 이 한 건만)', () => {
-    const { state, audio } = setup('prepare');
-    const p = slotPiece('snd1', 'pawn', 0);
+  it('보드 → 보드 빈칸 드래그 이동 성공은 uiPlace를 울린다 (집기 소리 없이 이 한 건만)', () => {
+    const { state, audio } = setup('wave');
+    const p = boardPiece('pawn', 2, 3);
     state.pieces.push(p);
 
-    drag_(slotCenter(0), squareCenter(2, 3));
+    drag_(squareCenter(2, 3), squareCenter(5, 6));
 
     expect(audio.played).toEqual(['uiPlace']);
   });
@@ -944,67 +793,71 @@ describe('DragController — UI 제스처 사운드 (스펙 §10.1 v1.3/v1.4)', 
     expect(audio.played).toEqual(['uiPlace']);
   });
 
-  it('보드 → 슬롯 회수 성공은 uiPlace를 울린다', () => {
+  it('맞교환도 성공이므로 uiPlace를 울린다 — 점유 칸이라고 거부음이 나지 않는다', () => {
+    // 트레이가 있던 시절 점유 칸은 출발지에 따라 거부(uiInvalid)일 수 있었다. 이제 합성이
+    // 아닌 점유 칸은 언제나 맞교환이므로 거부음이 날 자리가 아니다.
     const { state, audio } = setup('wave');
-    const p = boardPiece('rook', 0, 1);
-    state.pieces.push(p);
+    state.pieces.push(boardPiece('rook', 1, 1), boardPiece('bishop', 4, 4));
 
-    drag_(squareCenter(0, 1), slotCenter(2));
+    drag_(squareCenter(1, 1), squareCenter(4, 4));
 
     expect(audio.played).toEqual(['uiPlace']);
   });
 
-  it('슬롯 내 재정렬(트레이 → 트레이) 성공은 아무 소리도 내지 않는다 (스펙 목록에 없음, 의도적 무음)', () => {
-    const { state, audio } = setup('prepare');
-    const p0 = slotPiece('reorder-a', 'pawn', 0);
-    const p1 = slotPiece('reorder-b', 'bishop', 3);
-    state.pieces.push(p0, p1);
-
-    drag_(slotCenter(0), slotCenter(3));
-
-    expect(audio.played).toEqual([]);
-  });
-
   it('판매 성공(드래그·클릭 모두)은 uiSell을 울린다', () => {
-    const { state, audio } = setup('prepare');
-    const p = slotPiece('snd-sell', 'rook', 0);
-    state.pieces.push(p);
+    const { state, audio } = setup('wave');
+    const dragged = boardPiece('rook', 0, 1);
+    const clicked = boardPiece('rook', 7, 7);
+    state.pieces.push(dragged, clicked);
 
-    drag_(slotCenter(0), SELL_CENTER);
-
+    drag_(squareCenter(0, 1), SELL_CENTER);
     expect(audio.played).toEqual(['uiSell']);
+
+    click(squareCenter(7, 7));
+    click(SELL_CENTER);
+    expect(audio.played).toEqual(['uiSell', 'uiSell']);
   });
 
   it('거부된 드롭(8랭크 등)은 uiInvalid를 울린다 — 게임이 조용히 원위치로 되돌리는 것의 유일한 청각 피드백', () => {
-    const { state, audio } = setup('prepare');
-    const p = slotPiece('snd-invalid', 'pawn', 0);
+    const { state, audio } = setup('wave');
+    const p = boardPiece('pawn', 0, 1);
     state.pieces.push(p);
 
-    drag_(slotCenter(0), squareCenter(0, 8));   // 8랭크 = 스폰 구역, 배치 불가
+    drag_(squareCenter(0, 1), squareCenter(0, CONFIG.board.ranks));   // 8랭크 = 스폰 구역, 배치 불가
 
     expect(audio.played).toEqual(['uiInvalid']);
   });
 
   it('거부된 클릭-투-무브도 uiInvalid를 울린다', () => {
-    const { state, audio } = setup('prepare');
-    const p = slotPiece('snd-invalid-click', 'pawn', 0);
-    const occupant = boardPiece('bishop', 4, 4);
-    state.pieces.push(p, occupant);
+    const { state, audio } = setup('wave');
+    const p = boardPiece('pawn', 1, 1);
+    state.pieces.push(p);
 
-    click(slotCenter(0));
-    click(squareCenter(4, 4));   // 트레이 → 점유 칸: 여전히 거부(맞교환은 board→board 전용)
+    click(squareCenter(1, 1));
+    click(squareCenter(1, CONFIG.board.ranks));   // 8랭크 = 배치 불가
 
     expect(audio.played).toEqual(['uiInvalid']);
   });
 
   it('모든 존 바깥으로의 드롭(target=null)도 uiInvalid를 울린다', () => {
-    const { state, audio } = setup('prepare');
-    const p = slotPiece('snd-outside', 'pawn', 0);
+    const { state, audio } = setup('wave');
+    const p = boardPiece('pawn', 1, 1);
     state.pieces.push(p);
 
-    drag_(slotCenter(0), { x: 5000, y: 5000 });
+    drag_(squareCenter(1, 1), { x: 5000, y: 5000 });
 
     expect(audio.played).toEqual(['uiInvalid']);
+  });
+
+  it('옛 트레이 자리로의 드롭도 이제는 거부음이다 — 존이 사라졌으므로 회수음(uiPlace)이 아니다', () => {
+    const { state, audio } = setup('wave');
+    const p = boardPiece('pawn', 1, 1);
+    state.pieces.push(p);
+
+    drag_(squareCenter(1, 1), OLD_TRAY_AREA);
+
+    expect(audio.played).toEqual(['uiInvalid']);
+    expect(p.square).toEqual({ file: 1, rank: 1 });
   });
 
   it('일시정지 중에는 드래그가 시작되지 않으므로 아무 소리도 나지 않는다', () => {

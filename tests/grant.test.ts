@@ -1,20 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG, TRAITS, clearBonus, enemyCount, pickGrantType } from '../src/config';
-import { SLOT_CAPACITY, sellPrice } from '../src/core/economy';
+import { emptySquares, sellPrice } from '../src/core/economy';
 import { createInitialState } from '../src/core/state';
 import { checkWaveEnd, startWave, updateSpawning } from '../src/core/wave';
-import type { GameEvent, PieceType } from '../src/types';
+import type { GameEvent, GameState, PieceType } from '../src/types';
 import { countingRng, cycleRng, fullRun, minWinBuild, rooksTwoPerFile } from './helpers';
 
 /**
  * 무작위 지급 — 짝수 웨이브 클리어마다 T1 기물 하나.
  *
- * 목적은 **매 판을 다르게 만드는 것**이다. 원안이 노렸던 "슬롯 압박"은 실측상 거의 없다 —
- * 트레이가 차면 구매가 막히므로 플레이어는 어차피 비워 두고, 지급 10기는 동종 합성만으로
- * 5칸 이하로 압축된다. 그 목표는 폐기했고 무작위성·초반 부양·융합 재료 셋만 남겼다.
+ * 목적은 **매 판을 다르게 만드는 것**이다. 원안이 노렸던 "슬롯 압박"은 실측상 거의 없었고,
+ * v1.12에서 기물 보관함 자체가 사라지면서 압박의 대상도 바뀌었다 — 이제 지급은 트레이가 아니라
+ * **보드의 빈 칸**을 놓고 구매와 자리를 다툰다. 무작위성·초반 부양·융합 재료 셋만 남은 것은
+ * 그대로다.
  */
 
 const rngFile = (f: number) => () => f / CONFIG.board.files;
+
+/** 기물을 놓을 수 있는 칸 수. 8랭크는 적 스폰 구역이라 빠진다 — 리터럴 금지, CONFIG에서 유도. */
+const BOARD_CAPACITY = CONFIG.board.files * (CONFIG.board.ranks - 1);
 
 /** 적을 전부 처치한 상태로 웨이브를 끝낸 상태 */
 function clearedWave(wave: number) {
@@ -25,6 +29,30 @@ function clearedWave(wave: number) {
   s.enemies = [];
   s.killedThisWave = enemyCount(wave);
   return s;
+}
+
+/** 빈 칸을 폰으로 전부 메운다 — 예전 "트레이 만석"에 대응하는 v1.12의 만석 상태다. */
+function fillBoard(s: GameState): void {
+  for (const sq of emptySquares(s)) {
+    s.pieces.push({
+      id: `fill-${sq.file}-${sq.rank}`, type: 'pawn', square: sq,
+      cooldown: 0, queenBuffCount: 0, tier: 1,
+    });
+  }
+}
+
+/** 지급만 n번 반복시킨다. checkWaveEnd가 웨이브를 넘겨 버리므로 매번 짝수 웨이브로 되돌려 세운다. */
+function grantTimes(n: number, grantRng: () => number): { s: GameState; ev: GameEvent[] } {
+  const s = clearedWave(CONFIG.grant.everyWaves);
+  const ev: GameEvent[] = [];
+  for (let i = 0; i < n; i++) {
+    s.phase = 'wave';
+    s.wave = CONFIG.grant.everyWaves;
+    s.spawnedCount = enemyCount(s.wave);
+    s.enemies = [];
+    checkWaveEnd(s, ev, grantRng);
+  }
+  return { s, ev };
 }
 
 describe('pickGrantType — 가중치 매핑', () => {
@@ -73,23 +101,35 @@ describe('지급 시점과 횟수', () => {
       const s = clearedWave(w);
       const ev: GameEvent[] = [];
       checkWaveEnd(s, ev, () => 0);
-      const granted = ev.some(x => x.kind === 'granted' || x.kind === 'grantDiscarded');
+      // 스폰 이벤트는 구매와 공유하므로 bought로 갈라 본다 — 여기서는 아무것도 사지 않았다.
+      const granted = ev.some(x => (x.kind === 'pieceSpawned' && !x.bought) || x.kind === 'grantDiscarded');
       expect(granted, `w${w}`).toBe(w % CONFIG.grant.everyWaves === 0);
     }
   });
 
-  it('★ 한 판에 정확히 10회 추첨한다 — 조건 없이', () => {
-    // 추첨을 조건부로 만들면(예: 트레이가 빌 때만) draw 수가 플레이 내용에 의존해 재현성이
+  it('★ 한 판에 정확히 10회 추첨한다 — 조건 없이 (draw는 그 2배)', () => {
+    // 추첨을 조건부로 만들면(예: 자리가 빌 때만 뽑는다) draw 수가 플레이 내용에 의존해 재현성이
     // 사라진다. 무조건 뽑고, 넣을 자리가 없으면 그때 버린다.
+    //
+    // v1.12에서 지급 한 번이 grantRng를 **두 번** 뽑는다 — 종류 하나, 스폰 위치 하나. 트레이가
+    // 사라져 "어디에 놓는가"가 지급의 일부가 됐기 때문이다. 위치를 적 스폰 난수에서 뽑는 것은
+    // 금지고(바로 아래 테스트), 세 번째 난수원을 새로 만들 이유는 없다 — "무엇을"과 "어디에"는
+    // 같은 한 사건이라 같은 실에서 나오는 편이 재현에 유리하다.
+    const DRAWS_PER_GRANT = 2;                 // [종류, 위치]
     const grantRng = countingRng(() => 0);
     fullRun(rooksTwoPerFile(), cycleRng(), grantRng);
-    expect(grantRng.count()).toBe(CONFIG.wave.total / CONFIG.grant.everyWaves);
-    expect(grantRng.count()).toBe(10);
+    const grants = CONFIG.wave.total / CONFIG.grant.everyWaves;
+    expect(grants).toBe(10);
+    // 룩 16기 + 지급 10기 = 26기라 56칸이 끝까지 남아돈다 → 위치 추첨이 한 번도 생략되지 않는다.
+    expect(grantRng.count()).toBe(grants * DRAWS_PER_GRANT);
+    expect(grantRng.count()).toBe(20);
   });
 
   it('★ 스폰 난수는 지급 때문에 한 번도 더 소모되지 않는다', () => {
     // 스폰 파일 추첨은 호출 "순서"에만 의존한다. 지급이 같은 난수원을 쓰면 파일 시퀀스가
     // 통째로 달라져 기존 헤드리스 측정이 조용히 다른 것을 잰다.
+    // ★ v1.12에서 이 테스트의 값어치가 더 커졌다 — 지급이 스폰 **위치**까지 뽑게 됐으므로,
+    // randomEmptySquare가 실수로 적 스폰 난수를 끌어다 쓰면 여기서만 잡힌다.
     const spawnRng = countingRng(cycleRng());
     fullRun(rooksTwoPerFile(), spawnRng, () => 0);
     let expected = 0;
@@ -103,39 +143,78 @@ describe('지급 시점과 횟수', () => {
     const ev: GameEvent[] = [];
     checkWaveEnd(s, ev, () => 0);
     expect(s.phase).toBe('victory');
-    expect(ev.some(x => x.kind === 'granted')).toBe(true);
+    expect(ev.some(x => x.kind === 'pieceSpawned' && !x.bought)).toBe(true);
   });
 });
 
 describe('지급 결과', () => {
-  it('빈 슬롯에 T1으로 들어가고 골드는 차감되지 않는다', () => {
+  it('보드의 빈 칸에 T1으로 스폰되고 골드는 차감되지 않는다', () => {
     const s = clearedWave(2);
     const gold = s.gold;
     const ev: GameEvent[] = [];
     checkWaveEnd(s, ev, () => 0);
 
-    const granted = ev.find(x => x.kind === 'granted');
+    const granted = ev.find(x => x.kind === 'pieceSpawned');
     expect(granted).toBeDefined();
-    const p = s.pieces.find(x => x.slotIndex !== null)!;
+    // 트레이가 없으므로 지급 기물은 곧바로 보드 위에 있다 — 이 판의 유일한 기물이다.
+    expect(s.pieces).toHaveLength(1);
+    const p = s.pieces[0];
     expect(p.tier).toBe(1);
     expect(p.cooldown).toBe(0);
-    expect(p.square).toBeNull();
+    expect(p.square.rank).toBeGreaterThanOrEqual(1);
+    expect(p.square.rank).toBeLessThanOrEqual(CONFIG.board.ranks - 1);  // 8랭크는 적 스폰 구역
     // 클리어 보너스만 들어오고 지급으로 골드가 나가지는 않는다
     expect(s.gold).toBe(gold + clearBonus(2));
   });
 
-  it('★ 트레이가 꽉 차면 판매가로 환급하고 알린다 — 조용히 버리지 않는다', () => {
+  it('★ pieceSpawned가 알리는 칸이 기물이 실제로 선 칸이다 — 구매가 아님도 함께 알린다', () => {
+    // 스폰 위치를 플레이어가 고르지 않으므로, 이 이벤트가 틀리면 56칸 중에서 직접 찾아야 한다.
     const s = clearedWave(2);
-    for (let i = 0; i < SLOT_CAPACITY; i++) {
-      s.pieces.push({
-        id: `full-${i}`, type: 'pawn', square: null, slotIndex: i,
-        cooldown: 0, queenBuffCount: 0, tier: 1,
-      });
-    }
-    const gold = s.gold;
-    const earned = s.stats.totalGoldEarned;
     const ev: GameEvent[] = [];
     checkWaveEnd(s, ev, () => 0);
+
+    const granted = ev.find(x => x.kind === 'pieceSpawned')!;
+    const p = s.pieces[0];
+    expect(granted.square).toEqual(p.square);
+    expect(granted.pieceType).toBe(p.type);
+    expect(granted.bought).toBe(false);      // 지급은 구매와 같은 이벤트를 쓰되 이 깃발로 갈린다
+    // ⚠️ 값 복사여야 한다. 기물 객체의 square를 참조로 물고 있으면 나중의 이동·합성이 이미
+    // 발행된 과거 이벤트를 뒤에서 바꾼다.
+    expect(granted.square).not.toBe(p.square);
+  });
+
+  it('★ 지급은 언제나 빈 칸에 떨어진다 — 56회까지 한 번도 겹치지 않는다', () => {
+    const { s, ev } = grantTimes(BOARD_CAPACITY, cycleRng());
+
+    expect(BOARD_CAPACITY).toBe(56);
+    expect(s.pieces).toHaveLength(BOARD_CAPACITY);
+    // 칸이 하나라도 겹쳤다면 서로 다른 칸의 수가 기물 수보다 적다.
+    const keys = new Set(s.pieces.map(p => `${p.square.file},${p.square.rank}`));
+    expect(keys.size).toBe(BOARD_CAPACITY);
+    for (const p of s.pieces) {
+      expect(p.square.rank).toBeGreaterThanOrEqual(1);
+      expect(p.square.rank).toBeLessThanOrEqual(CONFIG.board.ranks - 1);
+    }
+    // 정확히 다 채웠다 — 남지도, 넘치지도 않았다.
+    expect(emptySquares(s)).toHaveLength(0);
+    // 알린 칸과 실제로 채워진 칸이 같은 집합이다.
+    const announced = ev.filter(x => x.kind === 'pieceSpawned').map(x => `${x.square.file},${x.square.rank}`);
+    expect(announced).toHaveLength(BOARD_CAPACITY);
+    expect(new Set(announced)).toEqual(keys);
+    expect(ev.some(x => x.kind === 'grantDiscarded')).toBe(false);
+  });
+
+  it('★ 보드가 꽉 차면 판매가로 환급하고 알린다 — 조용히 버리지 않는다', () => {
+    // 예전에는 트레이 16칸이 만석의 기준이었다. 보관함이 사라지면서 그 역할을 보드 56칸이
+    // 그대로 물려받았고, 실패 처리(환급 + 통보)는 한 글자도 바뀌지 않았다.
+    const s = clearedWave(2);
+    fillBoard(s);
+    expect(emptySquares(s)).toHaveLength(0);
+    const gold = s.gold;
+    const earned = s.stats.totalGoldEarned;
+    const grantRng = countingRng(() => 0);
+    const ev: GameEvent[] = [];
+    checkWaveEnd(s, ev, grantRng);
 
     const discarded = ev.find(x => x.kind === 'grantDiscarded');
     expect(discarded).toBeDefined();
@@ -144,7 +223,25 @@ describe('지급 결과', () => {
     expect(s.gold).toBe(gold + clearBonus(2) + refund);
     // ⚠️ 환급은 판매와 같은 취급이라 "벌어들인 골드" 통계에는 넣지 않는다.
     expect(s.stats.totalGoldEarned).toBe(earned + clearBonus(2));
-    expect(s.pieces.filter(p => p.slotIndex !== null)).toHaveLength(SLOT_CAPACITY);
+    // 만석이면 기물이 늘지 않고, 남의 칸을 밀어내지도 않는다.
+    expect(s.pieces).toHaveLength(BOARD_CAPACITY);
+    expect(ev.some(x => x.kind === 'pieceSpawned')).toBe(false);
+    // 종류는 조건 없이 뽑지만 위치는 뽑지 않는다 — 고를 칸 자체가 없다. draw 2회가 아니라 1회다.
+    expect(grantRng.count()).toBe(1);
+  });
+
+  it('grantRng가 1을 돌려줘도 보드 밖으로 나가지 않는다', () => {
+    // 상수 난수원(테스트·롤백 노브)이 정확히 1.0을 주면 인덱스가 범위를 벗어난다.
+    // economy.randomEmptySquare의 Math.min 방어가 이것을 막는다.
+    const s = clearedWave(2);
+    const ev: GameEvent[] = [];
+    checkWaveEnd(s, ev, () => 1);
+
+    expect(s.pieces).toHaveLength(1);
+    // 빈 칸 목록의 마지막 칸 = 마지막 파일의 마지막 배치 가능 랭크.
+    expect(s.pieces[0].square).toEqual({
+      file: CONFIG.board.files - 1, rank: CONFIG.board.ranks - 1,
+    });
   });
 });
 

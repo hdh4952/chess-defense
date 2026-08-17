@@ -54,14 +54,19 @@ export function checkWaveEnd(
   events.push({ kind: 'waveCleared', wave: state.wave });
 
   // 무작위 지급 — 클리어 보너스 뒤, victory 판정 **앞**이다(w20에도 지급한다).
-  // ★ 추첨은 **조건 없이** 한 번 돌린다. "트레이가 비었을 때만 뽑는다"처럼 draw 횟수를 상태에
+  // ★ 추첨은 **조건 없이** 돌린다. "자리가 있을 때만 뽑는다"처럼 draw 횟수를 상태에
   // 의존시키면 난수열이 플레이 내용에 따라 갈라져 재현성이 사라진다. 뽑고 나서 버린다.
   if (CONFIG.grant.enabled && state.wave % CONFIG.grant.everyWaves === 0) {
     const type = pickGrantType(grantRng());
-    if (grantPiece(state, type)) {
-      events.push({ kind: 'granted', pieceType: type });
+    // ★ grantRng를 **두 번** 뽑는다 — 종류 하나, 스폰 위치 하나(v1.12). 위치를 적 스폰
+    // 난수(rng)에서 뽑으면 파일 시퀀스가 통째로 달라져 기존 헤드리스 측정이 조용히 다른
+    // 것을 재게 된다(N8). 별도 세 번째 난수원을 만들지 않은 것은, 지급의 "무엇을"과
+    // "어디에"가 같은 한 사건이라 같은 실에서 나오는 편이 재현에 유리하기 때문이다.
+    if (grantPiece(state, type, events, grantRng)) {
+      // grantPiece가 pieceSpawned를 이미 발행했다(구매와 같은 이벤트를 쓴다 — 플레이어에게는
+      // "기물이 어디에 생겼는가"가 같은 종류의 사건이다).
     } else {
-      // 트레이 만석. 조용히 버리면 §12.3의 무음 실패 경로가 하나 더 늘고, 이월은 새 상태와
+      // 보드 만석. 조용히 버리면 §12.3의 무음 실패 경로가 하나 더 늘고, 이월은 새 상태와
       // 불투명한 지급 시점을 만든다. 판매가로 환급하는 것이 새 규칙을 0개 추가하는 길이다.
       // ⚠️ 판매와 같은 취급이므로 stats.totalGoldEarned에는 넣지 않는다 — 그 통계는 "벌어들인
       // 골드"이고 환급은 받지 못한 것을 되돌려 받는 것이다.

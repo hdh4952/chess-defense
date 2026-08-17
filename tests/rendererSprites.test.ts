@@ -35,7 +35,7 @@ function makeEnemy(overrides: Partial<Enemy>): Enemy {
 }
 function makePiece(overrides: Partial<Piece>): Piece {
   return {
-    id: 'p', type: 'rook', square: { file: 0, rank: 1 }, slotIndex: null, cooldown: 0, queenBuffCount: 0, tier: 1,
+    id: 'p', type: 'rook', square: { file: 0, rank: 1 }, cooldown: 0, queenBuffCount: 0, tier: 1,
     ...overrides,
   };
 }

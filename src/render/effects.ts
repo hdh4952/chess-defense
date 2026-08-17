@@ -11,7 +11,7 @@ const center = (sq: Square) => ({ x: fileCenterX(sq.file), y: rankToTopY(sq.rank
 const SLOW_LABEL = `−${slowPercent()}%`;
 
 interface Fx {
-  kind: 'shock' | 'crack' | 'beam' | 'puff' | 'coin' | 'mergeBurst' | 'frostTag';
+  kind: 'shock' | 'crack' | 'beam' | 'puff' | 'coin' | 'mergeBurst' | 'frostTag' | 'spawnMark';
   x: number; y: number;
   x2?: number; y2?: number;      // 라인형(crack/beam)의 끝점
   amount?: number;               // coin 전용 — 표시할 골드 액수
@@ -89,6 +89,17 @@ export class Effects {
       this.list.push({
         kind: 'frostTag', x: fileCenterX(ev.file), y: Math.max(16, ev.y - 42), t: 0, ttl: 0.7,
       });
+    }
+    if (ev.kind === 'pieceSpawned') {
+      // ★ 이 연출이 없으면 기능이 성립하지 않는다. 스폰 위치를 플레이어가 고르지 않으므로,
+      // 어디에 생겼는지 화면이 말해 주지 않으면 56칸을 눈으로 훑어야 한다 — 예전에는 트레이의
+      // 정해진 자리에 들어와 찾을 필요가 아예 없었다.
+      // 구매·지급을 같은 표식으로 그린다: 플레이어에게는 "기물이 어디 생겼는가"라는 같은
+      // 질문이고, 무엇을 받았는지는 지급일 때만 배너가 따로 알린다(banners.ts).
+      // ttl이 다른 이펙트보다 긴 이유도 같다 — 후반에는 상점을 누른 뒤 시선이 보드로 옮겨
+      // 오기까지 시간이 걸린다.
+      const c = center(ev.square);
+      this.list.push({ kind: 'spawnMark', ...c, t: 0, ttl: 1.2 });
     }
     if (ev.kind === 'goldGained') {
       // 공격 이펙트(0.3초)보다 길게 살려 둔다 — 광선이 사라진 뒤에도 "번 돈"이 잠깐 남아야
@@ -183,6 +194,18 @@ export class Effects {
           ctx.strokeText(SLOW_LABEL, f.x, f.y);
           ctx.fillStyle = SLOW_INK;
           ctx.fillText(SLOW_LABEL, f.x, f.y);
+          break;
+        }
+        case 'spawnMark': {        // 기물 스폰 — 칸을 감싸며 조여드는 이중 사각형
+          // 확장이 아니라 **수축**이다. 퍼지는 링(mergeBurst·shock)은 "여기서 무슨 일이
+          // 일어났다"를 말하지만, 조여드는 테두리는 시선을 그 칸 **안으로** 모은다 — 찾게
+          // 하는 것이 목적인 유일한 연출이라 방향이 반대다.
+          const grow = (1 - k) * SQ * 0.9;               // k: 1 → 0 이므로 시간이 갈수록 작아진다
+          const r = SQ * 0.5 + grow;
+          for (const [w, color] of [[5, 'rgba(10, 26, 36, 0.5)'], [2.5, '#ffe27a']] as const) {
+            ctx.lineWidth = w; ctx.strokeStyle = color;
+            ctx.strokeRect(f.x - r, f.y - r, r * 2, r * 2);
+          }
           break;
         }
         case 'coin': {             // 골드 획득 — 위로 떠오르며 사라지는 "+10G"

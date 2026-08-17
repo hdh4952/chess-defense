@@ -183,17 +183,21 @@ describe('감속 계수 — 중첩 없음 · 티어 무관', () => {
     for (const sq of allSquares()) expect(slowFactorAt(s, sq), squareKey(sq)).toBe(1);
   });
 
-  it('트레이의 나이트는 오라를 만들지 않고, 나이트 자신의 칸도 느려지지 않는다', () => {
-    const tray = waveState();
-    const p = boardPiece('knight', 3, 4);
-    p.square = null; p.slotIndex = 0;
-    tray.pieces.push(p);
-    for (const sq of allSquares()) expect(slowFactorAt(tray, sq), squareKey(sq)).toBe(1);
-
-    // 자기 칸은 L자 오프셋에 없다 — 3×3 폭발의 관성이 남지 않았는지 확인한다.
+  // ⚠️ v1.12에서 앞쪽 절반("트레이의 나이트는 오라를 만들지 않는다")을 삭제했다. 기물 보관함이
+  // 사라지면서 Piece.square가 널일 수 없게 됐고, 그래서 **판 밖의 나이트라는 상태를 만들 방법이
+  // 없다** — 없는 상황은 테스트로 지킬 것이 없다. 그 보장은 이제 타입이 하고, 그 사실은
+  // core/slow.ts의 slowCoverage 주석이 같은 자리에서 기록하고 있다.
+  // 뒤쪽 절반은 감속 규칙 자체라 규칙이 하나도 안 바뀌었으므로 그대로 남긴다.
+  it('나이트 자신이 선 칸은 느려지지 않는다 — L자 오프셋에 자기 칸이 없다', () => {
+    // 3×3 폭발(v1.10 이전)은 자기 칸을 덮었다. 그 관성이 남지 않았는지 확인한다.
     const board = waveState();
     board.pieces.push(boardPiece('knight', 3, 4));
     expect(slowFactorAt(board, { file: 3, rank: 4 })).toBe(1);
+
+    // 자기 칸만 콕 집어 재면 "아무 칸도 안 덮는" 구현도 통과한다. 덮는 칸이 실제로 있다는
+    // 것까지 나란히 걸어 공허를 막는다.
+    const covered = allSquares().filter(sq => slowFactorAt(board, sq) < 1);
+    expect(keys(covered)).toEqual(keys(slowSquares({ file: 3, rank: 4 })));
   });
 
   it('slowCoverage의 except는 그 기물 하나만 없는 셈 친다 — 미리보기가 쓰는 경로', () => {

@@ -1,5 +1,5 @@
 import { CONFIG } from '../config';
-import { moveOnBoard, pieceAt, placeFromSlot, recallToSlot, reorderSlots, findPiece } from '../core/pieces';
+import { moveOnBoard, pieceAt, findPiece } from '../core/pieces';
 import { sellPiece, sellPrice } from '../core/economy';
 import type { UiAudio } from '../audio';
 import type { GameEvent, GameState, Interaction } from '../types';
@@ -7,10 +7,9 @@ import { PIECE_NAME, type Layout } from './layout';
 import { ALLY_SPRITE_URL } from '../render/sprites';
 
 export interface RectLike { left: number; top: number; width: number; height: number }
-export interface DropZones { board: RectLike; slots: RectLike[]; sell: RectLike }
+export interface DropZones { board: RectLike; sell: RectLike }
 export type DropTarget =
   | { kind: 'square'; file: number; rank: number }
-  | { kind: 'slot'; index: number }
   | { kind: 'sell' }
   | null;
 
@@ -21,9 +20,6 @@ function contains(r: RectLike, x: number, y: number): boolean {
 /** 화면 좌표 → 드롭 대상 (순수) */
 export function pickDropTarget(x: number, y: number, zones: DropZones): DropTarget {
   if (contains(zones.sell, x, y)) return { kind: 'sell' };
-  for (let i = 0; i < zones.slots.length; i++) {
-    if (contains(zones.slots[i], x, y)) return { kind: 'slot', index: i };
-  }
   if (contains(zones.board, x, y)) {
     const files = CONFIG.board.files, ranks = CONFIG.board.ranks;
     const file = Math.floor((x - zones.board.left) / (zones.board.width / files));
@@ -41,21 +37,14 @@ export function pickDropTarget(x: number, y: number, zones: DropZones): DropTarg
  * 기물을 놓는 조작이 드래그면 합성, 클릭이면 예전과 똑같은 맞교환이 된다.
  */
 export function dropAction(
-  state: GameState, pieceId: string, from: 'slot' | 'board',
+  state: GameState, pieceId: string,
   target: DropTarget, events: GameEvent[], allowMerge = false,
 ): boolean {
   if (!target) return false;
   if (target.kind === 'sell') return sellPiece(state, pieceId);
-  if (from === 'slot') {
-    if (target.kind === 'square') {
-      return placeFromSlot(state, pieceId, target.file, target.rank, events, allowMerge);
-    }
-    return reorderSlots(state, pieceId, target.index);
-  }
-  if (target.kind === 'square') {
-    return moveOnBoard(state, pieceId, target.file, target.rank, events, allowMerge);
-  }
-  return recallToSlot(state, pieceId, target.index);
+  // 출발지 분기가 v1.12에서 사라졌다 — 기물 보관함이 없어져 모든 드래그가 보드에서 시작한다.
+  // 남은 목적지는 칸 아니면 판매 슬롯 둘뿐이고, 그 밖은 원위치 복귀다.
+  return moveOnBoard(state, pieceId, target.file, target.rank, events, allowMerge);
 }
 
 const CLICK_DIST = 6;      // px 미만 이동이면 클릭으로 간주
@@ -126,23 +115,18 @@ export class DragController {
     if (!this.zonesCache) {
       this.zonesCache = {
         board: this.layout.canvas.getBoundingClientRect(),
-        slots: [...this.layout.slotGrid.children].map(c => c.getBoundingClientRect()),
         sell: this.layout.sellSlot.getBoundingClientRect(),
       };
     }
     return this.zonesCache;
   }
 
-  /** 좌표 아래의 (기물, 출발지) — 슬롯 칸 또는 보드 칸 */
-  private pieceUnder(x: number, y: number): { pieceId: string; from: 'slot' | 'board' } | null {
+  /** 좌표 아래의 기물 — v1.12부터 보드 칸 하나만 본다(트레이가 사라졌다) */
+  private pieceUnder(x: number, y: number): { pieceId: string } | null {
     const t = pickDropTarget(x, y, this.zones());
-    if (t?.kind === 'slot') {
-      const p = this.state.pieces.find(pc => pc.slotIndex === t.index);
-      return p ? { pieceId: p.id, from: 'slot' } : null;
-    }
     if (t?.kind === 'square') {
       const p = pieceAt(this.state, t.file, t.rank);
-      return p ? { pieceId: p.id, from: 'board' } : null;
+      return p ? { pieceId: p.id } : null;
     }
     return null;
   }
@@ -208,8 +192,8 @@ export class DragController {
       // 드래그 경로만 합성을 허용한다 (사용자 결정 — 합성은 비가역이므로 "직접 집어 겹쳐 놓는"
       // 명확한 의도의 제스처에만 붙인다). 아래 클릭-투-무브 경로는 이 인자를 넘기지 않으므로
       // 같은 종류 기물 위에 놓아도 예전 그대로 맞교환이다.
-      const ok = dropAction(this.state, d.pieceId, d.from, target, this.events, true);
-      this.playDropCue(d.from, target, ok);
+      const ok = dropAction(this.state, d.pieceId, target, this.events, true);
+      this.playDropCue(target, ok);
       this.interaction.selectedPieceId = null;           // 드래그 후에는 이전 클릭 선택을 남기지 않는다 (검토 Finding 1)
       return;
     }
@@ -218,12 +202,10 @@ export class DragController {
     const sel = this.interaction.selectedPieceId;
     const hit = this.pieceUnder(e.clientX, e.clientY);
     if (sel && (!hit || hit.pieceId !== sel)) {
-      const piece = findPiece(this.state, sel);
-      if (piece) {
-        const from: 'slot' | 'board' = piece.square ? 'board' : 'slot';
+      if (findPiece(this.state, sel)) {
         const target = pickDropTarget(e.clientX, e.clientY, this.zones());
-        const ok = dropAction(this.state, sel, from, target, this.events);
-        this.playDropCue(from, target, ok);
+        const ok = dropAction(this.state, sel, target, this.events);
+        this.playDropCue(target, ok);
       }
       this.interaction.selectedPieceId = null;
       return;
@@ -237,15 +219,15 @@ export class DragController {
    * - 거부(ok=false): uiInvalid — 게임이 이미 조용히 기물을 원위치로 되돌리는 그 순간의, 유일하게
    *   들리는 피드백이다.
    * - 판매(target.kind==='sell'): uiSell.
-   * - 트레이 내 재정렬(from==='slot' && target.kind==='slot'): 스펙이 열거한 세 가지
-   *   (트레이→보드 배치/보드→보드 이동/보드→트레이 회수)에 포함되지 않으므로 의도적으로 무음.
-   * - 그 외 성공(트레이→보드 배치, 보드→보드 이동, 보드→트레이 회수): uiPlace.
+   * - 그 외 성공(= 보드 → 보드 이동): uiPlace.
+   *
+   * ⚠️ v1.12에서 출발지 인자가 사라졌다. 트레이가 없어지면서 "트레이 내 재정렬은 무음"이라는
+   * 예외 하나가 함께 사라졌고, 남은 성공 경로가 이동 하나뿐이라 분기가 필요 없어졌다.
    */
-  private playDropCue(from: 'slot' | 'board', target: DropTarget, ok: boolean): void {
+  private playDropCue(target: DropTarget, ok: boolean): void {
     if (!ok) { this.audio.playUi('uiInvalid', performance.now()); return; }
     if (!target) return;   // ok는 target이 있을 때만 true가 될 수 있다 — 타입 좁히기용 방어적 분기
     if (target.kind === 'sell') { this.audio.playUi('uiSell', performance.now()); return; }
-    if (target.kind === 'slot' && from === 'slot') return;   // 재정렬 — 무음 (위 문서 참고)
     this.audio.playUi('uiPlace', performance.now());
   }
 

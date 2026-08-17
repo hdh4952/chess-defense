@@ -12,9 +12,17 @@ export interface Square { file: number; rank: number }
 export interface Piece {
   id: string;              // 쿨다운은 이 ID 기준으로 유지된다
   type: PieceType;
-  square: Square | null;   // null = 슬롯
-  slotIndex: number | null;
-  cooldown: number;        // 초. 이동/회수해도 초기화되지 않음
+  /**
+   * ★ v1.12부터 **널이 아니다.** 기물 보관함(트레이)이 사라지면서 모든 기물이 항상 보드 위에
+   * 있다 — 구매·지급 즉시 빈 칸에 무작위로 스폰된다(사용자 결정).
+   *
+   * 타입이 좁아진 것 자체가 이 변경의 핵심 이득이다. 예전에는 `square === null`(= 트레이에
+   * 있음)을 확인하지 않고 쓴 코드가 조용히 틀린 답을 냈다 — 전투 루프·퀸 버프·감속 오라가
+   * 전부 그 검사를 각자 들고 있었고, 새로 추가되는 코드는 그 검사를 빠뜨리기 쉬웠다.
+   * 이제 컴파일러가 그 실수를 아예 표현할 수 없게 만든다.
+   */
+  square: Square;
+  cooldown: number;        // 초. 이동해도 초기화되지 않음
   queenBuffCount: number;
   /**
    * 강화 단계(레벨). 구매 직후 1이고, **같은 종류·같은 티어**끼리 합성하면 1 오른다
@@ -101,9 +109,15 @@ export type GameEvent =
   | { kind: 'bossSpawned'; file: number }
   | { kind: 'waveCleared'; wave: number }
   | { kind: 'prepareStarted'; wave: number; isBossWave: boolean }
-  // 무작위 지급 성공 — 트레이에 T1 기물이 들어왔다.
-  | { kind: 'granted'; pieceType: PieceType }
-  // 트레이가 꽉 차 지급하지 못했다. 조용히 버리면 무음 실패가 하나 더 늘므로 환급하고 알린다.
+  /**
+   * 기물이 보드에 스폰됐다 — 구매(`bought: true`)와 무작위 지급(`false`) 둘 다 (v1.12).
+   *
+   * ★ `square`가 이 이벤트의 존재 이유다. 스폰 위치를 플레이어가 고르지 않으므로, **어디에
+   * 생겼는지 화면이 말해 주지 않으면 56칸 중에서 직접 찾아야 한다.** 예전에는 트레이의 정해진
+   * 칸에 들어와 찾을 필요가 없었다.
+   */
+  | { kind: 'pieceSpawned'; square: Square; pieceType: PieceType; bought: boolean }
+  // 보드에 빈 칸이 없어 지급하지 못했다. 조용히 버리면 무음 실패가 하나 더 늘므로 환급하고 알린다.
   | { kind: 'grantDiscarded'; pieceType: PieceType; refund: number };
 
 /**
@@ -114,7 +128,8 @@ export type GameEvent =
  * render/highlights.ts와 ui/tooltip.ts는 읽기 전용으로 참조한다.
  */
 export interface Interaction {
-  dragging: { pieceId: string; from: 'slot' | 'board' } | null;
+  /** 드래그 중인 기물. 출발지는 언제나 보드다 — v1.12에서 트레이가 사라져 `from`이 없어졌다. */
+  dragging: { pieceId: string } | null;
   selectedPieceId: string | null;
   hoverSquare: Square | null;
 }

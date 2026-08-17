@@ -1,7 +1,6 @@
 import { CONFIG } from '../config';
 import type { GameEvent, GameState, Piece, PieceType, Square } from '../types';
 import { recalcQueenBuffs } from './buff';
-import { freeSlotIndex, SLOT_CAPACITY } from './economy';
 import { inBoard, sameSquare } from './grid';
 import { fusionResult } from './fusion';
 
@@ -10,14 +9,15 @@ export function findPiece(state: GameState, pieceId: string): Piece | undefined 
 }
 
 export function pieceAt(state: GameState, file: number, rank: number): Piece | undefined {
-  return state.pieces.find(p => p.square?.file === file && p.square?.rank === rank);
+  return state.pieces.find(p => p.square.file === file && p.square.rank === rank);
 }
 
 function inLandableBounds(square: Square): boolean {
   return inBoard(square.file, square.rank) && square.rank <= CONFIG.board.ranks - 1;
 }
 
-/** 배치 가능: 1~7랭크(8랭크 = 스폰 구역 불가) + 빈 칸 (스펙 2.1) — 트레이 → 보드 전용 규칙 */
+/** 배치 가능: 1~7랭크(8랭크 = 스폰 구역 불가) + 빈 칸 (스펙 2.1).
+ *  v1.12부터 이 술어를 쓰는 곳은 구매·지급 스폰(economy.emptySquares)과 미리보기뿐이다. */
 export function canPlaceAt(state: GameState, file: number, rank: number): boolean {
   return inLandableBounds({ file, rank }) && !pieceAt(state, file, rank);
 }
@@ -30,15 +30,14 @@ export function canPlaceAt(state: GameState, file: number, rank: number): boolea
 
 export type RejectReason =
   | 'outOfBounds'        // 보드 밖 또는 8랭크(스폰 구역)
-  // ⚠️ 나이트 전용 거부 사유 둘이 연달아 사라졌다.
-  //   v1.10 'knightCooldown' — "미리보기가 약속한 폭발을 실제로도 터뜨리기 위해" 쿨다운 중
-  //     이동을 막던 장치. 폭발이 없어져 막을 대상이 사라졌다.
-  //   v1.11 'knightPattern'  — L자 행마가 아니면 거부하던 사유. 나이트도 다른 기물과 똑같이
-  //     아무 칸으로나 재배치된다(사용자 결정).
-  // 그 결과 **보드 위 기물의 이동에는 남은 제약이 하나도 없다** — 8랭크 금지(outOfBounds)만
-  // 남았고 그것은 모든 기물에 공통이다.
-  | 'typeMismatch'       // 트레이 기물 → 다른 종류가 점유 (밀려날 상대가 없어 맞교환 불가)
-  | 'tierMismatch'       // 같은 종류지만 티어가 다르다 (같은 티어끼리만 합쳐진다)
+  // ⚠️ 거부 사유가 넷 연달아 사라졌다. 이 목록의 길이가 곧 "이 게임에 남은 착지 규칙의 수"다.
+  //   v1.10 'knightCooldown' — 쿨다운 중 이동 금지. 폭발이 없어져 막을 대상이 사라졌다.
+  //   v1.11 'knightPattern'  — L자 행마가 아니면 거부. 나이트도 아무 칸으로나 재배치된다.
+  //   v1.12 'typeMismatch'   — 트레이 기물이 다른 종류가 점유한 칸에 착지할 수 없다는 사유.
+  //          기물 보관함이 사라져 **트레이발 착지라는 경로 자체가 없다**(사용자 결정).
+  //   v1.12 'tierMismatch'   — 같은 이유. 티어가 다르면 보드발은 원래 맞교환이었고, 거부는
+  //          트레이발에만 있던 분기였다.
+  // 남은 것은 둘뿐이고 **둘 다 기물 종류와 무관하다.**
   | 'tierOverflow';      // 같은 종류·같은 티어지만 이미 상한 단계다
 
 /**
@@ -47,7 +46,7 @@ export type RejectReason =
  */
 export type Landing =
   | { kind: 'place'; occupant: null; resultTier: null }
-  // 동종 합성도 resultType을 채운다(= piece.type). 그래야 하류(moveOnBoard/placeFromSlot/
+  // 동종 합성도 resultType을 채운다(= piece.type). 그래야 하류(moveOnBoard/
   // highlights)가 이종/동종을 구분할 필요가 아예 없어진다.
   | { kind: 'merge'; occupant: Piece; resultTier: number; resultType: PieceType }
   | { kind: 'swap'; occupant: Piece; resultTier: null }
@@ -58,7 +57,7 @@ const reject = (occupant: Piece | null, reason: RejectReason): Landing =>
   ({ kind: 'reject', occupant, resultTier: null, reason });
 
 /**
- * 착지 판정 — 이 코드베이스의 핵심 불변식이 사는 곳. 실제 규칙(moveOnBoard/placeFromSlot)과
+ * 착지 판정 — 이 코드베이스의 핵심 불변식이 사는 곳. 실제 규칙(moveOnBoard)과
  * 미리보기(render/highlights.ts)가 **반드시 이 함수 하나만** 호출한다. 그래야 미리보기가 실제로는
  * 거부될 이동·배치·합성을 약속하는 일이 구조적으로 불가능해진다. 예전 canLandAt(boolean)이 하던
  * 역할을 그대로 물려받되, 합성이 들어오면서 "가능/불가" 2값으로는 표현할 수 없게 됐다 —
@@ -84,10 +83,6 @@ export function resolveLanding(
 ): Landing {
   if (!inLandableBounds(square)) return reject(null, 'outOfBounds');
 
-  // ⚠️ 여기 있던 보드발 전용 게이트 블록이 통째로 비었다(v1.10 쿨다운 → v1.11 L자). 지금은
-  // 출발지가 보드든 트레이든 **같은 규칙**을 탄다 — fromBoard는 아래 맞교환 판정에만 쓰인다.
-  const fromBoard = piece.square !== null;
-
   const occupant = pieceAt(state, square.file, square.rank);
   if (!occupant) return { kind: 'place', occupant: null, resultTier: null };
   if (occupant === piece) return { kind: 'self', occupant, resultTier: null };
@@ -100,11 +95,9 @@ export function resolveLanding(
     const fused = sameType ? null : fusionResult(piece.type, occupant.type);
 
     if (sameType || fused) {
-      if (occupant.tier !== piece.tier) {
-        return fromBoard
-          ? { kind: 'swap', occupant, resultTier: null }
-          : reject(occupant, 'tierMismatch');
-      }
+      // 티어가 다르면 합성이 아니라 맞교환이다. v1.12 이전에는 여기가 출발지로 갈라져
+      // 트레이발이면 거부였는데, 트레이가 사라져 그 분기 자체가 없어졌다.
+      if (occupant.tier !== piece.tier) return { kind: 'swap', occupant, resultTier: null };
       // ⚠️ 여기 있던 점유자 쿨다운 게이트도 사라졌다(v1.10). 그 게이트가 막던 것은 "합성은
       // 성사됐는데 직후 폭발이 조용히 삼켜지는" 경우인데, 합성 직후에 일어나는 일이 이제
       // 없다. 감속은 합성 결과 기물이 그 자리에 서 있다는 사실만으로 다음 틱에 저절로 걸린다.
@@ -118,10 +111,8 @@ export function resolveLanding(
     }
   }
 
-  // 트레이 기물은 점유 칸에 착지할 수 없다 — 맞교환은 밀려날 기물이 되돌아갈 출발 칸을 필요로
-  // 하는데 트레이발에는 그 칸이 없기 때문이다. 합성만은 예외로 허용되는데(위 분기), 합성은
-  // 한쪽이 사라지므로 애초에 되돌아갈 자리가 필요 없다.
-  if (!fromBoard) return reject(occupant, 'typeMismatch');
+  // 합성이 성립하지 않는 점유 칸은 전부 맞교환이다. 모든 기물이 보드 위에 있으므로 밀려날
+  // 기물이 되돌아갈 출발 칸이 **항상 존재한다** — 트레이발에는 그 칸이 없어 거부해야 했다.
   return { kind: 'swap', occupant, resultTier: null };
 }
 
@@ -146,7 +137,7 @@ export function canLandAt(state: GameState, piece: Piece, square: Square): boole
  * 초기화 버튼이 되어, 쿨다운을 기물 ID에 묶어 둔 스펙 5.1의 의도가 통째로 무너진다.
  *
  * 흡수된 기물은 반드시 state.pieces에서 제거한다(자리만 비우면 안 된다) — pieceAt/pieceUnder/
- * updateSlots/tooltip이 전부 첫 일치만 집으므로, 같은 칸에 두 기물이 남으면 아래 깔린 쪽이
+ * tooltip이 전부 첫 일치만 집으므로, 같은 칸에 두 기물이 남으면 아래 깔린 쪽이
  * 영원히 조작 불가능해진다.
  */
 function commitMerge(
@@ -164,7 +155,7 @@ function commitMerge(
   // 흡수된 쪽이 퀸이 아니어도 퀸 라인 위였을 수 있고, 결과가 아마존이면 **새 버퍼가 생긴다**.
   recalcQueenBuffs(state);
   events.push({
-    kind: 'merged', square: { ...survivor.square! }, pieceType: survivor.type, tier: survivor.tier,
+    kind: 'merged', square: { ...survivor.square }, pieceType: survivor.type, tier: survivor.tier,
   });
 }
 
@@ -181,26 +172,12 @@ function interactable(state: GameState): boolean {
  * 다시 **조작 규칙만** 다루는 파일이 됐다(피해를 주지 않으므로 combat.ts 의존도 없어졌다).
  */
 
-/** 슬롯 → 보드. 쿨다운은 유지된다 (스펙 5.1) */
-export function placeFromSlot(
-  state: GameState, pieceId: string, file: number, rank: number, events: GameEvent[],
-  allowMerge = false,
-): boolean {
-  const p = findPiece(state, pieceId);
-  if (!p || p.square !== null || !interactable(state)) return false;
-  const landing = resolveLanding(state, p, { file, rank }, allowMerge);
-  if (landing.kind === 'reject') return false;
-  if (landing.kind === 'merge') {
-    // 트레이발 합성이 슬롯을 하나 비워 canBuy를 다시 연다 — 보드가 꽉 찬 후반에도 구매 루프가
-    // 계속 돌게 하는 의도된 동작이다. 흡수되는 건 트레이의 p이므로 보드 위 칸 수는 그대로다.
-    commitMerge(state, p, landing.occupant, landing.resultTier, landing.resultType, events);
-    return true;
-  }
-  p.square = { file, rank };
-  p.slotIndex = null;
-  recalcQueenBuffs(state);
-  return true;
-}
+/*
+ * ⚠️ 여기 있던 placeFromSlot(슬롯 → 보드)이 v1.12에서 삭제됐다 — 기물 보관함이 사라지면서
+ * 구매·지급이 곧 배치가 됐다(economy.ts의 buyPiece/grantPiece가 빈 칸에 직접 스폰한다).
+ * 그 함수가 지키던 규칙(8랭크 금지·합성·쿨다운 승계)은 전부 resolveLanding과 commitMerge에
+ * 남아 있고, 보드 → 보드 경로가 그대로 이어받는다.
+ */
 
 /**
  * 보드 → 보드. **어느 칸으로든, 웨이브 중에도 무제한이다** — 기물 종류에 따른 이동 제약이
@@ -226,7 +203,7 @@ export function moveOnBoard(
   allowMerge = false,
 ): boolean {
   const p = findPiece(state, pieceId);
-  if (!p || p.square === null || !interactable(state)) return false;
+  if (!p || !interactable(state)) return false;
   if (sameSquare(p.square, { file, rank })) return false;   // 제자리 이동 = no-op
   const landing = resolveLanding(state, p, { file, rank }, allowMerge);
   if (landing.kind === 'reject' || landing.kind === 'self') return false;
@@ -244,32 +221,8 @@ export function moveOnBoard(
   return true;
 }
 
-/** 보드 → 슬롯 회수. 쿨다운 유지 (스펙 5.1/7.2) */
-export function recallToSlot(state: GameState, pieceId: string, preferredSlot?: number): boolean {
-  const p = findPiece(state, pieceId);
-  if (!p || p.square === null || !interactable(state)) return false;
-  const occupied = new Set(
-    state.pieces.filter(x => x.slotIndex !== null).map(x => x.slotIndex as number),
-  );
-  const target = preferredSlot !== undefined
-    && preferredSlot >= 0 && preferredSlot < SLOT_CAPACITY
-    && !occupied.has(preferredSlot)
-    ? preferredSlot
-    : freeSlotIndex(state);
-  if (target === null) return false;
-  p.square = null;
-  p.slotIndex = target;
-  recalcQueenBuffs(state);
-  return true;
-}
-
-/** 슬롯 내 재정렬 — 빈칸 이동 또는 점유자와 맞교환 (스펙 7.2/7.5) */
-export function reorderSlots(state: GameState, pieceId: string, targetIndex: number): boolean {
-  const p = findPiece(state, pieceId);
-  if (!p || p.slotIndex === null || !interactable(state)) return false;
-  if (targetIndex < 0 || targetIndex >= SLOT_CAPACITY) return false;
-  const occupant = state.pieces.find(x => x.slotIndex === targetIndex);
-  if (occupant) occupant.slotIndex = p.slotIndex;
-  p.slotIndex = targetIndex;
-  return true;
-}
+/*
+ * ⚠️ recallToSlot(보드 → 슬롯 회수)과 reorderSlots(트레이 내 재정렬)도 v1.12에서 함께
+ * 삭제됐다. 돌아갈 트레이가 없다 — 기물을 보드에서 치우는 방법은 이제 판매뿐이다
+ * (ui/drag.ts의 판매 슬롯 드롭 → economy.sellPiece).
+ */

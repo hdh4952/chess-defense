@@ -3,14 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { CONFIG, TRAITS, slowPercent, tierMultiplier } from '../src/config';
 import { recalcQueenBuffs } from '../src/core/buff';
 import { pieceDamage, updateCombat } from '../src/core/combat';
-import { sellPrice } from '../src/core/economy';
+import { grantPiece, sellPrice } from '../src/core/economy';
 import { FUSION_RECIPES, fusionResult } from '../src/core/fusion';
-import { moveOnBoard, placeFromSlot, resolveLanding } from '../src/core/pieces';
+import { moveOnBoard, resolveLanding } from '../src/core/pieces';
 import { bishopTargets, slowSquares, slowTargets } from '../src/core/patterns';
 import { effectiveSpeed, updateSlowAura } from '../src/core/slow';
 import { buildHighlights, HIGHLIGHT_COLORS } from '../src/render/highlights';
 import { updateTooltip } from '../src/ui/tooltip';
-import type { GameEvent, Piece, PieceType, Square } from '../src/types';
+import type { GameEvent, PieceType, Square } from '../src/types';
 import { boardPiece, enemyAt, waveState } from './helpers';
 
 /**
@@ -20,12 +20,11 @@ import { boardPiece, enemyAt, waveState } from './helpers';
  * 그래서 결과 티어가 오르지 않는다 — 등급 상승이 아니라 정체성 변경이다.
  */
 
-function trayPiece(type: PieceType, tier = 1, slot = 0): Piece {
-  return {
-    id: `t-${type}-${tier}`, type, square: null, slotIndex: slot,
-    cooldown: 0, queenBuffCount: 0, tier,
-  };
-}
+/*
+ * ⚠️ 여기 있던 trayPiece(트레이에 든 기물)가 v1.12에서 삭제됐다 — 기물 보관함이 사라지면서
+ * "square가 null이고 slotIndex를 가진 기물"이라는 상태 자체가 없어졌다(모든 기물은 항상
+ * 보드 위에 있다). 이 헬퍼를 쓰던 두 테스트는 지우지 않고 각각 맞교환·융합 쪽으로 다시 썼다.
+ */
 
 /**
  * 감속을 가진 기물 전부 — 순수 나이트 + 융합물 셋. 목록을 리터럴로 적지 않는 이유는 감속
@@ -86,16 +85,19 @@ describe('융합 판정 — resolveLanding', () => {
       .toMatchObject({ kind: 'merge', resultType: 'chancellor', resultTier: 3 });
   });
 
-  it('티어가 다르면 융합이 아니다 — 보드발은 맞교환, 트레이발은 거부', () => {
-    const s = waveState();
-    const mover = boardPiece('rook', 3, 4, 2);
-    s.pieces.push(mover, boardPiece('knight', 4, 6, 1));
-    expect(resolveLanding(s, mover, { file: 4, rank: 6 }, true)).toMatchObject({ kind: 'swap' });
-
-    const tray = trayPiece('rook', 2);
-    s.pieces.push(tray);
-    expect(resolveLanding(s, tray, { file: 4, rank: 6 }, true))
-      .toMatchObject({ kind: 'reject', reason: 'tierMismatch' });
+  it('티어가 다르면 융합이 아니라 맞교환이다 — 어느 쪽을 집어도 같다', () => {
+    // 제목의 뒷부분이 v1.12에서 바뀌었다. 예전에는 "보드발은 맞교환, 트레이발은 거부"였고
+    // 출발지로 갈리는 분기가 실제로 있었는데, 보관함이 사라지면서 그 분기도 RejectReason의
+    // 'tierMismatch'도 함께 삭제됐다. 남은 규칙은 하나다 — **점유 칸은 합성이 아니면 항상
+    // 맞교환**. 양방향을 도는 것이 그 대칭성의 관측 가능한 형태다: 출발지·티어 순서로 갈리는
+    // 게이트가 되살아나면 한쪽만 reject로 떨어져 여기가 깨진다.
+    for (const [moverTier, occTier] of [[2, 1], [1, 2]] as const) {
+      const s = waveState();
+      const mover = boardPiece('rook', 3, 4, moverTier);
+      s.pieces.push(mover, boardPiece('knight', 4, 6, occTier));
+      expect(resolveLanding(s, mover, { file: 4, rank: 6 }, true), `T${moverTier} → T${occTier}`)
+        .toMatchObject({ kind: 'swap' });
+    }
   });
 
   it('클릭-투-무브로는 융합되지 않는다 — 합성과 같은 규칙', () => {
@@ -223,11 +225,27 @@ describe('융합 커밋', () => {
     expect(pieceDamage(target)).toBe(CONFIG.pieces.rook.damage * (1 + target.queenBuffCount));
   });
 
-  it('트레이에서 끌어와도 융합된다', () => {
+  it('★ 갓 얻은 기물도 그대로 융합 재료가 된다 — 경로만 바뀌었다', () => {
+    // 예전 제목은 "트레이에서 끌어와도 융합된다"였다. 트레이발 착지 경로 자체가 v1.12에
+    // 사라졌지만(placeFromSlot 삭제) 지키던 불변식은 그대로 살아 있다: **막 얻은 기물이 이미
+    // 놓인 기물과 융합될 수 있어야 한다.** 이제 그 경로는 "빈 칸에 스폰 → 보드 → 보드 드래그"
+    // 두 단계이고, 스폰이 곧 배치이므로 앞 단계도 여기서 함께 본다.
     const s = waveState();
-    const tray = trayPiece('knight');
-    s.pieces.push(tray, boardPiece('bishop', 4, 4));
-    expect(placeFromSlot(s, tray.id, 4, 4, [], true)).toBe(true);
+    const bishop = boardPiece('bishop', 4, 4);
+    s.pieces.push(bishop);
+    const ev: GameEvent[] = [];
+    const knight = grantPiece(s, 'knight', ev, () => 0);   // 난수는 결정론적으로 주입한다
+    expect(knight).not.toBeNull();
+
+    // 스폰은 반드시 **빈 칸**에 떨어진다. 점유 칸에 겹치면 pieceAt/툴팁이 첫 일치만 집으므로
+    // 아래 깔린 쪽이 조작 불가능해지고, 융합 재료가 될 기회조차 없이 화면에서 사라진다.
+    expect(knight!.square).not.toEqual(bishop.square);
+    // 이벤트의 square가 실제 기물 위치와 같아야 한다 — 이펙트·소리가 엉뚱한 칸에서 난다.
+    expect(ev).toContainEqual({
+      kind: 'pieceSpawned', square: { ...knight!.square }, pieceType: 'knight', bought: false,
+    });
+
+    expect(moveOnBoard(s, knight!.id, bishop.square.file, bishop.square.rank, ev, true)).toBe(true);
     expect(s.pieces).toHaveLength(1);
     expect(s.pieces[0].type).toBe('archbishop');
   });

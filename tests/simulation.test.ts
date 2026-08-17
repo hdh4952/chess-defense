@@ -9,11 +9,23 @@ import { boardPiece, bossHpFor, chaseWave5Boss } from './helpers';
 const DT = 1 / 60;
 const cycleRng = () => { let i = 0; return () => (i++ % 8) / 8; };   // a~h 순환 스폰
 
+/**
+ * ⚠️ ★ grantRng를 `() => 0`으로 **고정한다**(v1.12). 기본값(Math.random)으로 두면 이 하네스의
+ * 측정이 통째로 비결정론적이 된다 — 기물 보관함이 사라지면서 지급 기물이 트레이가 아니라
+ * 보드에 스폰돼 곧바로 싸우기 때문이다(실측: 같은 빌드의 총수입이 20,862 ~ 23,762G로 널뛴다).
+ *
+ * `() => 0`은 지급을 항상 폰으로 만든다(pickGrantType의 첫 구간). 폰은 goldPerAttack이 0이라
+ * 수입에 관여하지 않아, 이 파일의 골드 정산 단언이 예전 그대로 성립한다 — 즉 이 고정값은
+ * "지급이 없던 시절"을 재현하는 값이고, 지급이 실제로 얼마나 기여하는지는 signals.test.ts의
+ * 전용 신호가 따로 잰다.
+ */
+const GRANT_PAWN = (): number => 0;
+
 function run(s: GameState, seconds: number, rng: () => number, onTick?: () => void): void {
   const ev: GameEvent[] = [];
   for (let t = 0; t < seconds; t += DT) {
     if (s.phase === 'victory' || s.phase === 'defeat') return;
-    stepGame(s, DT, ev, rng);
+    stepGame(s, DT, ev, rng, GRANT_PAWN);
     ev.length = 0;
     onTick?.();
   }

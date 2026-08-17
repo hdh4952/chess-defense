@@ -21,7 +21,7 @@ export function enemyAt(wave: number, file: number, rank: number, isBoss = false
  *  합성 테스트만 강화된 기물을 직접 만들 수 있다. */
 export function boardPiece(type: PieceType, file: number, rank: number, tier = 1): Piece {
   return {
-    id: `bp-${seq++}`, type, square: { file, rank }, slotIndex: null,
+    id: `bp-${seq++}`, type, square: { file, rank },
     cooldown: 0, queenBuffCount: 0, tier,
   };
 }

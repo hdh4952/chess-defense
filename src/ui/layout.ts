@@ -1,6 +1,5 @@
 import { CONFIG, TRAITS } from '../config';
 import { BOARD_H, BOARD_W } from '../core/grid';
-import { SLOT_CAPACITY } from '../core/economy';
 import { ALLY_SPRITE_URL } from '../render/sprites';
 import type { PieceType } from '../types';
 
@@ -11,7 +10,6 @@ export interface Layout {
     timer: HTMLElement; bossIcon: HTMLElement;
     pauseBtn: HTMLButtonElement; speedBtn: HTMLButtonElement; muteBtn: HTMLButtonElement;
   };
-  slotGrid: HTMLElement;
   shopButtons: Map<PieceType, HTMLButtonElement>;
   sellSlot: HTMLElement;
   startBtn: HTMLButtonElement;
@@ -70,7 +68,6 @@ export function createLayout(app: HTMLElement): Layout {
     </header>
     <main id="main">
       <aside id="left">
-        <div id="slots"></div>
         <div id="shop"></div>
       </aside>
       <div id="board-wrap">
@@ -85,14 +82,6 @@ ${CREDIT_HTML}
     <div id="banner-root"></div>
   `;
 
-  const slotGrid = app.querySelector<HTMLElement>('#slots')!;
-  for (let i = 0; i < SLOT_CAPACITY; i++) {
-    const cell = document.createElement('div');
-    cell.className = 'slot-cell';
-    cell.dataset.slotIndex = String(i);
-    slotGrid.appendChild(cell);
-  }
-
   const shop = app.querySelector<HTMLElement>('#shop')!;
   const shopButtons = new Map<PieceType, HTMLButtonElement>();
   for (const type of SHOP_ORDER) {
@@ -100,8 +89,7 @@ ${CREDIT_HTML}
     btn.className = 'shop-btn';
     btn.dataset.pieceType = type;
     // alt=""(장식용): 아이콘 바로 옆에 PIECE_NAME 텍스트가 보이므로 alt에 같은 이름을 또
-    // 넣으면 스크린 리더가 두 번 읽는다(재검토 Item 7). 슬롯 트레이(slots.ts)의 아이콘은 옆에
-    // 별도 텍스트가 없어 유일한 식별 수단이므로 그쪽은 alt를 그대로 의미 있게 유지한다.
+    // 넣으면 스크린 리더가 두 번 읽는다(재검토 Item 7).
     btn.innerHTML = `<img class="piece-icon shop-icon" src="${ALLY_SPRITE_URL[type]}" alt="" draggable="false"> ${PIECE_NAME[type]}<br><small>${CONFIG.pieces[type].cost}G</small>`;
     shop.appendChild(btn);
     shopButtons.set(type, btn);
@@ -116,7 +104,6 @@ ${CREDIT_HTML}
       pauseBtn: q<HTMLButtonElement>('#hud-pause'), speedBtn: q<HTMLButtonElement>('#hud-speed'),
       muteBtn: q<HTMLButtonElement>('#hud-mute'),
     },
-    slotGrid,
     shopButtons,
     sellSlot: q('#sell-slot'),
     startBtn: q<HTMLButtonElement>('#start-wave'),

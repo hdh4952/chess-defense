@@ -11,16 +11,17 @@ import { queenLines } from './patterns';
  */
 export function recalcQueenBuffs(state: GameState): void {
   for (const p of state.pieces) p.queenBuffCount = 0;
-  const onBoard = state.pieces.filter(p => p.square !== null);
+  // v1.12부터 모든 기물이 보드 위에 있다 — 트레이를 걸러내던 filter가 필요 없어졌다.
+  const onBoard = state.pieces;
   for (const q of onBoard) {
     const factor = TRAITS[q.type].buffFactor;
     if (factor === 0) continue;
-    const covered = queenLines(q.square!);
+    const covered = queenLines(q.square);
     for (const p of onBoard) {
       if (p === q) continue;
       // 퀸의 유일한 능력치가 버프이므로 합성되면 버프가 합해진다 — T2 퀸 하나가 T1 퀸 둘과
       // 정확히 같은 +2를 준다(비용도 1,800G로 같다). 합성이 손해도 이득도 아니게 만드는 조건이다.
-      if (covered.some(sq => sameSquare(sq, p.square!))) p.queenBuffCount += tierMultiplier(q.tier) * factor;
+      if (covered.some(sq => sameSquare(sq, p.square))) p.queenBuffCount += tierMultiplier(q.tier) * factor;
     }
   }
 }

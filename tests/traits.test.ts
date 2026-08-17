@@ -145,7 +145,13 @@ describe('TRAITS — 전수성과 일관성', () => {
       const s = waveState();
       s.gold = 999999;
       expect(canBuy(s, type), type).toBe(false);
-      expect(buyPiece(s, type), type).toBeNull();
+      // v1.12에서 buyPiece가 보드에 직접 스폰하게 되면서 실패의 흔적이 늘었다 — null만 봐서는
+      // 기물이 이미 판에 떨어진 뒤 null을 돌려주는 구현도 통과한다. rng는 `() => 0`으로 고정해
+      // 스폰이 일어났다면 a1에 남도록 만들어 두고, 보드와 이벤트가 둘 다 그대로인지 묻는다.
+      const ev: GameEvent[] = [];
+      expect(buyPiece(s, type, ev, () => 0), type).toBeNull();
+      expect(s.pieces, type).toEqual([]);
+      expect(ev, type).toEqual([]);
     }
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CONFIG, clearBonus, enemyCount, enemyHp } from '../src/config';
+import { CONFIG, clearBonus, enemyCount, enemyHp, pickGrantType } from '../src/config';
 import {
   boardPiece, bossTransit, buildCost, chaseWave5Boss, countingRng, cycleRng,
   fullRun, minWinBuild, rooksTwoPerFile, transitDamage,
@@ -194,8 +194,15 @@ describe('N6 — 엔진 무결성 풀런 (감시: 전 단계)', () => {
 
   // rng 감시 역할은 없다. 8파일 대칭 빌드에서는 스폰 파일이 결과에 영향을 주지 않아
   // `() => 0`(전부 파일 0)으로 돌려도 같은 값이 나온다. rng는 N8이 본다.
+  //
+  // ⚠️ ★ **grantRng는 반드시 주입해야 한다**(v1.12). 기물 보관함이 사라지면서 지급 기물이
+  // 트레이가 아니라 **보드에 스폰돼 곧바로 싸운다** — 무엇을 받았는지가 결과를 바꾼다.
+  // 기본값(Math.random)으로 두면 같은 빌드의 총수입이 실측 20,862 ~ 23,762G로 널뛰어
+  // 이 신호가 통째로 무의미해진다. 예전에는 지급 기물이 트레이에서 아무것도 하지 않아
+  // 기본값이어도 결과가 고정됐다 — 그 사실에 기대고 있던 코드가 여기다.
+  const GRANT_PAWN = () => 0;      // pickGrantType(0) = 폰(가중치 첫 구간). 폰은 골드를 벌지 않는다.
   it('룩 2기/파일: 일반 적 전멸 · 보스 4마리 전부 누수', () => {
-    const r = fullRun(rooksTwoPerFile(), cycleRng());
+    const r = fullRun(rooksTwoPerFile(), cycleRng(), GRANT_PAWN);
     expect(r.phase).toBe('victory');
     expect(r.kills).toBe(448);
     expect(r.leaks).toBe(4);
@@ -215,7 +222,7 @@ describe('N6 — 엔진 무결성 풀런 (감시: 전 단계)', () => {
     // ⚠️ 이 빌드가 w20을 놓치는 것은 **화력이 모자라서가 아니라 배치 때문이다.** 같은 18,800G를
     // 보스 파일에 집중하면 8/8로 잡힌다(아래 N7 참고). 골드를 더 쓰는 것(룩 8기 +4,000G → 6/8)도
     // 방법이지만, 이 게임에서 w20을 여는 주된 수단은 구매가 아니라 **이동**이다.
-    const r = fullRun(minWinBuild(), cycleRng());
+    const r = fullRun(minWinBuild(), cycleRng(), GRANT_PAWN);
     expect(r.phase).toBe('victory');
     expect(r.kills).toBe(451);
     expect(r.leaks).toBe(1);
@@ -223,6 +230,37 @@ describe('N6 — 엔진 무결성 풀런 (감시: 전 단계)', () => {
     expect(r.bossLeaks * CONFIG.player.hpLossBoss).toBeLessThan(CONFIG.player.startHp);
     // w20 보스 하나만 놓친다.
     expect(r.earned).toBe(earnedFor(w => w !== CONFIG.wave.total));
+  });
+
+  it('★ 지급 기물이 이제 수입에 직접 기여한다 — 보관함 폐지의 실제 크기 (v1.12)', () => {
+    // 이 신호가 없으면 v1.12의 가장 큰 밸런스 변화가 어디에도 기록되지 않는다.
+    //
+    // 예전에는 지급 기물이 트레이에 쌓였고, 플레이어가 직접 배치하기 전까지 아무 일도 하지
+    // 않았다. 헤드리스 하네스는 배치를 흉내내지 않으므로 지급 10기가 통째로 놀았고, 그래서
+    // 총수입이 "처치 골드 + 클리어 보너스" 공식과 정확히 일치했다. 이제 스폰이 곧 배치라
+    // 지급 비숍은 받는 즉시 골드를 벌고 지급 룩은 적을 잡는다.
+    //
+    // 폰(무수입)과 비숍(공격당 +10G)을 각각 고정 지급해 그 차이를 격리한다.
+    const GRANT_BISHOP = () => 0.4;   // pickGrantType(0.4) = 비숍
+    expect(pickGrantType(0)).toBe('pawn');
+    expect(pickGrantType(0.4)).toBe('bishop');
+
+    const pawns = fullRun(rooksTwoPerFile(), cycleRng(), GRANT_PAWN);
+    const bishops = fullRun(rooksTwoPerFile(), cycleRng(), GRANT_BISHOP);
+
+    // 처치 수는 같다 — 비숍은 공격력 1이라 룩 2기/파일이 이미 전멸시키는 적을 더 죽이지 못한다.
+    expect(bishops.kills).toBe(pawns.kills);
+    // 그런데 수입은 늘어난다. 그 증가분 전부가 비숍의 goldPerAttack이다.
+    expect(bishops.earned).toBeGreaterThan(pawns.earned);
+    // 폰 지급은 공식과 정확히 일치한다 — 지급이 수입에 관여하지 않는 유일한 경우다.
+    expect(pawns.earned).toBe(earnedFor(w => w % CONFIG.wave.bossEvery !== 0));
+
+    // 크기를 못박는다. 지급 10회 전부가 비숍일 때의 실측 증가분이다 — 기준 수입 20,132G의
+    // **+46%**이고, 비숍 1기당 932G다(CONFIG.pieces 주석의 "한 판 1,120~1,850G"보다 낮은 것은
+    // 지급이 짝수 웨이브마다 늦게 도착해 버는 시간이 짧기 때문이다).
+    // 이 값이 v1.12가 플레이어에게 준 실질 이득의 크기이고, 밸런스를 되돌려야 할 때 볼 수다.
+    expect(bishops.earned - pawns.earned).toBe(9320);
+    expect((bishops.earned - pawns.earned) / pawns.earned).toBeGreaterThan(0.4);
   });
 });
 

@@ -26,12 +26,13 @@ import { slowTargets } from './patterns';
  * "이 기물을 여기 놓으면 **새로** 덮이는 칸은 어디인가"를 그리는 데 쓴다. 이 인자가 없으면
  * 미리보기가 제자리 기물의 오라를 자기 자신과 겹쳐 세어, 이미 덮인 칸을 새 칸처럼 보여준다.
  *
- * 슬롯에 있는 기물(square === null)은 당연히 아무것도 덮지 않는다 — 보드 위 기물만 센다.
+ * ⚠️ v1.12 이전에는 트레이 기물(square === null)을 걸러내는 검사가 여기 있었다. 기물 보관함이
+ * 사라져 모든 기물이 보드 위에 있으므로 그 검사가 필요 없다 — 타입이 그것을 보장한다.
  */
 export function slowCoverage(state: GameState, except?: Piece | null): Map<string, Square> {
   const out = new Map<string, Square>();
   for (const p of state.pieces) {
-    if (p === except || p.square === null) continue;
+    if (p === except) continue;
     for (const sq of slowTargets(p.type, p.square)) out.set(squareKey(sq), sq);
   }
   return out;

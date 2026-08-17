@@ -97,7 +97,7 @@ export function updateCombat(state: GameState, dt: number, events: GameEvent[]):
     if (p.cooldown < COOLDOWN_EPS) p.cooldown = 0;
     const def = CONFIG.pieces[p.type];
     if (TRAITS[p.type].pattern === 'none' || def.damage === 0) continue;
-    if (p.square === null || p.cooldown > 0) continue;
+    if (p.cooldown > 0) continue;
     const targets = attackTargets(p.type, p.square);
     if (!anyEnemyIn(state, targets)) continue;
     applyAttack(state, targets, pieceDamage(p), events);

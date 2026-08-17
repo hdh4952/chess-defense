@@ -19,12 +19,14 @@ export class Banners {
       const isPivotal = ev.wave === CONFIG.wave.total - CONFIG.wave.bossEvery;
       this.showBanner(isPivotal ? '⚠ 최대 고비 — BOSS WAVE' : '⚠ BOSS WAVE');
     }
-    if (ev.kind === 'granted') {
-      // 무엇을 받았는지 알려야 한다. 트레이에 조용히 나타나면 후반에는 알아채지도 못한다.
+    // 무상 지급만 배너로 알린다. **구매는 알리지 않는다** — 플레이어가 방금 스스로 누른
+    // 버튼이라 무엇을 얻었는지 이미 알고, 배너가 뜨면 후반에 상점을 연타할 때마다 화면을
+    // 가린다. 어디에 생겼는지는 두 경우 모두 캔버스의 스폰 표식이 말한다.
+    if (ev.kind === 'pieceSpawned' && !ev.bought) {
       this.showBanner(`+ ${PIECE_NAME[ev.pieceType]} 획득`);
     }
     if (ev.kind === 'grantDiscarded') {
-      this.showBanner(`트레이 가득 참 — ${PIECE_NAME[ev.pieceType]} 대신 ${ev.refund}G`);
+      this.showBanner(`보드 가득 참 — ${PIECE_NAME[ev.pieceType]} 대신 ${ev.refund}G`);
     }
     if (ev.kind === 'bossSpawned') {
       this.bossFlash = { file: ev.file, t: 1.0 };

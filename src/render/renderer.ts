@@ -114,7 +114,7 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState, view: Vi
       ctx.lineTo(fileCenterX(l.to.file), rankToTopY(l.to.rank) + SQ / 2);
       ctx.stroke();
     }
-    for (const p of state.pieces) if (p.square) drawPiece(ctx, p);
+    for (const p of state.pieces) drawPiece(ctx, p);
     // 기물 위, 적 아래 — 미리보기는 대상 기물을 덮어야 읽히지만 적을 가리면 안 된다.
     if (view.mergePreview) drawMergePreview(ctx, view.mergePreview);
     const sorted = [...state.enemies].sort((a, b) => a.y - b.y);
@@ -288,8 +288,8 @@ function drawMergePreview(
 }
 
 function drawPiece(ctx: CanvasRenderingContext2D, p: Piece): void {
-  const x = fileCenterX(p.square!.file);
-  const y = rankToTopY(p.square!.rank) + SQ / 2;
+  const x = fileCenterX(p.square.file);
+  const y = rankToTopY(p.square.rank) + SQ / 2;
   const ring = tierRingColor(p.tier);
   if (ring) drawTierRing(ctx, x, y, ring);       // 스프라이트 아래 — 실루엣을 가리지 않는다
   const sprite = getAllySprite(p.type);

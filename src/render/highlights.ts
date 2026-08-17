@@ -65,13 +65,15 @@ function queenLineSegments(anchor: Square): { from: Square; to: Square }[] {
 /**
  * 선택/드래그 중인 기물이 실제로 서 있는 칸(anchor가 아니라 piece.square 그 자체)을 표시한다
  * (사용자 요청 — 클릭-투-무브 중에는 사거리 미리보기가 마우스를 따라가므로, 두 클릭 사이에는
- * "무엇이 선택됐는지"를 보여줄 게 이 표식뿐이다). 트레이 기물(piece.square === null)은 보드 칸이
- * 없으므로 아무것도 push하지 않는다. 항상 각 브랜치의 마지막에 호출해야 한다 — render()는 배열
- * 순서대로 알파 블렌드하므로, range/queenLine 채우기보다 먼저 push되면 그 밑에 묻혀 버린다
- * (선택 칸은 대개 기물 자신의 사거리 안이기도 하다 — 비숍/룩/퀸 패턴이 자기 칸을 포함하므로).
+ * "무엇이 선택됐는지"를 보여줄 게 이 표식뿐이다).
+ *
+ * 항상 각 브랜치의 **마지막**에 호출해야 한다 — render()는 배열 순서대로 알파 블렌드하므로,
+ * range/queenLine 채우기보다 먼저 push되면 그 밑에 묻혀 버린다(선택 칸은 대개 기물 자신의
+ * 사거리 안이기도 하다 — 비숍/룩/퀸 패턴이 자기 칸을 포함하므로).
+ * v1.12 이전에는 트레이 기물에 보드 칸이 없어 아무것도 push하지 않는 분기가 있었다.
  */
 function pushSelected(highlights: ViewState['highlights'], piece: Piece): void {
-  if (piece.square) highlights.push({ square: piece.square, color: C.selected });
+  highlights.push({ square: piece.square, color: C.selected });
 }
 
 /**
@@ -128,7 +130,7 @@ export function buildHighlights(
   // 8종 전부를 처리한다(공격 사거리 · 감속 범위 · 버프 라인을 각각 독립으로 얹는 구조).
 
   // ── 그 외 전부: hover가 실제로 착지 불가능한 칸이면 미리보기 자체를 그리지 않는다. 그러지
-  // 않으면 moveOnBoard/placeFromSlot이 거부할 이동·배치를 미리 약속하게 된다 (검토 Item 1).
+  // 않으면 moveOnBoard가 거부할 이동을 미리 약속하게 된다 (검토 Item 1).
   // 보드 위 기물이 점유 칸(자기 칸 포함)에 hover하는 경우는 canLandAt이 거부하지 않는다 —
   // 점유 칸도 맞교환 대상이기 때문이고, 덕분에 "기물을 클릭해 사거리를 확인한다"는 가장 흔한
   // 조작이 별도 예외 없이 통과한다.
@@ -147,7 +149,7 @@ export function buildHighlights(
     for (const seg of queenLineSegments(anchor)) lines.push({ ...seg, color: C.queenLine });
   }
   const { attack, slow } = previewRange(piece, anchor);
-  const anchorIsOwnSquare = piece.square !== null && sameSquare(anchor, piece.square);
+  const anchorIsOwnSquare = sameSquare(anchor, piece.square);
   // ★ 감속 링은 자기 칸(anchor)을 **포함하지 않는다** — 3×3 폭발은 포함했었다. 그래서 예전의
   // "targets가 anchor를 덮는가" 검사만으로는 버프 기물(아마존)에 origin이 새로 찍히는 회귀가
   // 생긴다. buffFactor 항이 그 구멍을 막는다(queenLines는 항상 자기 칸을 포함한다).

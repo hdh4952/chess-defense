@@ -48,7 +48,7 @@ describe('updateTooltip (스펙 7.7 — 기물 hover 툴팁)', () => {
     const p = boardPiece('rook', 2, 2);
     state.pieces.push(p);
     const dragging: Interaction = {
-      dragging: { pieceId: p.id, from: 'board' }, selectedPieceId: null, hoverSquare: { file: 2, rank: 2 },
+      dragging: { pieceId: p.id }, selectedPieceId: null, hoverSquare: { file: 2, rank: 2 },
     };
     updateTooltip(el, state, dragging, { x: 10, y: 10 });
     expect(el.hidden).toBe(true);

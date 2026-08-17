@@ -172,7 +172,9 @@ function cueForEvent(ev: GameEvent): CueKind | null {
     // 이미 분명히 알린다.
     case 'merged': return null;
     // 지급은 구매와 같은 종류의 사건이라 같은 소리를 쓴다. 실패(트레이 만석)는 거부음이다.
-    case 'granted': return 'uiBuy';
+    // 지급은 구매와 같은 소리를 쓴다 — 같은 종류의 사건이라서다. 구매 쪽은 UI가 직접
+    // playUi('uiBuy')를 부르므로(shop.ts) 여기서 또 울리면 두 겹이 된다.
+    case 'pieceSpawned': return ev.bought ? null : 'uiBuy';
     case 'grantDiscarded': return 'uiInvalid';
     case 'enemyDied': return ev.isBoss ? 'bossDied' : 'enemyDied';
     case 'enemyLeaked': return 'enemyLeaked';
