@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG, clearBonus, enemyCount, enemyHp, pickGrantType } from '../src/config';
+import { emptySquares, sellPrice } from '../src/core/economy';
+import { createInitialState } from '../src/core/state';
 import {
   boardPiece, bossTransit, buildCost, chaseWave5Boss, countingRng, cycleRng,
   fullRun, minWinBuild, rooksTwoPerFile, transitDamage,
@@ -64,6 +66,76 @@ describe('N1a — 이론 예산 상한 (감시: 클리어 보너스 단계)', ()
     expect(clearBonus(1, 0.5)).toBe(375);
     expect(clearBonus(1, 0)).toBe(250);      // 전량 누수 — 하한 50%가 사망 나선을 막는다
     expect(clearBonus(1, 0)).toBe(clearBonus(1) * CONFIG.wave.clearBonusFloor);
+  });
+});
+
+/**
+ * N1b — **실측** 구매력. N1a가 이론 상한을 재는 것과 달리, 이쪽은 한 판을 실제로 돌려
+ * "플레이어가 손에 쥔 최대 구매력"을 잰다: 관측된 최대 보유 골드 + 무상으로 받은 기물의 원가.
+ *
+ * ⚠️ 이 신호는 구현 계획서(§S0 신호 표)가 S5 몫으로 정의해 놓고 **끝내 만들어지지 않았다.**
+ * 그 사이 v1.12가 지급 기물을 트레이가 아니라 **보드에 직접 스폰**하도록 바꾸면서, 하필
+ * 이 신호가 감시하도록 설계된 축이 크게 움직였다 — 지급 비숍이 받는 즉시 골드를 벌기
+ * 시작한 것이다. **정의된 눈이 없던 자리에서 가장 큰 변화가 일어났다**는 것이 이 신호를
+ * 뒤늦게라도 세우는 이유다.
+ */
+describe('N1b — 실측 구매력 ★ (감시: 무작위 지급 · 지급 기물의 즉시 참전)', () => {
+  // 지급 종류를 고정하는 난수. pickGrantType의 누적 구간에서 뽑았다.
+  const GRANT = {
+    pawn: () => 0,
+    bishop: () => 0.4,
+    rook: () => 0.6,
+    knight: () => 0.9,
+  } as const;
+
+  it('고정 난수가 의도한 종류를 뽑는다 — 아래 측정의 전제', () => {
+    // 이 단언이 없으면 가중치를 조정했을 때 아래 기준선들이 **다른 것을 재면서** 그대로 통과한다.
+    for (const [type, rng] of Object.entries(GRANT)) {
+      expect(pickGrantType(rng()), type).toBe(type);
+    }
+  });
+
+  it('★ w5 시작 구매력이 목표(3,000G) 안에 있다 — 계획서 §6의 지급 주기 판정 기준', () => {
+    // 계획서는 grant.everyWaves를 2(10회)로 정하면서 그 근거를 "w5 시작 전 ≤ 3,000G"로 적었다
+    // (20회면 3,928G로 처방 4를 상쇄한다). 그 판정을 지금 실측으로 다시 건다.
+    for (const [type, rng] of Object.entries(GRANT)) {
+      const r = fullRun(rooksTwoPerFile(), cycleRng(), rng);
+      expect(r.goldAtWaveStart[4], type).toBeLessThanOrEqual(3000);
+    }
+  });
+
+  it('w5 시작 보유 골드는 N1a의 이론 상한과 정확히 같다 — 전량 처치 빌드이므로', () => {
+    // 룩 2기/파일은 일반 웨이브를 전멸시키므로 실측이 상한에 붙는다. 둘이 갈라지면 정산
+    // 어딘가가 새는 것이고, 그 누수는 이 등식 말고는 드러나지 않는다.
+    const r = fullRun(rooksTwoPerFile(), cycleRng(), GRANT.pawn);
+    expect(r.goldAtWaveStart[4]).toBe(2788);
+  });
+
+  it('★ 지급 종류가 구매력을 바꾼다 — 비숍이 압도적이다 (v1.12가 만든 축)', () => {
+    // 예전에는 지급 기물이 트레이에 앉아 있어 **종류와 무관하게** 원가만큼만 구매력이었다.
+    // 이제 보드에서 곧바로 일하므로 "무엇을 받았는가"가 판 전체 수입을 좌우한다.
+    const by = Object.fromEntries(
+      Object.entries(GRANT).map(([t, rng]) => [t, fullRun(rooksTwoPerFile(), cycleRng(), rng)]),
+    ) as Record<keyof typeof GRANT, ReturnType<typeof fullRun>>;
+
+    // 지급 수는 종류와 무관하게 같다 — 달라지는 것은 그 기물이 판에서 하는 일뿐이다.
+    for (const t of Object.keys(GRANT) as (keyof typeof GRANT)[]) {
+      expect(by[t].granted, t).toBe(CONFIG.wave.total / CONFIG.grant.everyWaves);
+      expect(by[t].grantedValue, t).toBe(by[t].granted * CONFIG.pieces[t].cost);
+    }
+
+    // ★ 비숍만 **보유 골드 자체**를 부풀린다(goldPerAttack). 나머지 셋은 원가만 더한다.
+    expect(by.bishop.peakGold - by.pawn.peakGold).toBe(9320);
+    expect(by.knight.peakGold).toBe(by.pawn.peakGold);   // 나이트는 공격력 0이라 수입에 무관
+
+    // 룩은 이미 전멸하는 웨이브라 처치를 늘리지 못한다 — 원가만큼만 구매력이 는다.
+    expect(by.rook.peakGold - by.pawn.peakGold).toBeLessThan(1000);
+
+    // 실측 구매력 기준선. 가장 낮은 폰과 가장 높은 비숍의 폭이 곧 지급의 분산이다.
+    expect(by.pawn.peakGold + by.pawn.grantedValue).toBe(21432);
+    expect(by.bishop.peakGold + by.bishop.grantedValue).toBe(31752);
+    expect(by.bishop.peakGold + by.bishop.grantedValue)
+      .toBeGreaterThan((by.pawn.peakGold + by.pawn.grantedValue) * 1.4);
   });
 });
 
@@ -174,6 +246,61 @@ describe('N4 — 합성 골드 중립성 (감시: 적 유형·융합 단계)', (
       const plain = transitDamage(20, [boardPiece('bishop', 3, 4, k)], 3);
       const armored = transitDamage(20, [boardPiece('bishop', 3, 4, k)], 3, ['armored']);
       expect(armored).toBe(plain * armor);
+    }
+  });
+});
+
+/**
+ * N5 — 지급 폐기 횟수. 자리가 없어 지급이 환급으로 바뀐 횟수다.
+ *
+ * ⚠️ N1b와 마찬가지로 계획서가 정의해 놓고 **끝내 구현되지 않은** 신호다. 계획서는 이 값의
+ * 목표 대역을 0~3회로 두고 **"0이면 갈림길 4번으로 판단을 올린다"**고 적었다 — 즉 0은
+ * 실패가 아니라 **설계 판단을 요구하는 결과**다(위험 등록부 R15).
+ *
+ * ★ 실측 결과는 0이다. 그 판단의 내용은 아래 첫 테스트 주석에 적었다.
+ */
+describe('N5 — 지급 폐기 횟수 ★ (감시: 자리 압박이 실재하는가)', () => {
+  const GRANT_PAWN = (): number => 0;
+  const GRANTS = CONFIG.wave.total / CONFIG.grant.everyWaves;
+
+  it('★ 정상 빌드에서는 한 번도 폐기되지 않는다 — "자리 압박"은 실재하지 않는다', () => {
+    // ★ 계획서 R15가 예측한 그대로다. 판정(갈림길 4번): **원안이 노렸던 압박 목표는 폐기한다.**
+    // 지급이 남기는 가치는 압박이 아니라 ① 판마다 다른 구성 ② 초반 부양 ③ 융합 재료 셋이고,
+    // 그 셋은 폐기가 0이어도 온전히 성립한다.
+    //
+    // 무대는 v1.12에서 트레이 16칸 → 보드 56칸으로 넓어졌고, 그만큼 압박은 더 멀어졌다:
+    // 최소 승리 빌드 28기 + 지급 10기 = 38기로 18칸이 남는다.
+    for (const build of [rooksTwoPerFile(), minWinBuild()]) {
+      const r = fullRun(build, cycleRng(), GRANT_PAWN);
+      expect(r.discarded).toBe(0);
+      expect(r.refunded).toBe(0);
+      expect(r.granted).toBe(GRANTS);          // 열 번 다 실제로 받았다
+    }
+  });
+
+  it('★ 그래도 폐기 경로는 죽은 코드가 아니다 — 보드를 채우면 전부 폐기된다', () => {
+    // 위 테스트만 있으면 환급·배너·grantDiscarded 이벤트가 "도달 불가"로 보인다. 도달
+    // 가능하다는 것을 같은 신호 안에서 보여야, 나중에 그 경로를 지우자는 판단이 나올 때
+    // 근거가 함께 읽힌다. 폰 스팸 빌드에서는 실제로 일어나는 상황이다.
+    const s = createInitialState();
+    const full = emptySquares(s).map(q => boardPiece('pawn', q.file, q.rank));
+    expect(full).toHaveLength(CONFIG.board.files * (CONFIG.board.ranks - 1));
+
+    const r = fullRun(full, cycleRng(), GRANT_PAWN);
+    expect(r.granted).toBe(0);                 // 한 번도 못 받았다
+    expect(r.discarded).toBe(GRANTS);          // 열 번 다 폐기됐다
+    // 환급은 판매가다 — 지급 종류가 폰이므로 원가의 sellRatio배.
+    expect(r.refunded).toBe(GRANTS * sellPrice('pawn'));
+  });
+
+  it('추첨 횟수는 폐기 여부와 무관하다 — 조건부로 뽑으면 재현성이 사라진다', () => {
+    // grant.test.ts가 같은 것을 draw 수로 재고, 여기서는 **결과 수**로 교차 확인한다:
+    // 받았든 폐기됐든 둘의 합은 언제나 추첨 횟수와 같아야 한다.
+    const s = createInitialState();
+    const full = emptySquares(s).map(q => boardPiece('pawn', q.file, q.rank));
+    for (const build of [rooksTwoPerFile(), full]) {
+      const r = fullRun(build, cycleRng(), GRANT_PAWN);
+      expect(r.granted + r.discarded).toBe(GRANTS);
     }
   });
 });

@@ -149,6 +149,22 @@ export function buildCost(pieces: Piece[]): number {
 export interface RunReport {
   phase: GameState['phase']; kills: number; leaks: number; bossLeaks: number;
   gold: number; earned: number; seconds: number;
+  // ── 아래 다섯은 N1b·N5 전용이다(구현 계획서 §S0의 신호 표). S5에서 만들기로 했다가
+  //    끝내 구현되지 않았고, 그 사이 v1.12가 지급 기물을 보드에 직접 스폰하도록 바꾸면서
+  //    **정확히 이 신호가 감시하려던 축이 크게 움직였다.** 뒤늦게라도 눈을 단다.
+  /** 한 판 동안 관측된 최대 보유 골드. N1b의 첫 항. */
+  peakGold: number;
+  /** 지급받은 기물 수 (환급된 것은 제외 — 실제로 판에 놓인 것만). */
+  granted: number;
+  /** 지급 기물의 **원가 합**. 무상으로 얻은 구매력이라 N1b의 둘째 항이다. */
+  grantedValue: number;
+  /** 자리가 없어 폐기된 지급 횟수. **이것이 N5다.** */
+  discarded: number;
+  /** 폐기 환급의 골드 합. discarded가 0이면 이 값도 0이고, 그때 환급 경로는 죽은 코드다. */
+  refunded: number;
+  /** 각 웨이브 **시작 시점**의 보유 골드(index 0 = w1). 계획서 §6이 N1b의 목표를
+   *  "w5 시작 전 ≤ 3,000G"로 적었으므로 웨이브별 스냅샷이 필요하다. */
+  goldAtWaveStart: number[];
 }
 
 /** 20웨이브 완주 풀런. 엔진 무결성 확인용 — rng를 감시하지는 못한다(대칭 빌드에서는
@@ -164,14 +180,30 @@ export function fullRun(
   recalcQueenBuffs(s);
   const ev: GameEvent[] = [];
   let leaks = 0, bossLeaks = 0, t = 0;
+  let peakGold = s.gold, granted = 0, grantedValue = 0, discarded = 0, refunded = 0;
+  const goldAtWaveStart: number[] = [];
+  let seenWave = 0;
   for (; t < 3000 && s.phase !== 'victory' && s.phase !== 'defeat'; t += DT) {
+    // 웨이브가 넘어가는 순간의 보유 골드를 찍는다. checkWaveEnd가 보너스를 주고 wave를
+    // 올린 **직후**가 곧 "다음 웨이브 시작 시점"이므로, stepGame 뒤에 번호 변화로 잡는다.
+    if (s.wave !== seenWave) { seenWave = s.wave; goldAtWaveStart[s.wave - 1] = s.gold; }
     stepGame(s, DT, ev, rng, grantRng);
-    for (const x of ev) if (x.kind === 'enemyLeaked') { leaks++; if (x.isBoss) bossLeaks++; }
+    for (const x of ev) {
+      if (x.kind === 'enemyLeaked') { leaks++; if (x.isBoss) bossLeaks++; }
+      // 구매는 이 하네스에 없으므로 pieceSpawned는 전부 지급이다 — 그래도 bought를 확인해
+      // 나중에 구매 경로가 들어와도 이 집계가 조용히 오염되지 않게 한다.
+      else if (x.kind === 'pieceSpawned' && !x.bought) {
+        granted++;
+        grantedValue += CONFIG.pieces[x.pieceType].cost;
+      } else if (x.kind === 'grantDiscarded') { discarded++; refunded += x.refund; }
+    }
     ev.length = 0;
+    if (s.gold > peakGold) peakGold = s.gold;
   }
   return {
     phase: s.phase, kills: s.stats.totalKills, leaks, bossLeaks,
     gold: s.gold, earned: s.stats.totalGoldEarned, seconds: t,
+    peakGold, granted, grantedValue, discarded, refunded, goldAtWaveStart,
   };
 }
 
