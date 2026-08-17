@@ -3,6 +3,7 @@ import {
 } from '../config';
 import type { Enemy, GameEvent, GameState, Piece, Square } from '../types';
 import { enemySquare, sameSquare } from './grid';
+import { splitEnemies } from './enemy';
 import { attackTargets } from './patterns';
 
 /**
@@ -86,6 +87,20 @@ export function applyAttack(
     events.push({
       kind: 'enemyDied', enemyId: e.id, square: enemySquare(e), isBoss: e.isBoss, reward: e.maxHp,
     });
+    // ★ 분열은 처치가 **전부 정산된 뒤**에 일어난다(골드·통계·이벤트 순서 그대로). 앞으로
+    //   당기면 분열체가 이 루프의 나머지 처치 처리와 섞이고, 무엇보다 부모의 처치 보상이
+    //   분열체 생성 실패 여부에 얽힌다.
+    //
+    //   `killed`를 먼저 모아 두고 여기서 state.enemies에 push하는 것이 안전한 이유는, 이
+    //   루프가 순회하는 배열이 state.enemies가 **아니라** killed이기 때문이다. 위 피해 루프에서
+    //   바로 생성하면 순회 중인 배열에 push하게 되고, 새로 태어난 적이 같은 발사에 다시 맞는다.
+    if (e.traits.includes('splitter')) {
+      const born = splitEnemies(e, state.wave);
+      if (born.length > 0) {
+        state.enemies.push(...born);
+        events.push({ kind: 'enemySplit', square: enemySquare(e), count: born.length });
+      }
+    }
   }
 }
 

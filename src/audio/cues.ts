@@ -177,6 +177,10 @@ function cueForEvent(ev: GameEvent): CueKind | null {
     case 'pieceSpawned': return ev.bought ? null : 'uiBuy';
     case 'grantDiscarded': return 'uiInvalid';
     case 'enemyDied': return ev.isBoss ? 'bossDied' : 'enemyDied';
+    // 분열은 무음이다. 같은 프레임에 enemyDied가 이미 울리므로 전용 큐를 주면 처치음과
+    // 두 겹으로 겹치고, 분열은 "죽었다"의 결과이지 별개의 사건이 아니다. 갈라졌다는 사실은
+    // 화면(부모 자리의 분열 이펙트 + 새로 나타난 적 둘)이 말한다.
+    case 'enemySplit': return null;
     case 'enemyLeaked': return 'enemyLeaked';
     case 'bossSpawned': return 'bossSpawn';
     case 'waveCleared': return 'waveClear';

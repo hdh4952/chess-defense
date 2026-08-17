@@ -4,7 +4,9 @@ import { createInitialState } from '../src/core/state';
 import { stepGame } from '../src/core/step';
 import { BOARD_H } from '../src/core/grid';
 import type { GameEvent, GameState, Phase } from '../src/types';
-import { boardPiece, bossHpFor, chaseWave5Boss } from './helpers';
+import {
+  boardPiece, bossHpFor, chaseWave5Boss, totalSplitBorn, totalSplitKillGold,
+} from './helpers';
 
 const DT = 1 / 60;
 const cycleRng = () => { let i = 0; return () => (i++ % 8) / 8; };   // a~h 순환 스폰
@@ -83,12 +85,15 @@ describe('전 게임 시뮬레이션', () => {
       killGold += enemyCount(w) * enemyHp(w) * (isBoss ? CONFIG.enemy.bossHpMultiplier : 1);
     }
     killGold -= bossHpTotal;                                  // 보스 4마리는 놓침(골드 미획득)
+    killGold += totalSplitKillGold();                          // 분열체 처치분(v1.14, helpers에서 유도)
 
     // 452는 스펙이 명시한 20웨이브 전체 적 수 — config 유도치(enemyCount 합)와 별도로 스펙 표기
     // 자체가 여전히 맞는지 교차검증하려고 의도적으로 하드코딩해 둔다. 재조정 시 이 줄만 깨지는
     // 게 정상이며, 아래 실측 단언들은 totalEnemies(유도치)를 그대로 써서 재조정에 영향받지 않는다.
     expect(totalEnemies).toBe(452);
-    expect(s.stats.totalKills).toBe(totalEnemies - bossWaves.length);
+    // 일반 적 전멸(보스 4마리는 누수) + **분열체**(v1.14). 분열체 수는 helpers에서 유도한다 —
+    // splitCount를 바꿨을 때 이 기준선이 조용히 따라 움직이면 아무것도 지키지 못한다.
+    expect(s.stats.totalKills).toBe(totalEnemies - bossWaves.length + totalSplitBorn());
     // 이 빌드는 일반 적을 전멸시키고 보스만 놓치므로, 보스 웨이브의 처치율만 0이다.
     let bonusTotal = 0;
     for (let w = 1; w <= CONFIG.wave.total; w++) {
@@ -390,7 +395,11 @@ describe('밸런스 확장 측정 — 후반 웨이브 & 보스 게이트 (Task 
       // 전방 무시는 "적보다 낮은 랭크에서 온 피해"를 0으로 만들므로 낮은 랭크 방어선이
       // 실드형 적에게 거의 아무것도 하지 못한다(단일 룩 종주 피해 실측: r1 5 · r7 35).
       // 사용자가 적은 "룩이 뒤에서 쏴야 함"이 이 숫자로 드러난 것이다.
-      const ONE_EACH_LEAKS: Record<number, number> = { 16: 5, 17: 6, 18: 6, 19: 6 };
+      // ★ v1.14 두 유형이 이 값을 올렸다. 실드형(전방 무시)이 낮은 랭크 방어선을 막고,
+      //   분열형이 죽은 자리에서 분열체를 낳아 남은 거리가 짧은 적을 더한다 — w18~19의
+      //   6 → 10이 그 분열분이다(분열형 해금이 w14다).
+      const ONE_EACH_LEAKS: Record<number, number> = { 16: 5, 17: 6, 18: 10, 19: 10 };
+      const TWO_EACH_LEAKS: Record<number, number> = { 16: 0, 17: 0, 18: 0, 19: 0 };
       expect(oneEach.leaks).toBe(ONE_EACH_LEAKS[w]);
       // 룩 2기/파일은 여전히 무누수다.
       //
@@ -399,7 +408,11 @@ describe('밸런스 확장 측정 — 후반 웨이브 & 보스 게이트 (Task 
       // 갈린다(위 룩1/파일이 그 증거다). 포화가 유지되는 것은 룩 2기가 랭크 1·2를 함께
       // 덮어 적이 그중 하나 아래로 내려오는 구간이 생기기 때문이고, 랭크를 더 낮게 몰 수
       // 없는 구조적 하한 덕이다. 포화 자체가 유형에 면역이라는 뜻은 아니다.
-      expect(twoEach.leaks).toBe(0);
+      // ⚠️ v1.14: 분열형이 들어오면서 **분열체도 새기 때문에** 0이 아니게 됐다. 룩 2기/파일이
+      //   원래 적을 전부 잡는 것은 그대로지만, 그 적이 죽으면서 낳은 분열체가 부모가 죽은
+      //   자리(= 이미 판 아래쪽)에서 태어나 남은 거리가 짧아 몇 마리가 통과한다.
+      //   "분산이 합성보다 유리하다"와 같은 종류의 새 사실이라 숨기지 않고 실측값을 못박는다.
+      expect(twoEach.leaks).toBe(TWO_EACH_LEAKS[w]);
       // 구조적 불변식: 같은 배치를 더 늘렸는데 누수가 늘어날 수는 없다 (안전한 단언)
       expect(twoEach.leaks).toBeLessThanOrEqual(oneEach.leaks);
       expect(twoEach.cost).toBeLessThan(ceiling);   // 이 시점 이론 상한 내에서 충분히 감당 가능 (config 유도)

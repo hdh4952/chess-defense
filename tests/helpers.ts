@@ -146,6 +146,55 @@ export function buildCost(pieces: Piece[]): number {
   return pieces.reduce((sum, p) => sum + CONFIG.pieces[p.type].cost * tierMultiplier(p.tier), 0);
 }
 
+/**
+ * 한 판에 태어나는 분열체 총수 (v1.14). 처치 수·골드 기준선을 하드코딩하지 않으려고 유도한다 —
+ * splitCount를 바꿨을 때 신호가 조용히 따라 움직이면 아무것도 지키지 못한다.
+ * 보스 웨이브는 분열형이 금지돼 있어(bossForbidden) 제외한다.
+ *
+ * signals·simulation·grant 셋이 같은 값을 필요로 해서 여기 둔다 — 세 곳에 같은 유도를 적으면
+ * 언젠가 하나가 뒤처진다.
+ */
+export function totalSplitBorn(): number {
+  const count = CONFIG.traitDefs.splitter.splitCount ?? 0;
+  let n = 0;
+  for (let w = 1; w <= CONFIG.wave.total; w++) {
+    if (w % CONFIG.wave.bossEvery === 0) continue;
+    for (let i = 0; i < enemyCount(w); i++) {
+      if (enemyTraits(w, i, false).includes('splitter')) n += count;
+    }
+  }
+  return n;
+}
+
+/**
+ * 분열체가 더하는 처치 골드 (v1.14). 분열형 하나가 죽으면 splitCount마리가 태어나고 각자
+ * maxHp × splitHpRatio를 보상으로 준다 — 즉 분열형은 골드를 2배로 준다(의도된 성질).
+ * 유도로 두는 이유는 totalSplitBorn과 같다.
+ */
+export function splitKillGoldFor(wave: number): number {
+  if (wave % CONFIG.wave.bossEvery === 0) return 0;      // 보스는 분열 금지(bossForbidden)
+  const def = CONFIG.traitDefs.splitter;
+  const count = def.splitCount ?? 0;
+  const ratio = def.splitHpRatio ?? 0;
+  if (count <= 0 || ratio <= 0) return 0;
+  let splitters = 0;
+  for (let i = 0; i < enemyCount(wave); i++) {
+    if (enemyTraits(wave, i, false).includes('splitter')) splitters++;
+  }
+  return splitters * count * Math.max(1, Math.round(enemyHp(wave) * ratio));
+}
+
+/** 위 함수를 한 판 전체로 합한 값. */
+export function totalSplitKillGold(): number {
+  const def = CONFIG.traitDefs.splitter;
+  const count = def.splitCount ?? 0;
+  const ratio = def.splitHpRatio ?? 0;
+  if (count <= 0 || ratio <= 0) return 0;
+  let g = 0;
+  for (let w = 1; w <= CONFIG.wave.total; w++) g += splitKillGoldFor(w);
+  return g;
+}
+
 export interface RunReport {
   phase: GameState['phase']; kills: number; leaks: number; bossLeaks: number;
   gold: number; earned: number; seconds: number;

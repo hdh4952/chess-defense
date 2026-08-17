@@ -15,7 +15,8 @@ const center = (sq: Square) => ({ x: fileCenterX(sq.file), y: rankToTopY(sq.rank
 const slowLabel = (tier: number): string => `−${slowPercent(tier)}%`;
 
 interface Fx {
-  kind: 'shock' | 'crack' | 'beam' | 'puff' | 'coin' | 'mergeBurst' | 'frostTag' | 'spawnMark';
+  kind: 'shock' | 'crack' | 'beam' | 'puff' | 'coin' | 'mergeBurst' | 'frostTag' | 'spawnMark'
+    | 'splitArrow';
   x: number; y: number;
   x2?: number; y2?: number;      // 라인형(crack/beam)의 끝점
   amount?: number;               // coin 전용 — 표시할 골드 액수
@@ -120,6 +121,12 @@ export class Effects {
       const c = center(ev.square);
       this.list.push({ kind: 'mergeBurst', ...c, color: tierRingColor(ev.tier) ?? '#ffffff', t: 0, ttl: 0.45 });
     }
+    if (ev.kind === 'enemySplit') {
+      // 분열은 "여기서 갈라졌다"를 말해야 한다 — 처치 연출(puff)만 나면 그냥 죽은 것과
+      // 구분되지 않고, 플레이어는 새로 나타난 적 둘의 출처를 모른다.
+      const c = center(ev.square);
+      this.list.push({ kind: 'splitArrow', ...c, amount: ev.count, t: 0, ttl: 0.45 });
+    }
     if (ev.kind === 'enemyDied') {
       const c = center(ev.square);
       this.list.push({ kind: 'puff', ...c, t: 0, ttl: 0.25 });
@@ -212,6 +219,20 @@ export class Effects {
           for (const [w, color] of [[5, 'rgba(10, 26, 36, 0.5)'], [2.5, '#ffe27a']] as const) {
             ctx.lineWidth = w; ctx.strokeStyle = color;
             ctx.strokeRect(f.x - r, f.y - r, r * 2, r * 2);
+          }
+          break;
+        }
+        case 'splitArrow': {       // 분열 — 부모 자리에서 양옆으로 벌어지는 쐐기 둘
+          // 좌우로 **벌어지는** 것이 요점이다. 분열체가 인접 파일에 태어나므로 연출의
+          // 방향이 규칙과 같아야 "어디로 갔는지"가 읽힌다.
+          const spread = (1 - k) * SQ * 0.7;
+          ctx.lineWidth = 3; ctx.strokeStyle = '#7BD16B';   // TRAIT_COLOR.splitter와 같은 톤
+          for (const dir of [-1, 1]) {
+            ctx.beginPath();
+            ctx.moveTo(f.x + dir * spread, f.y - 7);
+            ctx.lineTo(f.x + dir * (spread + 9), f.y);
+            ctx.lineTo(f.x + dir * spread, f.y + 7);
+            ctx.stroke();
           }
           break;
         }

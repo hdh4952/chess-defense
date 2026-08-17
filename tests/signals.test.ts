@@ -6,7 +6,7 @@ import { emptySquares, sellPrice } from '../src/core/economy';
 import { createInitialState } from '../src/core/state';
 import {
   boardPiece, bossTransit, buildCost, chaseWave5Boss, countingRng, cycleRng,
-  fullRun, minWinBuild, rooksTwoPerFile, transitDamage,
+  fullRun, minWinBuild, rooksTwoPerFile, splitKillGoldFor, totalSplitBorn, transitDamage,
 } from './helpers';
 import type { EnemyTrait } from '../src/types';
 
@@ -130,15 +130,15 @@ describe('N1b — 실측 구매력 ★ (감시: 무작위 지급 · 지급 기�
     // v1.14에서 9,320 → 9,170으로 내려갔다: 장갑형이 문턱 방식이 되면서 비숍(1딜)의 피해가
     // 장갑 적에게 통째로 0이 됐고, 그만큼 처치 골드가 줄었다. 발사 자체는 막히지 않으므로
     // goldPerAttack 수입은 그대로다 — 그래서 감소폭이 150G에 그친다.
-    expect(by.bishop.peakGold - by.pawn.peakGold).toBe(9170);
+    expect(by.bishop.peakGold - by.pawn.peakGold).toBe(9200);
     expect(by.knight.peakGold).toBe(by.pawn.peakGold);   // 나이트는 공격력 0이라 수입에 무관
 
     // 룩은 이미 전멸하는 웨이브라 처치를 늘리지 못한다 — 원가만큼만 구매력이 는다.
     expect(by.rook.peakGold - by.pawn.peakGold).toBeLessThan(1000);
 
     // 실측 구매력 기준선. 가장 낮은 폰과 가장 높은 비숍의 폭이 곧 지급의 분산이다.
-    expect(by.pawn.peakGold + by.pawn.grantedValue).toBe(21432);
-    expect(by.bishop.peakGold + by.bishop.grantedValue).toBe(31602);
+    expect(by.pawn.peakGold + by.pawn.grantedValue).toBe(21960);
+    expect(by.bishop.peakGold + by.bishop.grantedValue).toBe(32160);
     expect(by.bishop.peakGold + by.bishop.grantedValue)
       .toBeGreaterThan((by.pawn.peakGold + by.pawn.grantedValue) * 1.4);
   });
@@ -384,6 +384,363 @@ describe('N5 — 지급 폐기 횟수 ★ (감시: 자리 압박이 실재하는
   });
 });
 
+describe('N1a — 이론 예산 상한 (감시: 클리어 보너스 단계)', () => {
+  function grossKillGold(uptoExclusive: number): number {
+    let g = 0;
+    for (let w = 1; w < uptoExclusive; w++) {
+      const isBoss = w % CONFIG.wave.bossEvery === 0;
+      g += enemyCount(w) * enemyHp(w) * (isBoss ? CONFIG.enemy.bossHpMultiplier : 1);
+    }
+    return g;
+  }
+  /** 무누수·**전량 처치**·방어비 0을 가정한 상한. 전량 처치 가정이라 보너스는 곡선의 최댓값을
+   *  쓴다 — 처치율 연동이 들어간 뒤에도 "상한"의 정의는 바뀌지 않는다. */
+  const sumBonus = (uptoInclusive: number): number => {
+    let g = 0;
+    for (let w = 1; w <= uptoInclusive; w++) g += clearBonus(w);
+    return g;
+  };
+  const ceilingBefore = (w: number): number =>
+    CONFIG.player.startGold + grossKillGold(w) + sumBonus(w - 1);
+
+  it('w5 · w11 · 총액 기준선 (곡선 도입으로 갱신)', () => {
+    // 정액 300G 시절: 2,108 / 6,426 / 24,702. 곡선이 초반을 32% 열고 총액은 거의 그대로 둔다.
+    expect(ceilingBefore(5)).toBe(2788);
+    expect(ceilingBefore(11)).toBe(7526);
+    expect(ceilingBefore(CONFIG.wave.total + 1)).toBe(24902);
+  });
+
+  it('곡선의 모양 — 초반을 열고 후반을 조인다', () => {
+    expect(clearBonus(1)).toBe(500);
+    expect(clearBonus(10)).toBe(320);
+    expect(clearBonus(20)).toBe(120);
+    expect(sumBonus(CONFIG.wave.total)).toBe(6200);   // 정액 시절 6,000과 거의 같다
+  });
+
+  it('★ 처치율 연동 — 누수 방치에 처음으로 대가가 생긴다', () => {
+    // 예전에는 클리어 보너스가 정액이라 "체력만 버틸 수 있다면 누수 방치는 처치 골드만
+    // 포기하는 선택지"였다. 곡선은 그 무조건 수입을 1.67배로 키우므로 연동이 함께 와야 한다.
+    expect(clearBonus(1, 1)).toBe(500);      // 전멸
+    expect(clearBonus(1, 0.5)).toBe(375);
+    expect(clearBonus(1, 0)).toBe(250);      // 전량 누수 — 하한 50%가 사망 나선을 막는다
+    expect(clearBonus(1, 0)).toBe(clearBonus(1) * CONFIG.wave.clearBonusFloor);
+  });
+});
+
+/**
+ * N1b — **실측** 구매력. N1a가 이론 상한을 재는 것과 달리, 이쪽은 한 판을 실제로 돌려
+ * "플레이어가 손에 쥔 최대 구매력"을 잰다: 관측된 최대 보유 골드 + 무상으로 받은 기물의 원가.
+ *
+ * ⚠️ 이 신호는 구현 계획서(§S0 신호 표)가 S5 몫으로 정의해 놓고 **끝내 만들어지지 않았다.**
+ * 그 사이 v1.12가 지급 기물을 트레이가 아니라 **보드에 직접 스폰**하도록 바꾸면서, 하필
+ * 이 신호가 감시하도록 설계된 축이 크게 움직였다 — 지급 비숍이 받는 즉시 골드를 벌기
+ * 시작한 것이다. **정의된 눈이 없던 자리에서 가장 큰 변화가 일어났다**는 것이 이 신호를
+ * 뒤늦게라도 세우는 이유다.
+ */
+describe('N1b — 실측 구매력 ★ (감시: 무작위 지급 · 지급 기물의 즉시 참전)', () => {
+  // 지급 종류를 고정하는 난수. pickGrantType의 누적 구간에서 뽑았다.
+  const GRANT = {
+    pawn: () => 0,
+    bishop: () => 0.4,
+    rook: () => 0.6,
+    knight: () => 0.9,
+  } as const;
+
+  it('고정 난수가 의도한 종류를 뽑는다 — 아래 측정의 전제', () => {
+    // 이 단언이 없으면 가중치를 조정했을 때 아래 기준선들이 **다른 것을 재면서** 그대로 통과한다.
+    for (const [type, rng] of Object.entries(GRANT)) {
+      expect(pickGrantType(rng()), type).toBe(type);
+    }
+  });
+
+  it('★ w5 시작 구매력이 목표(3,000G) 안에 있다 — 계획서 §6의 지급 주기 판정 기준', () => {
+    // 계획서는 grant.everyWaves를 2(10회)로 정하면서 그 근거를 "w5 시작 전 ≤ 3,000G"로 적었다
+    // (20회면 3,928G로 처방 4를 상쇄한다). 그 판정을 지금 실측으로 다시 건다.
+    for (const [type, rng] of Object.entries(GRANT)) {
+      const r = fullRun(rooksTwoPerFile(), cycleRng(), rng);
+      expect(r.goldAtWaveStart[4], type).toBeLessThanOrEqual(3000);
+    }
+  });
+
+  it('w5 시작 보유 골드는 N1a의 이론 상한과 정확히 같다 — 전량 처치 빌드이므로', () => {
+    // 룩 2기/파일은 일반 웨이브를 전멸시키므로 실측이 상한에 붙는다. 둘이 갈라지면 정산
+    // 어딘가가 새는 것이고, 그 누수는 이 등식 말고는 드러나지 않는다.
+    const r = fullRun(rooksTwoPerFile(), cycleRng(), GRANT.pawn);
+    expect(r.goldAtWaveStart[4]).toBe(2788);
+  });
+
+  it('★ 지급 종류가 구매력을 바꾼다 — 비숍이 압도적이다 (v1.12가 만든 축)', () => {
+    // 예전에는 지급 기물이 트레이에 앉아 있어 **종류와 무관하게** 원가만큼만 구매력이었다.
+    // 이제 보드에서 곧바로 일하므로 "무엇을 받았는가"가 판 전체 수입을 좌우한다.
+    const by = Object.fromEntries(
+      Object.entries(GRANT).map(([t, rng]) => [t, fullRun(rooksTwoPerFile(), cycleRng(), rng)]),
+    ) as Record<keyof typeof GRANT, ReturnType<typeof fullRun>>;
+
+    // 지급 수는 종류와 무관하게 같다 — 달라지는 것은 그 기물이 판에서 하는 일뿐이다.
+    for (const t of Object.keys(GRANT) as (keyof typeof GRANT)[]) {
+      expect(by[t].granted, t).toBe(CONFIG.wave.total / CONFIG.grant.everyWaves);
+      expect(by[t].grantedValue, t).toBe(by[t].granted * CONFIG.pieces[t].cost);
+    }
+
+    // ★ 비숍만 **보유 골드 자체**를 부풀린다(goldPerAttack). 나머지 셋은 원가만 더한다.
+    // v1.14에서 9,320 → 9,170으로 내려갔다: 장갑형이 문턱 방식이 되면서 비숍(1딜)의 피해가
+    // 장갑 적에게 통째로 0이 됐고, 그만큼 처치 골드가 줄었다. 발사 자체는 막히지 않으므로
+    // goldPerAttack 수입은 그대로다 — 그래서 감소폭이 150G에 그친다.
+    expect(by.bishop.peakGold - by.pawn.peakGold).toBe(9200);
+    expect(by.knight.peakGold).toBe(by.pawn.peakGold);   // 나이트는 공격력 0이라 수입에 무관
+
+    // 룩은 이미 전멸하는 웨이브라 처치를 늘리지 못한다 — 원가만큼만 구매력이 는다.
+    expect(by.rook.peakGold - by.pawn.peakGold).toBeLessThan(1000);
+
+    // 실측 구매력 기준선. 가장 낮은 폰과 가장 높은 비숍의 폭이 곧 지급의 분산이다.
+    expect(by.pawn.peakGold + by.pawn.grantedValue).toBe(21960);
+    expect(by.bishop.peakGold + by.bishop.grantedValue).toBe(32160);
+    expect(by.bishop.peakGold + by.bishop.grantedValue)
+      .toBeGreaterThan((by.pawn.peakGold + by.pawn.grantedValue) * 1.4);
+  });
+});
+
+describe('N2 — 단일 적 종주 총피해 (감시: 적 유형·융합 단계)', () => {
+  // 이 게임의 처치는 계단 함수다. 종주 중 받는 총 피해가 체력을 넘으면 죽고, 못 넘으면 그
+  // 피해는 전량 폐기된다. 그래서 "누수 몇 마리"와 달리 이 값은 화력·감산·속도 어느 축을
+  // 건드려도 선형으로 반응한다 — 이 파일에서 가장 해상도가 높은 신호다.
+  it('T1 룩 1기 = 40 (문턱 w17 47 · w19 55에 못 미친다)', () => {
+    const rook1 = () => [boardPiece('rook', 2, 1)];
+    // floor(종주 24s / 주기 3.0s) × 공격력 5 = 40. 유도식과 실측이 일치하는지 함께 본다.
+    const derived = Math.floor(
+      (CONFIG.board.ranks * CONFIG.enemy.secondsPerSquare) / CONFIG.pieces.rook.interval,
+    ) * CONFIG.pieces.rook.damage;
+    expect(derived).toBe(40);
+    expect(transitDamage(17, rook1(), 2)).toBe(40);
+    expect(transitDamage(19, rook1(), 2)).toBe(40);
+  });
+
+  it('문턱을 넘는 두 방법(룩 2기 / T2 룩 1기)은 같은 결과를 낸다 — 합성 중립성의 종주 판본', () => {
+    const spread = () => [boardPiece('rook', 2, 1), boardPiece('rook', 2, 2)];
+    const merged = () => [boardPiece('rook', 2, 1, 2)];
+    for (const w of [17, 19]) {
+      const hp = enemyHp(w);
+      expect(transitDamage(w, spread(), 2)).toBe(hp);   // 처치 → maxHp로 클램프
+      expect(transitDamage(w, merged(), 2)).toBe(hp);
+    }
+  });
+
+  it('적 유형이 붙으면 값이 실제로 움직인다 (유형이 적용되고 있다는 증거)', () => {
+    // 이 신호가 안 움직이면 유형이 스폰 경로에만 있고 피해 계산에는 닿지 않은 것이다.
+    const rook = () => [boardPiece('rook', 2, 1)];
+    expect(transitDamage(19, rook(), 2)).toBe(40);
+    // ★ v1.14: armored는 이제 **문턱**이라 룩(5딜 > 문턱 3)에게는 아무 일도 하지 않는다.
+    //   비율 감산 시절과 달리 "장갑이 붙으면 룩 피해가 줄어든다"는 더 이상 참이 아니다.
+    expect(transitDamage(19, rook(), 2, ['armored'])).toBe(40);
+    expect(transitDamage(19, rook(), 2, ['shielded'])).toBe(5);    // 뒤에서 못 쏘면 거의 통째로 막힌다
+    expect(transitDamage(19, rook(), 2, ['swift'])).toBe(20);      // 종주가 절반이라 발사 기회도 절반
+  });
+
+  it('★ 장갑형이 실제로 무언가 막는다는 증거 — 문턱 아래 기물로 재야 보인다 (v1.14)', () => {
+    // 위 테스트에서 룩은 문턱을 넘으므로 armored가 no-op이다. 그래서 **문턱 아래 기물**로
+    // 따로 재지 않으면 "장갑이 붙어도 아무 일도 안 일어난다"는 상태와 구분되지 않는다.
+    // 폰(2딜)과 비숍(1딜)이 문턱 3 아래에 있어 이 역할을 한다.
+    const th = CONFIG.traitDefs.armored.damageThreshold!;
+    expect(CONFIG.pieces.pawn.damage).toBeLessThan(th);
+    const pawns = () => [boardPiece('pawn', 1, 4), boardPiece('pawn', 3, 4)];
+    expect(transitDamage(19, pawns(), 2)).toBe(24);
+    expect(transitDamage(19, pawns(), 2, ['armored'])).toBe(0);     // ★ 완전 봉쇄
+    expect(transitDamage(19, [boardPiece('bishop', 3, 4)], 3, ['armored'])).toBe(0);
+    // 그런데 합성하면 넘는다 — 문턱을 여는 두 경로 중 하나(다른 하나는 퀸 버프, N4가 잰다).
+    const t2 = [boardPiece('pawn', 1, 4, 2), boardPiece('pawn', 3, 4, 2)];
+    expect(transitDamage(19, t2, 2, ['armored'])).toBeGreaterThan(0);
+  });
+
+  it('★ 실드형은 랭크에 민감하다 — "룩이 뒤에서 쏴야 함"이 수치로 드러난다 (v1.14)', () => {
+    // 적은 위에서 아래로 내려오므로 낮은 랭크가 그 적의 전방이다. 룩을 위로 올릴수록
+    // 적의 뒤에서 쏘는 시간이 길어져 피해가 단조 증가한다 — 이 단조성이 방향 규칙이
+    // 실제로 걸려 있다는 증거이고, 부호가 뒤집히면(위로 갈수록 줄면) 방향이 반대로 구현된 것이다.
+    const at = (rank: number): number =>
+      transitDamage(19, [boardPiece('rook', 2, rank)], 2, ['shielded']);
+    expect(at(1)).toBe(5);
+    expect(at(4)).toBe(20);
+    expect(at(7)).toBe(35);
+    for (let r = 2; r <= CONFIG.board.ranks - 1; r++) {
+      expect(at(r), `r${r}`).toBeGreaterThan(at(r - 1));
+    }
+    // 유형이 없으면 랭크가 결과를 바꾸지 않는다 — 위 단조성이 실드형 때문임을 격리한다.
+    const plain = (rank: number): number => transitDamage(19, [boardPiece('rook', 2, rank)], 2);
+    expect(plain(7)).toBe(plain(1));
+  });
+
+  it('폰 2기 = 24 · 비숍 1기 = 1 (웨이브 무관 — 화력이 적 체력에 의존하지 않는다)', () => {
+    const pawns = () => [boardPiece('pawn', 1, 4), boardPiece('pawn', 3, 4)];
+    for (const w of [17, 19]) {
+      expect(transitDamage(w, pawns(), 2)).toBe(24);
+      expect(transitDamage(w, [boardPiece('bishop', 3, 4)], 3)).toBe(1);
+    }
+  });
+});
+
+describe('N3 — w5 게이트 최소성 (감시: 전 단계)', () => {
+  const bossFile = 3;
+  const chasePawns = () => [
+    boardPiece('pawn', bossFile - 1, 7), boardPiece('pawn', bossFile + 1, 7),
+  ];
+
+  it('개별 기여도 기준선', () => {
+    expect(chaseWave5Boss(chasePawns()).dealt).toBe(336);
+    expect(chaseWave5Boss([], [boardPiece('rook', bossFile, 1)]).dealt).toBe(80);
+    expect(chaseWave5Boss([], [boardPiece('bishop', 5, 5)]).dealt).toBe(4);
+  });
+
+  it('★ 최소성 — 기물을 하나라도 빼면 실패해야 한다 (하향 감지)', () => {
+    // 기존 게이트 테스트의 `killed === true` 하나로는 200G짜리 비숍이 통째로 빠져도 초록이다.
+    // "빠지면 깨진다"를 직접 단언해야 화력 하향이 잡힌다.
+    const full = () => chaseWave5Boss(chasePawns(), [
+      boardPiece('rook', bossFile, 1), boardPiece('bishop', 5, 5),
+    ]);
+    expect(full().killed).toBe(true);
+
+    const withoutRook = chaseWave5Boss(chasePawns(), [boardPiece('bishop', 5, 5)]);
+    expect(withoutRook.killed).toBe(false);
+
+    const withoutOnePawn = chaseWave5Boss([boardPiece('pawn', bossFile - 1, 7)], [
+      boardPiece('rook', bossFile, 1), boardPiece('bishop', 5, 5),
+    ]);
+    expect(withoutOnePawn.killed).toBe(false);
+  });
+
+  it('★ 상향 감지 — 비숍 없이도 처치되지만 마지막 틱에 겨우 된다', () => {
+    // 이 빌드가 이 게임에서 가장 얇은 마진이다. 화력이 조금이라도 올라가면 killT가 앞당겨지므로,
+    // `killed === true`가 아니라 **언제 죽는가**를 봐야 상향이 잡힌다.
+    const withoutBishop = chaseWave5Boss(chasePawns(), [boardPiece('rook', bossFile, 1)]);
+    expect(withoutBishop.killed).toBe(true);
+    const descentSeconds =
+      (CONFIG.board.ranks * CONFIG.enemy.secondsPerSquare) / CONFIG.enemy.bossSpeedMultiplier;
+    expect(withoutBishop.bossKillT).toBeGreaterThan(descentSeconds - 2);
+  });
+});
+
+describe('N4 — 합성 골드 중립성 (감시: 적 유형·융합 단계)', () => {
+  // ★ 불변식의 형태가 중요하다. "티어 k 피해 ÷ 2^(k−1)이 일정"은 **곱셈 효과에만** 성립하고
+  // 보호막처럼 총량에서 한 번 빼는 효과에는 성립하지 않는다(풀은 기물 수와 무관하게 한 번만
+  // 소모되므로). 실제로 지켜야 할 것은 "**같은 골드**에서 T1 둘과 T2 하나가 같은 결과"다.
+  // ★ v1.14에서 실드형이 이 목록에서 빠졌다. 아래 전용 테스트가 그 이유를 다룬다.
+  const TRAIT_CASES: EnemyTrait[][] = [[], ['armored'], ['swift'], ['splitter'], ['aura']];
+
+  it('T1 둘 = T2 하나 — 방향 무관 유형 전부에서', () => {
+    for (const traits of TRAIT_CASES) {
+      const spread = transitDamage(20, [boardPiece('rook', 2, 1), boardPiece('rook', 2, 2)], 2, traits);
+      const merged = transitDamage(20, [boardPiece('rook', 2, 1, 2)], 2, traits);
+      expect(merged, JSON.stringify(traits)).toBe(spread);
+    }
+  });
+
+  it('★ 실드형은 중립성을 깬다 — 티어 때문이 아니라 **칸 수** 때문이다 (v1.14)', () => {
+    // 숨기지 않고 못박는다. 실드형은 "때린 위치"로 피해 성립을 가르므로, 두 칸을 쓰는 분산이
+    // 한 칸을 쓰는 합성보다 유효 사격 시간이 길다(랭크 1·2 대 랭크 1). 즉 깨지는 축이 티어가
+    // 아니라 **점유 칸 수**이고, 이것은 방향 규칙이라면 어떤 형태로든 피할 수 없다.
+    //
+    // 이 게임의 합성은 원래 "증폭이 아니라 압축"이었다 — 다른 것은 방어선이 차지하는 칸뿐이다.
+    // 실드형은 그 유일한 차이에 처음으로 값을 매긴 유형이고, 그래서 **실드형이 나오는
+    // 웨이브에서는 합성이 손해**가 된다. 의도된 성질로 두고 크기를 기록한다.
+    const spread = transitDamage(20, [boardPiece('rook', 2, 1), boardPiece('rook', 2, 2)], 2, ['shielded']);
+    const merged = transitDamage(20, [boardPiece('rook', 2, 1, 2)], 2, ['shielded']);
+    expect(spread).toBe(15);
+    expect(merged).toBe(10);
+    expect(spread).toBeGreaterThan(merged);
+
+    // ★ 그리고 그 손해는 **오직 방향 때문**이다 — 같은 두 빌드가 유형 없이는 정확히 같다.
+    const plainSpread = transitDamage(20, [boardPiece('rook', 2, 1), boardPiece('rook', 2, 2)], 2);
+    const plainMerged = transitDamage(20, [boardPiece('rook', 2, 1, 2)], 2);
+    expect(plainMerged).toBe(plainSpread);
+  });
+
+  it('★ 장갑은 문턱이다 — 넘기 전에는 0, 넘은 뒤에는 배수가 정확히 보존된다 (v1.14)', () => {
+    // ⚠️ v1.13까지 이 자리는 "장갑은 비율이라 티어에 같은 배수가 걸린다"였다. 사용자가 장갑을
+    //   **문턱 방식**으로 정하면서(고정 감산 −2는 중립성을 무너뜨려 기각) 불변식의 형태가
+    //   바뀌었다 — 이제 지켜야 할 것은 "모든 티어에 같은 배수"가 아니라 다음 둘이다:
+    //     ① 문턱 미만이면 정확히 0 (부분 피해가 없다 — 그것이 고정 감산과 다른 점이다)
+    //     ② 문턱을 넘은 뒤에는 **감산이 전혀 없다** → 티어 배수가 그대로 보존된다
+    //   ②가 골드 중립성을 지키는 지점이다. 감산이 있으면 티어마다 비율이 갈린다.
+    const th = CONFIG.traitDefs.armored.damageThreshold!;
+    let below = 0, above = 0;
+    for (let k = 1; k <= CONFIG.merge.maxTier.bishop; k++) {
+      const raw = CONFIG.pieces.bishop.damage * tierMultiplier(k);
+      const plain = transitDamage(20, [boardPiece('bishop', 3, 4, k)], 3);
+      const armored = transitDamage(20, [boardPiece('bishop', 3, 4, k)], 3, ['armored']);
+      if (raw < th) { expect(armored, `T${k} raw ${raw}`).toBe(0); below++; }
+      else { expect(armored, `T${k} raw ${raw}`).toBe(plain); above++; }
+    }
+    // ★ 공허 방지 — 문턱의 양쪽이 실제로 관측돼야 이 테스트가 무언가를 지킨다.
+    expect(below).toBeGreaterThan(0);
+    expect(above).toBeGreaterThan(0);
+  });
+
+  it('★ 문턱은 퀸 버프와 합성 둘 다로 넘을 수 있다 — 사용자가 정한 설계 의도', () => {
+    // "폰 도배(공격력 2)가 무력화 → 룩/퀸 버프 강제"가 이 유형의 존재 이유다. 문턱 3이라는
+    // 숫자가 그 의도를 정확히 실현하는지 여기서 고정한다 — 문턱을 4로 올리면 버프받은 폰도
+    // 막혀 "버프 강제"가 "폰 폐기"가 되고, 2로 내리면 단독 폰이 통과해 의도가 사라진다.
+    const th = CONFIG.traitDefs.armored.damageThreshold!;
+    const base = CONFIG.pieces.pawn.damage;
+    expect(base).toBeLessThan(th);                       // 단독 T1 폰은 막힌다
+    expect(base * 2).toBeGreaterThanOrEqual(th);         // 퀸 버프 1개(×2)면 넘는다
+    expect(base * tierMultiplier(2)).toBeGreaterThanOrEqual(th);   // 합성 T2(×2)도 넘는다
+  });
+});
+
+/**
+ * N5 — 지급 폐기 횟수. 자리가 없어 지급이 환급으로 바뀐 횟수다.
+ *
+ * ⚠️ N1b와 마찬가지로 계획서가 정의해 놓고 **끝내 구현되지 않은** 신호다. 계획서는 이 값의
+ * 목표 대역을 0~3회로 두고 **"0이면 갈림길 4번으로 판단을 올린다"**고 적었다 — 즉 0은
+ * 실패가 아니라 **설계 판단을 요구하는 결과**다(위험 등록부 R15).
+ *
+ * ★ 실측 결과는 0이다. 그 판단의 내용은 아래 첫 테스트 주석에 적었다.
+ */
+describe('N5 — 지급 폐기 횟수 ★ (감시: 자리 압박이 실재하는가)', () => {
+  const GRANT_PAWN = (): number => 0;
+  const GRANTS = CONFIG.wave.total / CONFIG.grant.everyWaves;
+
+  it('★ 정상 빌드에서는 한 번도 폐기되지 않는다 — "자리 압박"은 실재하지 않는다', () => {
+    // ★ 계획서 R15가 예측한 그대로다. 판정(갈림길 4번): **원안이 노렸던 압박 목표는 폐기한다.**
+    // 지급이 남기는 가치는 압박이 아니라 ① 판마다 다른 구성 ② 초반 부양 ③ 융합 재료 셋이고,
+    // 그 셋은 폐기가 0이어도 온전히 성립한다.
+    //
+    // 무대는 v1.12에서 트레이 16칸 → 보드 56칸으로 넓어졌고, 그만큼 압박은 더 멀어졌다:
+    // 최소 승리 빌드 28기 + 지급 10기 = 38기로 18칸이 남는다.
+    for (const build of [rooksTwoPerFile(), minWinBuild()]) {
+      const r = fullRun(build, cycleRng(), GRANT_PAWN);
+      expect(r.discarded).toBe(0);
+      expect(r.refunded).toBe(0);
+      expect(r.granted).toBe(GRANTS);          // 열 번 다 실제로 받았다
+    }
+  });
+
+  it('★ 그래도 폐기 경로는 죽은 코드가 아니다 — 보드를 채우면 전부 폐기된다', () => {
+    // 위 테스트만 있으면 환급·배너·grantDiscarded 이벤트가 "도달 불가"로 보인다. 도달
+    // 가능하다는 것을 같은 신호 안에서 보여야, 나중에 그 경로를 지우자는 판단이 나올 때
+    // 근거가 함께 읽힌다. 폰 스팸 빌드에서는 실제로 일어나는 상황이다.
+    const s = createInitialState();
+    const full = emptySquares(s).map(q => boardPiece('pawn', q.file, q.rank));
+    expect(full).toHaveLength(CONFIG.board.files * (CONFIG.board.ranks - 1));
+
+    const r = fullRun(full, cycleRng(), GRANT_PAWN);
+    expect(r.granted).toBe(0);                 // 한 번도 못 받았다
+    expect(r.discarded).toBe(GRANTS);          // 열 번 다 폐기됐다
+    // 환급은 판매가다 — 지급 종류가 폰이므로 원가의 sellRatio배.
+    expect(r.refunded).toBe(GRANTS * sellPrice('pawn'));
+  });
+
+  it('추첨 횟수는 폐기 여부와 무관하다 — 조건부로 뽑으면 재현성이 사라진다', () => {
+    // grant.test.ts가 같은 것을 draw 수로 재고, 여기서는 **결과 수**로 교차 확인한다:
+    // 받았든 폐기됐든 둘의 합은 언제나 추첨 횟수와 같아야 한다.
+    const s = createInitialState();
+    const full = emptySquares(s).map(q => boardPiece('pawn', q.file, q.rank));
+    for (const build of [rooksTwoPerFile(), full]) {
+      const r = fullRun(build, cycleRng(), GRANT_PAWN);
+      expect(r.granted + r.discarded).toBe(GRANTS);
+    }
+  });
+});
+
+
 describe('N6 — 엔진 무결성 풀런 (감시: 전 단계)', () => {
   /** "이 웨이브를 전멸시켰는가"를 주면 총 수입을 CONFIG에서 유도한다. 처치 골드와 클리어
    *  보너스(처치율 연동 포함) 둘 다 계산하므로, 수입 규칙이 바뀌면 여기서 한 번에 드러난다. */
@@ -393,6 +750,8 @@ describe('N6 — 엔진 무결성 풀런 (감시: 전 단계)', () => {
       const isBoss = w % CONFIG.wave.bossEvery === 0;
       const ratio = cleared(w) ? 1 : 0;
       g += ratio * enemyCount(w) * enemyHp(w) * (isBoss ? CONFIG.enemy.bossHpMultiplier : 1);
+      // 분열체도 처치 골드를 준다(v1.14). 전량 처치를 가정하는 이 공식에서는 분열체도 전부 죽는다.
+      g += ratio * splitKillGoldFor(w);
       g += clearBonus(w, ratio);
     }
     return g;
@@ -410,7 +769,9 @@ describe('N6 — 엔진 무결성 풀런 (감시: 전 단계)', () => {
   it('룩 2기/파일: 일반 적 전멸 · 보스 4마리 전부 누수', () => {
     const r = fullRun(rooksTwoPerFile(), cycleRng(), GRANT_PAWN);
     expect(r.phase).toBe('victory');
-    expect(r.kills).toBe(448);
+    // 일반 적 448 + 분열체. 분열체 수를 유도하는 이유는 totalSplitBorn 주석 참조.
+    expect(r.kills).toBe(448 + totalSplitBorn());
+    expect(totalSplitBorn()).toBeGreaterThan(0);   // 공허 방지 — 분열이 실제로 일어난다
     expect(r.leaks).toBe(4);
     expect(r.bossLeaks).toBe(4);
     // 수입을 유도로 확인한다 — 이 빌드는 일반 적을 전멸시키고 보스 4마리를 전부 놓치므로
@@ -430,7 +791,7 @@ describe('N6 — 엔진 무결성 풀런 (감시: 전 단계)', () => {
     // 방법이지만, 이 게임에서 w20을 여는 주된 수단은 구매가 아니라 **이동**이다.
     const r = fullRun(minWinBuild(), cycleRng(), GRANT_PAWN);
     expect(r.phase).toBe('victory');
-    expect(r.kills).toBe(451);
+    expect(r.kills).toBe(451 + totalSplitBorn());
     expect(r.leaks).toBe(1);
     expect(r.bossLeaks).toBe(1);
     expect(r.bossLeaks * CONFIG.player.hpLossBoss).toBeLessThan(CONFIG.player.startHp);
@@ -470,7 +831,7 @@ describe('N6 — 엔진 무결성 풀런 (감시: 전 단계)', () => {
     // (docs/balance-audit.md §5). v1.14에서 9,320 → 9,170으로 내려간 것은 장갑형이 문턱
     // 방식이 되면서 비숍(1딜)의 피해가 장갑 적에게 0이 됐기 때문이다 — 발사는 막히지 않으므로
     // goldPerAttack 수입은 그대로고, 줄어든 것은 처치 골드뿐이라 감소폭이 150G에 그친다.
-    expect(bishops.earned - pawns.earned).toBe(9170);
+    expect(bishops.earned - pawns.earned).toBe(9200);
     expect((bishops.earned - pawns.earned) / pawns.earned).toBeGreaterThan(0.4);
   });
 });

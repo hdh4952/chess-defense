@@ -121,6 +121,11 @@ export type GameEvent =
   // 합성 성사 — square는 생존한 기물(합쳐진 결과)이 서 있는 칸, tier는 합성 *후* 단계다.
   | { kind: 'merged'; square: Square; pieceType: PieceType; tier: number }
   | { kind: 'enemyDied'; enemyId: string; square: Square; isBoss: boolean; reward: number }
+  /**
+   * 분열형이 죽어 분열체가 태어났다 (v1.14). 같은 프레임의 enemyDied **바로 뒤**에 온다.
+   * square는 부모가 죽은 칸 — 화면이 "여기서 갈라졌다"를 그 자리에 보여야 한다.
+   */
+  | { kind: 'enemySplit'; square: Square; count: number }
   | { kind: 'enemyLeaked'; enemyId: string; file: number; isBoss: boolean }
   | { kind: 'bossSpawned'; file: number }
   | { kind: 'waveCleared'; wave: number }

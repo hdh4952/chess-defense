@@ -4,7 +4,9 @@ import { emptySquares, sellPrice } from '../src/core/economy';
 import { createInitialState } from '../src/core/state';
 import { checkWaveEnd, startWave, updateSpawning } from '../src/core/wave';
 import type { GameEvent, GameState, PieceType } from '../src/types';
-import { countingRng, cycleRng, fullRun, minWinBuild, rooksTwoPerFile } from './helpers';
+import {
+  countingRng, cycleRng, fullRun, minWinBuild, rooksTwoPerFile, totalSplitBorn,
+} from './helpers';
 
 /**
  * 무작위 지급 — 짝수 웨이브 클리어마다 T1 기물 하나.
@@ -268,6 +270,7 @@ describe('지급이 게임 전체에 미치는 영향', () => {
   it('지급이 켜져도 20웨이브 진행 자체는 그대로다 (엔진 무결성)', () => {
     const r = fullRun(minWinBuild(), cycleRng(), () => 0);
     expect(r.phase).toBe('victory');
-    expect(r.kills).toBe(451);
+    // 일반 적 451 + 분열체(v1.14). 유도하는 이유는 helpers.totalSplitBorn 주석 참조.
+    expect(r.kills).toBe(451 + totalSplitBorn());
   });
 });
