@@ -13,7 +13,8 @@ import enemyPawnUrl from '../assets/pieces/enemy-pawn.svg';
 import enemyKingUrl from '../assets/pieces/enemy-king.svg';
 
 /**
- * Cburnett 체스 기물 SVG 로더 (출처·라이선스는 NOTICE.md, CC BY-SA 3.0). DOM(Image,
+ * 위키미디어 공용 체스 기물 SVG 로더 (출처·저작자·라이선스는 NOTICE.md — 대부분 Cburnett의
+ * CC BY-SA 3.0이고, 아마존 한 종만 Mszulc29의 CC BY-SA 4.0이다). DOM(Image,
  * HTMLCanvasElement, document)에 의존하므로 src/render/에 둔다 — src/core/는 DOM-free를 유지한다.
  *
  * 원본은 45×45에 viewBox가 추가돼 있어(NOTICE.md "변경 내역" 1번) 어떤 크기로든 브라우저가

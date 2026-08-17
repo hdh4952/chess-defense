@@ -4,7 +4,7 @@ import { CONFIG, TRAITS } from '../src/config';
 import { buyPiece, SLOT_CAPACITY } from '../src/core/economy';
 import { createInitialState } from '../src/core/state';
 import { ALLY_SPRITE_URL } from '../src/render/sprites';
-import { createLayout, PIECE_NAME } from '../src/ui/layout';
+import { CREDIT_HTML, createLayout, PIECE_NAME } from '../src/ui/layout';
 import { updateHud } from '../src/ui/hud';
 import { updateShop, wireShop } from '../src/ui/shop';
 import { updateSlots } from '../src/ui/slots';
@@ -277,7 +277,7 @@ describe('기물 이미지 — draggable="false" 안전장치 (지난 시도 회
   });
 });
 
-describe('저작자 표시줄 (NOTICE.md — CC BY-SA 3.0 이행)', () => {
+describe('저작자 표시줄 (NOTICE.md — CC BY-SA 이행)', () => {
   it('결과 화면이 아니라 상시 레이아웃에 크레딧이 있고, 저작자·출처·라이선스 링크를 포함한다', () => {
     const app = makeApp();
     createLayout(app);
@@ -297,5 +297,34 @@ describe('저작자 표시줄 (NOTICE.md — CC BY-SA 3.0 이행)', () => {
     // 확인하려면 저장소의 NOTICE.md로 가는 링크가 크레딧 안에 있어야 한다.
     const noticeLink = links.find(a => (a.getAttribute('href') ?? '').includes('NOTICE.md'));
     expect(noticeLink).toBeDefined();
+  });
+
+  it('★ 저작자 셋과 라이선스 버전 둘을 모두 표시한다 (v1.10 — 융합 기물 아트워크 교체)', () => {
+    // 아트워크 출처가 갈라지면 BY 이행도 갈라진다. 융합 기물이 직접 만든 합성물에서 위키미디어의
+    // 실제 페어리 기물로 바뀌면서 저작자가 셋(Cburnett / NikNaks93 / Mszulc29)이 됐고, 그중
+    // 아마존만 **CC BY-SA 4.0**이다. 크레딧에 3.0만 적으면 그 파일의 BY 이행이 틀린 것이 된다.
+    //
+    // 이 단언이 없으면 다음에 아트워크를 바꿀 때 크레딧이 조용히 뒤처진다 — 라이선스 위반은
+    // 테스트가 실패하지 않는 종류의 결함이라 사람이 알아채기 전까지 배포된 채로 남는다.
+    const app = makeApp();
+    createLayout(app);
+    const credit = app.querySelector('#credit')!;
+
+    for (const author of ['Cburnett', 'NikNaks93', 'Mszulc29']) {
+      expect(credit.textContent, author).toContain(author);
+    }
+    const hrefs = Array.from(credit.querySelectorAll('a')).map(a => a.getAttribute('href') ?? '');
+    for (const v of ['3.0', '4.0']) {
+      expect(hrefs, v).toContain(`https://creativecommons.org/licenses/by-sa/${v}/`);
+    }
+    expect(credit.textContent).toContain('CC BY-SA 4.0');
+  });
+
+  it('★ 시작 화면도 같은 크레딧을 띄운다 — 두 화면이 상수 하나를 공유한다', () => {
+    // 화면마다 문구를 따로 적으면 한쪽만 갱신되는 사고가 난다. 실제로 지금 그 위험이 커졌다 —
+    // 저작자가 셋이 되면서 문구가 길어졌기 때문이다.
+    expect(CREDIT_HTML).toContain('Cburnett');
+    expect(CREDIT_HTML).toContain('Mszulc29');
+    expect(CREDIT_HTML).toContain('by-sa/4.0');
   });
 });
