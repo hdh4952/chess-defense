@@ -1,3 +1,8 @@
 node_modules/
 dist/
 .DS_Store
+
+# 측정용 임시 테스트. 헤드리스 실측은 tests/tmp-*.test.ts에 쓰고 끝나면 지운다 —
+# 계획서 S-1a가 요구한 규칙인데 그동안 빠져 있었고, 실제로 임시 파일 5개가 커밋에
+# 섞여 들어간 뒤에 추가했다.
+tests/tmp-*
