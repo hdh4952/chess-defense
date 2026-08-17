@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { slowPercent } from '../src/config';
+import { CONFIG, slowPercent } from '../src/config';
 import { fileCenterX, rankToTopY } from '../src/core/grid';
 import { bishopTargets, pawnTargets, rookTargets } from '../src/core/patterns';
 import { Effects } from '../src/render/effects';
@@ -134,46 +134,88 @@ describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스�
     // (fillRect 14)를 세던 테스트가 대상을 잃었다. 다만 그 테스트가 지키던 불변식 —
     // "나이트가 한 일이 화면에 즉시 드러난다" — 은 그대로 유효하고, 이제 그 역할을 감속 진입
     // 라벨이 물려받는다. 그래서 삭제가 아니라 frostTag 판본으로 다시 쓴다.
-    it('enemySlowed: 감속에 걸린 적 위로 "−30%" 라벨 1개 (테두리 + 채움)', () => {
+    it('enemySlowed(T1): 감속에 걸린 적 위로 "−30%" 라벨 1개 (테두리 + 채움)', () => {
       const fx = new Effects();
       const file = 2, y = 300;
-      fx.onEvent({ kind: 'enemySlowed', enemyId: 'e1', file, y });
+      fx.onEvent({ kind: 'enemySlowed', enemyId: 'e1', file, y, tier: 1 });
 
       const { ctx, records } = makeStubCtx();
       fx.draw(ctx as unknown as CanvasRenderingContext2D);
 
       const texts = records.filter(r => r.method === 'strokeText' || r.method === 'fillText');
       expect(texts).toHaveLength(2);                       // 밝은 칸 위에서도 읽히도록 테두리 1 + 채움 1
+      // 테두리와 채움이 **같은** 문구여야 한다 — 둘이 갈라지면 "−30%" 위에 "−40%"가 겹쳐 찍힌다.
+      expect(texts.every(r => r.args[0] === `−${slowPercent(1)}%`)).toBe(true);
       expect(texts.every(r => r.args[1] === fileCenterX(file))).toBe(true);
       // 좌표가 칸 중심이 아니라 적의 실제 픽셀 y에서 유도되는지 — 적은 칸 사이를 연속으로
       // 움직이므로 rankToTopY로 스냅하면 최대 한 칸만큼 어긋난 자리에 라벨이 뜬다.
       expect(texts.every(r => (r.args[2] as number) < y)).toBe(true);  // 적의 "머리 위"
     });
 
-    it('"−30%"의 숫자는 리터럴이 아니라 CONFIG(slowAura.multiplier)에서 유도된다', () => {
-      // multiplier를 조정했을 때 화면 문구만 30%로 굳어 거짓말을 하는 것이 이 프로젝트에서
-      // 가장 흔한 회귀다. 기대값도 같은 함수에서 뽑아, 리터럴을 못박는 대신 **유도 경로**를
-      // 검사한다.
+    it('★ 티어가 다르면 다른 문구가 그려지고(T1 −30% · T3 −40%), 그래도 겹친 감속은 합산되지 않는다', () => {
+      // v1.10~v1.12에는 이 자리의 불변식이 "티어 무관"이었다. 라벨이 한 종류뿐이었으므로 문구를
+      // 상수로 굳혀도 아무도 눈치채지 못했고, 실제로 그렇게 굳어 있었다(SLOW_LABEL). v1.13에서
+      // 티어마다 감속이 달라졌으므로(사용자 결정) 그 상수화 회귀를 잡는 자리는 **여기뿐이다** —
+      // 코어는 티어를 실어 보낼 뿐이고, 그 티어가 정말 문구를 바꾸는지는 그려진 글자로만 드러난다.
+      //
+      // 두 규칙을 한 테스트에 나란히 둔다. 서로 반대 방향처럼 보여 혼동하기 쉬워서다:
+      //  ① 티어가 오르면 감속이 **세진다** (T1 −30% → T3 −40%)
+      //  ② 그래도 **중첩은 없다** — 겹친 칸에서는 최댓값 하나만 걸리므로, T1 오라에 이미 걸린
+      //     적이 T3 오라로 넘어가 이벤트가 다시 나도 화면이 말하는 값은 −40%(T3 단독)이지
+      //     −70%(합)가 아니다. 티어를 더하거나 곱한 수치는 어떤 경로로도 나오면 안 된다.
+      const drawLabels = (tiers: readonly number[]): string[] => {
+        const fx = new Effects();
+        for (const tier of tiers) fx.onEvent({ kind: 'enemySlowed', enemyId: 'e1', file: 3, y: 240, tier });
+        const { ctx, records } = makeStubCtx();
+        fx.draw(ctx as unknown as CanvasRenderingContext2D);
+        // 채움만 센다 — 테두리와 짝을 이룬다는 것은 위 테스트가 지킨다.
+        return records.filter(r => r.method === 'fillText').map(r => String(r.args[0]));
+      };
+
+      // ① 숫자는 리터럴이 아니라 slowPercent(tier)에서 유도된다. 계수를 조정했을 때 화면 문구만
+      //    옛 값으로 굳어 거짓말을 하는 것이 이 프로젝트에서 가장 흔한 회귀다.
+      expect(drawLabels([1])).toEqual([`−${slowPercent(1)}%`]);
+      expect(drawLabels([3])).toEqual([`−${slowPercent(3)}%`]);
+      // 위 둘은 기대값도 같은 함수에서 뽑으므로 perTierPercent가 0이 되면 나란히 −30%로 무너지며
+      // 함께 통과해버린다. "티어마다 다르다"는 규칙 자체는 유도에 기대지 않고 직접 단언한다.
+      expect(drawLabels([1])).not.toEqual(drawLabels([3]));
+
+      // ② 겹침 — 이벤트가 두 번 와도 각 라벨은 자기 티어를 말할 뿐, 합쳐진 수치는 없다.
+      const stacked = drawLabels([1, 3]);
+      expect(stacked).toEqual([`−${slowPercent(1)}%`, `−${slowPercent(3)}%`]);
+      expect(stacked).not.toContain(`−${slowPercent(1) + slowPercent(3)}%`);   // −70%: 합산 회귀
+      // 배수(×0.6)가 아니라 감산량으로 적는다: '×'로 시작하는 fillText는 퀸 버프 배지라는
+      // 규칙이 renderer.test.ts에 못박혀 있어, 같은 문법을 쓰면 두 연출이 서로를 오검출한다.
+      expect(stacked.some(s => s.startsWith('×'))).toBe(false);
+    });
+
+    it('T1~T6 라벨이 정확히 −30% · −35% · −40% · −45% · −50% · −55%다 (표를 바깥에서 못박는 자리)', () => {
+      // 위 테스트는 기대값을 전부 slowPercent()에서 유도하므로, basePercent나 perTierPercent를
+      // 잘못 건드리면 기대값이 함께 움직여 아무것도 지키지 못한다. 사용자가 정한 표를 여기서 한 번
+      // 리터럴로 못박아, 계수 변경이 반드시 이 테스트를 깨고 지나가게 만든다.
+      // 화면 문구로 못박는 이유: 플레이어가 실제로 읽는 것이 이 문자열이고, 물리(배수) 쪽 표는
+      // slow.test.ts가 따로 지킨다.
+      const expected = ['−30%', '−35%', '−40%', '−45%', '−50%', '−55%'];
+      // 6줄인 이유 — 합성 상한이 6이라 T7 오라는 존재할 수 없다. 상한이 늘면 이 표도 함께 늘려야
+      // 하고, 그 사실을 여기서 알려 준다.
+      expect(CONFIG.merge.maxTier.knight).toBe(expected.length);
+
       const fx = new Effects();
-      fx.onEvent({ kind: 'enemySlowed', enemyId: 'e1', file: 3, y: 240 });
+      expected.forEach((_, i) =>
+        fx.onEvent({ kind: 'enemySlowed', enemyId: `e${i}`, file: i, y: 240, tier: i + 1 }));
 
       const { ctx, records } = makeStubCtx();
       fx.draw(ctx as unknown as CanvasRenderingContext2D);
-
-      const texts = records.filter(r => r.method === 'strokeText' || r.method === 'fillText');
-      expect(texts).toHaveLength(2);                       // every()가 빈 배열로 공허하게 참이 되는 것을 막는다
-      expect(texts.every(r => r.args[0] === `−${slowPercent()}%`)).toBe(true);
-      // 배수(×0.7)가 아니라 감산량으로 적는다: '×'로 시작하는 fillText는 퀸 버프 배지라는
-      // 규칙이 renderer.test.ts에 못박혀 있어, 같은 문법을 쓰면 두 연출이 서로를 오검출한다.
-      expect(texts.some(r => String(r.args[0]).startsWith('×'))).toBe(false);
+      expect(records.filter(r => r.method === 'fillText').map(r => r.args[0])).toEqual(expected);
     });
 
     it('스폰 구역(8랭크) 최상단에서 감속돼도 라벨이 화면 위로 잘려나가지 않는다', () => {
       // 감속 범위는 배치 가능 칸과 달리 8랭크를 포함하므로, 갓 스폰된 적(y가 0에 가까움)이
       // 곧바로 걸리는 경우가 실제로 생긴다. 라벨은 적보다 위에 뜨는데 그대로 두면 y가 음수가 돼
       // 플레이어에게는 "아무 일도 안 일어난" 것으로 보인다.
+      // 티어를 3으로 두는 것은 이 가드가 문구 길이·티어와 무관하다는 뜻이다 — 잘림은 좌표 문제다.
       const fx = new Effects();
-      fx.onEvent({ kind: 'enemySlowed', enemyId: 'e1', file: 0, y: 0 });
+      fx.onEvent({ kind: 'enemySlowed', enemyId: 'e1', file: 0, y: 0, tier: 3 });
 
       const { ctx, records } = makeStubCtx();
       fx.draw(ctx as unknown as CanvasRenderingContext2D);
@@ -183,12 +225,14 @@ describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스�
       expect(texts.every(r => (r.args[2] as number) > 0)).toBe(true);
     });
 
-    it('"−30%" 라벨은 ttl 0.7초 뒤 사라진다 — 감속은 지속 상태지만 라벨은 진입 순간의 사건이다', () => {
+    it('감속 라벨은 ttl 0.7초 뒤 사라진다 — 감속은 지속 상태지만 라벨은 진입 순간의 사건이다', () => {
       // 지속 상태 쪽(오라 범위·감속된 적의 고리)은 renderer.ts가 매 프레임 state를 직접 읽어
-      // 그린다. 여기 라벨까지 계속 떠 있으면 적이 오라 안에 머무는 내내 "−30%"가 박혀서,
-      // 방금 걸린 적과 이미 걸려 있던 적을 구분할 수 없게 된다.
+      // 그린다. 여기 라벨까지 계속 떠 있으면 적이 오라 안에 머무는 내내 감속 수치가 박혀서,
+      // 방금 걸린 적과 이미 걸려 있던 적을 구분할 수 없게 된다. v1.13에서는 더 나쁘다 —
+      // 더 센 오라로 넘어갈 때만 새 수치가 뜨는데, 옛 라벨이 안 사라지면 −30%와 −40%가 한
+      // 적의 머리 위에 동시에 박혀 어느 쪽이 지금 걸린 값인지 알 수 없게 된다.
       const fx = new Effects();
-      fx.onEvent({ kind: 'enemySlowed', enemyId: 'e1', file: 2, y: 300 });
+      fx.onEvent({ kind: 'enemySlowed', enemyId: 'e1', file: 2, y: 300, tier: 1 });
 
       fx.update(0.69);
       const before = makeStubCtx();
@@ -267,7 +311,7 @@ describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스�
       fx.onEvent({ kind: 'attack', pieceType: 'pawn', from, targets: pawnTargets(from) });
       fx.onEvent({ kind: 'attack', pieceType: 'rook', from, targets: rookTargets(from) });
       fx.onEvent({ kind: 'attack', pieceType: 'bishop', from, targets: bishopTargets(from) });
-      fx.onEvent({ kind: 'enemySlowed', enemyId: 'e1', file: 1, y: 120 });
+      fx.onEvent({ kind: 'enemySlowed', enemyId: 'e1', file: 1, y: 120, tier: 4 });
       fx.onEvent({ kind: 'goldGained', square: { file: 2, rank: 3 }, amount: 10 });
       fx.onEvent({ kind: 'merged', square: { file: 5, rank: 2 }, pieceType: 'knight', tier: 2 });
       fx.onEvent({ kind: 'enemyDied', enemyId: 'e', square: { file: 6, rank: 6 }, isBoss: false, reward: 1 });
@@ -302,7 +346,7 @@ describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스�
         fx.onEvent({ kind: 'attack', pieceType: 'pawn', from, targets: pawnTargets(from) });
         fx.onEvent({ kind: 'attack', pieceType: 'bishop', from, targets: bishopTargets(from) });
         fx.onEvent({ kind: 'attack', pieceType: 'knight', from, targets: [] });
-        fx.onEvent({ kind: 'enemySlowed', enemyId: 'e1', file: 4, y: 200 });
+        fx.onEvent({ kind: 'enemySlowed', enemyId: 'e1', file: 4, y: 200, tier: 6 });
         fx.onEvent({ kind: 'goldGained', square: from, amount: 10 });
         fx.onEvent({ kind: 'merged', square: from, pieceType: 'knight', tier: 2 });
         fx.onEvent({ kind: 'enemyDied', enemyId: 'e', square: from, isBoss: false, reward: 1 });
@@ -387,7 +431,7 @@ describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스�
       fx.onEvent({ kind: 'attack', pieceType: 'pawn', from, targets: pawnTargets(from) });
       fx.onEvent({ kind: 'attack', pieceType: 'rook', from, targets: rookTargets(from) });
       fx.onEvent({ kind: 'attack', pieceType: 'bishop', from, targets: bishopTargets(from) });
-      fx.onEvent({ kind: 'enemySlowed', enemyId: 'e1', file: 5, y: 260 });
+      fx.onEvent({ kind: 'enemySlowed', enemyId: 'e1', file: 5, y: 260, tier: 2 });
       fx.onEvent({ kind: 'goldGained', square: { file: 2, rank: 3 }, amount: 7 });
       fx.onEvent({ kind: 'merged', square: { file: 5, rank: 2 }, pieceType: 'knight', tier: 2 });
       fx.onEvent({ kind: 'enemyDied', enemyId: 'e', square: { file: 0, rank: 1 }, isBoss: false, reward: 1 });

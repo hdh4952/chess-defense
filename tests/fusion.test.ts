@@ -1,13 +1,13 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
-import { CONFIG, TRAITS, slowPercent, tierMultiplier } from '../src/config';
+import { CONFIG, TRAITS, slowMultiplier, slowPercent, tierMultiplier } from '../src/config';
 import { recalcQueenBuffs } from '../src/core/buff';
 import { pieceDamage, updateCombat } from '../src/core/combat';
 import { grantPiece, sellPrice } from '../src/core/economy';
 import { FUSION_RECIPES, fusionResult } from '../src/core/fusion';
 import { moveOnBoard, resolveLanding } from '../src/core/pieces';
 import { bishopTargets, slowSquares, slowTargets } from '../src/core/patterns';
-import { effectiveSpeed, updateSlowAura } from '../src/core/slow';
+import { NO_SLOW, effectiveSpeed, updateSlowAura } from '../src/core/slow';
 import { buildHighlights, HIGHLIGHT_COLORS } from '../src/render/highlights';
 import { updateTooltip } from '../src/ui/tooltip';
 import type { GameEvent, PieceType, Square } from '../src/types';
@@ -188,10 +188,15 @@ describe('융합 커밋', () => {
       const e = enemyAt(1, 6, 5);          // g5 — 결과 기물이 서는 칸(e6)에서 L자로 떨어져 있다
       s.enemies.push(e);
       const hp0 = e.hp;
+      const ev: GameEvent[] = [];
 
       // 융합 **전** 상태는 방향마다 다르다 — 나이트가 이미 e6에 서 있던 쪽만 걸려 있다.
-      updateSlowAura(s, []);
-      expect(e.slowed, `${moverType} → ${occType} (융합 전)`).toBe(occType === 'knight');
+      // v1.13부터 이 값은 boolean이 아니라 **감속을 거는 기물의 티어**다. 재료가 T1이므로
+      // 걸린 쪽은 1이고, 안 걸린 쪽은 NO_SLOW(0)다 — 티어가 1부터라 0이 "없음"을 뜻할 수 있다.
+      updateSlowAura(s, ev);
+      expect(e.slowTier, `${moverType} → ${occType} (융합 전)`)
+        .toBe(occType === 'knight' ? 1 : NO_SLOW);
+      const notifiedBefore = ev.filter(x => x.kind === 'enemySlowed').length;
 
       expect(moveOnBoard(s, mover.id, 4, 6, [], true)).toBe(true);
       expect(occ.type).toBe('archbishop');
@@ -201,10 +206,49 @@ describe('융합 커밋', () => {
 
       // 한쪽은 걸려 있던 감속이 **유지**되고, 다른 쪽은 없던 감속이 **생긴다**. 결과를 비숍
       // 으로 읽으면 앞쪽이 풀리고 뒤쪽은 영영 걸리지 않는다 — 양방향을 도는 이유가 그것이다.
-      updateSlowAura(s, []);
-      expect(e.slowed, `${moverType} → ${occType}`).toBe(true);
-      expect(effectiveSpeed(e)).toBeCloseTo(e.speed * CONFIG.slowAura.multiplier);
+      updateSlowAura(s, ev);
+      expect(e.slowTier, `${moverType} → ${occType}`).toBe(occ.tier);
+      expect(effectiveSpeed(e)).toBeCloseTo(e.speed * slowMultiplier(occ.tier));
+
+      // ★ 알림 쪽에서 본 "융합은 티어를 올리지 않는다". v1.13의 알림 규칙은 **세질 때만**
+      // 발행이라, 이미 T1에 걸려 있던 적 위로 T1 융합물이 들어서는 것은 사건이 아니다.
+      // 그래서 양방향 모두 총 1회이되 **시점이 반대다**: 나이트가 이미 서 있던 쪽은 융합
+      // 전에, 비숍이 서 있던 쪽은 융합 후에 한 번. 융합이 티어를 올리면 앞쪽이 2회가 된다.
+      expect(notifiedBefore, `${moverType} → ${occType} (융합 전 알림)`)
+        .toBe(occType === 'knight' ? 1 : 0);
+      expect(ev.filter(x => x.kind === 'enemySlowed'), `${moverType} → ${occType} (알림)`)
+        .toEqual([{ kind: 'enemySlowed', enemyId: e.id, file: e.file, y: e.y, tier: occ.tier }]);
     }
+  });
+
+  it('★ T2 재료 둘로 융합하면 감속도 T2다 — 단계당 +5%p가 그대로 실린다', () => {
+    // 위 resolveLanding 테스트의 "티어를 올리지 않는다"가 v1.13에서 관측 가능한 얼굴을 하나
+    // 더 얻었다. 예전에는 감속이 티어와 무관해서 재료 티어가 감속에 아무 흔적도 남기지 않았고,
+    // 그래서 결과가 T1로 굳어도 감속 쪽에서는 아무도 눈치채지 못했다. 이제는 갈린다 —
+    // T2 재료 둘이면 결과도 T2이고, 감속도 T2 값이어야 한다(더도 덜도 아니다).
+    const s = waveState();
+    const mover = boardPiece('rook', 3, 4, 2);
+    const occ = boardPiece('knight', 4, 6, 2);
+    s.pieces.push(mover, occ);
+    const e = enemyAt(1, 6, 5);          // g5 — 결과 기물이 서는 칸(e6)에서 L자
+    s.enemies.push(e);
+    const ev: GameEvent[] = [];
+
+    expect(moveOnBoard(s, mover.id, 4, 6, ev, true)).toBe(true);
+    expect(occ.type).toBe('chancellor');
+    expect(occ.tier).toBe(2);
+
+    updateSlowAura(s, ev);
+    expect(e.slowTier).toBe(2);
+    expect(effectiveSpeed(e)).toBeCloseTo(e.speed * slowMultiplier(2));
+    // ★ 여기 하나만 **바깥에서 못박는다**: T2 = 35% = ×0.65. 윗줄들은 전부 slowMultiplier에서
+    // 유도되므로 계수를 잘못 바꾸면 함께 움직여 아무것도 지키지 못한다 — 이 두 줄만 깨진다.
+    expect(slowPercent(2)).toBe(35);
+    expect(effectiveSpeed(e)).toBeCloseTo(e.speed * 0.65);
+    // 알림도 결과 기물의 티어를 싣는다. 이 값이 1로 새면 화면만 −30%라고 말하게 된다.
+    expect(ev).toContainEqual({
+      kind: 'enemySlowed', enemyId: e.id, file: e.file, y: e.y, tier: 2,
+    });
   });
 
   it('아마존이 생기면 버프가 즉시 재계산된다', () => {
@@ -302,6 +346,59 @@ describe('융합물의 그 이후', () => {
     expect(moveOnBoard(s, a.id, 4, 4, [], true)).toBe(true);
     expect(b.tier).toBe(3);
     expect(b.type).toBe('archbishop');
+  });
+
+  it('★ 융합물의 감속도 티어를 탄다 — 그런데 **겹쳐도 여전히 중첩되지 않는다**', () => {
+    // 이 자리의 불변식이 v1.13에서 뒤집혔다. v1.10~v1.12에서는 "감속은 티어와 무관하다"였고
+    // (합성해도 −30% 그대로) 그래서 나이트 계열은 합성이 손해인 유일한 기물이었다. 이제
+    // 단계마다 +5%p로 커진다(사용자 결정) — 융합물 셋도 예외가 아니다.
+    //
+    // ★ 두 규칙을 **한 테스트 안에** 둔 것이 요점이다. "세기가 티어를 탄다"와 "중첩은 없다"는
+    // 서로 독립인데 섞어 읽기 쉬워서, 하나만 보면 나머지를 반대로 추론하게 된다(강화가
+    // 듣는다 → 겹쳐도 쌓이겠지 / 안 쌓인다 → 합성도 소용없겠지). 둘 다 여기서 함께 깨져야 한다.
+    const from: Square = { file: 3, rank: 4 };
+    const [target] = slowSquares(from);          // 오라 8칸 중 아무 칸이나 — 어느 칸이든 같다
+    for (const [, , result] of FUSION_RECIPES) {
+      for (let k = 1; k <= CONFIG.merge.maxTier[result]; k++) {
+        const s = waveState();
+        s.pieces.push(boardPiece(result, from.file, from.rank, k));
+        const e = enemyAt(1, target.file, target.rank);
+        s.enemies.push(e);
+        updateSlowAura(s, []);
+        // 적이 든 것은 배수가 아니라 **티어**다 — 그래서 두 값을 곱하는 코드가 성립할 수 없다.
+        expect(e.slowTier, `${result} T${k}`).toBe(k);
+        expect(effectiveSpeed(e), `${result} T${k}`).toBeCloseTo(e.speed * slowMultiplier(k));
+      }
+    }
+    // 위 루프는 전부 slowMultiplier에서 유도되므로 계수를 잘못 바꿔도 통째로 따라 움직인다.
+    // 사용자가 정한 표는 여기서 한 번 **리터럴로** 못박는다 (T1 30 · 단계마다 +5 · 상한 T6).
+    expect([1, 2, 3, 4, 5, 6].map(t => slowPercent(t))).toEqual([30, 35, 40, 45, 50, 55]);
+
+    // ── 중첩 없음: 같은 칸을 T1과 T3가 함께 덮어도 **가장 높은 티어 하나**만 걸린다.
+    // 합(−70%)도 곱(×0.7 × 0.6 = 0.42)도 아니고, 낮은 쪽이 높은 쪽을 끌어내리지도 않는다
+    // — "T1이 T3를 무효화하면 안 된다"가 합이 아니라 최댓값을 고른 이유다.
+    // 기물 순서를 뒤집어 두 번 도는 것은 그 최댓값이 **순회 순서와 무관**함을 보는 것이다:
+    // 뒤에 오는 기물이 앞의 값을 덮어쓰면 한쪽 순서에서만 T1로 떨어진다.
+    for (const weakFirst of [true, false]) {
+      const s = waveState();
+      const weak = boardPiece('knight', 3, 4, 1);            // d4 — 순수 나이트도 같은 규칙이다
+      const strong = boardPiece('archbishop', 2, 5, 3);      // c5
+      s.pieces.push(...(weakFirst ? [weak, strong] : [strong, weak]));
+      const both: Square = { file: 4, rank: 6 };             // e6
+      // 좌표를 눈으로 믿지 않는다 — 겹침이 성립하지 않으면 이 테스트는 아무것도 보지 못한다.
+      for (const p of [weak, strong]) {
+        expect(slowTargets(p.type, p.square)
+          .some(q => q.file === both.file && q.rank === both.rank), p.type).toBe(true);
+      }
+      const e = enemyAt(1, both.file, both.rank);
+      s.enemies.push(e);
+      updateSlowAura(s, []);
+
+      expect(e.slowTier, `weakFirst=${weakFirst}`).toBe(3);
+      expect(effectiveSpeed(e)).toBeCloseTo(e.speed * slowMultiplier(3));
+      expect(effectiveSpeed(e)).not.toBeCloseTo(e.speed * slowMultiplier(1) * slowMultiplier(3));
+      expect(effectiveSpeed(e)).not.toBeCloseTo(e.speed * slowMultiplier(1));
+    }
   });
 
   it('융합물 + 다른 종류는 레시피가 없으므로 맞교환이다', () => {
@@ -433,9 +530,35 @@ describe('융합 기물 툴팁 (S4c)', () => {
     expect(html).toContain(`−${slowPercent()}%`);
     // 공격력 0인 순수 지원 기물이므로 "기본 공격력 0"은 적지 않는다 — 알려주는 정보가 없다.
     expect(html).not.toContain('기본 공격력');
-    // 이 줄이 없으면 플레이어는 나이트를 겹쳐 놓거나 합성해 더 느리게 만들려 한다. 둘 다
-    // 효과가 없고 합성은 덮는 칸이 줄어 오히려 손해다 — 규칙을 말해 주는 편이 낫다.
+    // ★ 이 줄의 근거가 v1.13에서 절반만 뒤집혔다. 예전에는 "겹쳐도 합성해도 소용없다"라
+    // 둘 다 말리는 문구였는데, 이제 **합성은 듣고 중첩만 안 듣는다**. 두 축을 함께 적지
+    // 않으면 플레이어는 여전히 겹쳐 놓아 더 느리게 만들려 하고(효과 없음), 반대로 합성이
+    // 감속을 키운다는 사실도 화면 어디에서도 알 수 없다.
     expect(html).toContain('중첩');
+    expect(html).toContain(`−${slowPercent(2)}%`);   // T1 아마존의 "합성하면 −35%" 줄
+  });
+
+  it('★ 융합물 툴팁의 감속 수치는 그 기물의 티어를 따른다 — 셋 다, 전 단계', () => {
+    // v1.12까지는 감속이 티어와 무관해서 이 줄이 모든 단계에서 같은 값이었고, 그래서 T1
+    // 값을 문구에 굳혀도 아무 데서도 틀리지 않았다. v1.13에서 티어를 타기 시작한 순간 그
+    // 상수는 T2 이상에서 곧바로 거짓말이 된다 — 이 게임에서 사고는 늘 "표시와 실제가
+    // 갈라지는" 이 형태였고, 그 어긋남은 테스트가 아니라 플레이어가 발견한다.
+    for (const [, , result] of FUSION_RECIPES) {
+      const maxTier = CONFIG.merge.maxTier[result];
+      for (let k = 1; k <= maxTier; k++) {
+        const html = tip(result, k);
+        expect(html, `${result} T${k}`).toContain(`−${slowPercent(k)}%`);
+        // 다음 단계 수치는 합성 판단에 필요한 유일한 정보다. 최대 단계에서는 올릴 곳이
+        // 없으므로 그 사실을 대신 적는다 — 없는 다음 단계(T7)를 계산해 보여주면 안 된다.
+        expect(html, `${result} T${k}`)
+          .toContain(k < maxTier ? `−${slowPercent(k + 1)}%` : '최대 단계');
+        // 중첩 금지는 **모든 단계에서** 적는다. 강화가 듣기 시작한 만큼 "겹치면 더 느려지겠지"
+        // 라는 오해도 같이 커진다.
+        expect(html, `${result} T${k}`).toContain('중첩');
+        // T1 값이 상수로 남아 있으면 여기서 걸린다 (T2 이상의 툴팁에는 −30%가 나올 자리가 없다).
+        if (k > 1) expect(html, `${result} T${k}`).not.toContain(`−${slowPercent()}%`);
+      }
+    }
   });
 
   it('아마존의 버프 표기는 계수를 반영한다 — 퀸의 절반', () => {
@@ -499,20 +622,22 @@ describe('★ 공격 쿨다운이 이동을 막지 않는다 (S4 회귀)', () =>
     const ev: GameEvent[] = [];
 
     updateSlowAura(s, ev);
-    expect(e.slowed).toBe(false);
+    expect(e.slowTier).toBe(NO_SLOW);
 
     expect(moveOnBoard(s, p.id, 6, 2, ev, false)).toBe(true);   // 이동은 된다
     expect(p.cooldown).toBeCloseTo(CONFIG.pieces.chancellor.interval);   // 쿨다운은 그대로
     expect(e.hp).toBe(hp0);          // 이동 자체는 아무 피해도 주지 않는다 (폭발 없음)
 
     updateSlowAura(s, ev);
-    expect(e.slowed).toBe(true);
-    expect(effectiveSpeed(e)).toBeCloseTo(e.speed * CONFIG.slowAura.multiplier);
-    // 알림은 **전이에서만** 나간다. 이미 걸린 적을 몇 틱을 더 재판정해도 새 사건은 없으므로,
-    // 한 번 더 돌려 개수가 그대로인 것까지 본다 — 매 틱 발행하면 이펙트도 소리도 60fps ×
-    // 적 수로 쏟아져 쓸 수 없게 된다.
+    expect(e.slowTier).toBe(p.tier);
+    expect(effectiveSpeed(e)).toBeCloseTo(e.speed * slowMultiplier(p.tier));
+    // 알림은 **감속이 새로 걸리거나 세질 때만** 나간다. v1.12까지는 걸림/안 걸림 둘뿐이라
+    // "전이에서만"이었는데, 티어가 생기면서 조건이 `now > slowTier`로 좁아졌다 — 같은 티어를
+    // 몇 틱 더 재판정해도 새 사건은 없다. 한 번 더 돌려 개수가 그대로인 것까지 보는 이유는
+    // 그대로다: 매 틱 발행하면 이펙트도 소리도 60fps × 적 수로 쏟아져 쓸 수 없게 된다.
     updateSlowAura(s, ev);
-    expect(ev.filter(x => x.kind === 'enemySlowed')).toHaveLength(1);
+    expect(ev.filter(x => x.kind === 'enemySlowed'))
+      .toEqual([{ kind: 'enemySlowed', enemyId: e.id, file: e.file, y: e.y, tier: p.tier }]);
   });
 
   it('interval의 뜻이 하나로 합쳐졌다 — 주기 공격이 있는 기물만 0이 아니다', () => {

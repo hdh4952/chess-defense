@@ -37,10 +37,10 @@ const BLURB: Record<PieceType, Blurb> = {
   },
   knight: {
     element: '얼음', role: '감속 · 시간 벌기',
-    detail: '공격하지 않는다. 대신 L자 행마로 닿는 8칸에 들어온 적을 30% 느리게 만든다. '
+    detail: '공격하지 않는다. 대신 L자 행마로 닿는 8칸에 들어온 적을 느리게 만든다. '
       + '적이 그 칸에 있는 동안 계속 걸리고, 벗어나면 풀린다. 8랭크(적이 나오는 줄)에도 걸리므로 '
-      + '판에 들어오는 순간부터 늦출 수 있다. 여러 기가 같은 칸을 덮어도 30%는 그대로이고 '
-      + '합성해도 늘지 않는다 — 나이트는 강화하는 기물이 아니라 넓게 까는 기물이다.',
+      + '판에 들어오는 순간부터 늦출 수 있다. 여러 기가 같은 칸을 덮어도 가장 센 하나만 적용되지만, '
+      + '합성하면 감속 자체가 커진다 — 넓게 깔 것인가 깊게 세울 것인가가 이 기물의 선택이다.',
   },
   bishop: {
     element: '빛', role: '골드 생산 · 전역 광역',
@@ -93,7 +93,9 @@ function intervalLabel(type: PieceType): string {
 /** 감속 줄. 능력이 있는 기물에만 만든다 — 나머지에 "감속 없음"을 적어 봐야 정보가 없다. */
 function slowRow(type: PieceType): string {
   return TRAITS[type].slow
-    ? `<dt>감속</dt><dd>L자 8칸 −${slowPercent()}% (지속 · 중첩·강화 없음)</dd>`
+    ? `<dt>감속</dt><dd>L자 8칸 −${slowPercent()}% · 합성 1단계마다 `
+      + `−${slowPercent(2) - slowPercent()}%p (최대 −${slowPercent(CONFIG.merge.maxTier[type])}%)`
+      + '<br><small>겹쳐 놓아도 중첩되지 않는다</small></dd>'
     : '';
 }
 

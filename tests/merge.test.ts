@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { CONFIG, tierMultiplier } from '../src/config';
+import { CONFIG, slowMultiplier, slowPercent, tierMultiplier } from '../src/config';
 import { pieceDamage, pieceGold, updateCombat } from '../src/core/combat';
 import { recalcQueenBuffs } from '../src/core/buff';
 import { buyPiece, canBuy, emptySquares, sellPiece, sellPrice } from '../src/core/economy';
 import { moveOnBoard, pieceAt, resolveLanding, canLandAt } from '../src/core/pieces';
-import { updateSlowAura } from '../src/core/slow';
+import { NO_SLOW, slowCoverage, slowFactorAt, updateSlowAura } from '../src/core/slow';
 import { buildHighlights, HIGHLIGHT_COLORS } from '../src/render/highlights';
 import { TIER_COLORS, tierRingColor } from '../src/render/tiers';
 import { render, createFrameView } from '../src/render/renderer';
@@ -15,9 +15,19 @@ import { boardPiece, enemyAt, waveState } from './helpers';
 /**
  * 동일 기물 합성. 이 스위트가 고정하는 규칙은 세 층이다:
  *   1) 판정 — resolveLanding 하나가 배치/합성/맞교환/거부를 가른다 (미리보기와 실제 규칙의 단일 출처)
- *   2) 능력치 — 전부 tier에 정비례한다 ("능력치 합"이 문자 그대로 성립하는지)
+ *   2) 능력치 — tier에 정비례한다 ("능력치 합"이 문자 그대로 성립하는지). ★ v1.13에서 예외가
+ *      하나 생겼다 — 감속만은 "합"이 아니라 단계마다 +5%p인 **선형**이다
  *   3) 제스처 — 합성은 드래그 앤 드롭 전용이고 클릭-투-무브는 예전 그대로 맞교환이다
  * 수치는 전부 CONFIG에서 유도한다 (이 저장소의 관행 — 밸런스 재조정에 테스트가 깨지지 않게).
+ * 예외는 감속표 하나뿐이다: 사용자가 정한 30/35/40…을 아래에서 **한 번은 리터럴로** 못박는다.
+ * 전부 유도하면 계수를 잘못 바꿔도 테스트가 그 값을 따라 움직여 아무것도 지키지 못한다.
+ *
+ * ⚠️ v1.13에서 **나이트 합성의 의미가 뒤집혔다.** v1.12까지 감속은 티어와 무관해서, 나이트를
+ * 합치면 덮는 칸만 절반이 되고 얻는 것이 없었다 — 이 게임에서 **합성이 손해인 유일한 기물**이었다.
+ * 이제 단계마다 감속이 +5%p 세지므로 합성은 "칸 ↔ 세기"의 교환이 된다. 그 뒤집힘을 들고 있는
+ * 것이 아래 '나이트 합성은 …'으로 시작하는 두 테스트다. 함께 봐야 할 것이 하나 더 있다 —
+ * **중첩은 여전히 없다**: 세기 축이 생겼다고 두 오라가 더해지지는 않고, 겹친 칸은 가장 높은
+ * 티어 하나가 이긴다. 둘을 따로 두면 "세진다"만 읽고 합산을 기대하기 쉬워 나란히 단언한다.
  *
  * ⚠️ v1.12에서 **축이 하나 사라졌다**: 기물 보관함(트레이)이 없어져 착지 경로가 보드 → 보드
  * 하나뿐이다. 예전에는 같은 칸·같은 제스처인데도 출발지에 따라 결과가 갈렸고(트레이발은
@@ -254,8 +264,11 @@ describe('합성 커밋 — 생존자·쿨다운·이벤트', () => {
   it('합성 직후에는 아무 능력도 발동하지 않는다 — 감속은 다음 틱이 생존자의 칸으로 건다', () => {
     // v1.10 전까지 이 자리에는 "나이트 합성은 생존자 기준으로 정확히 1회 폭발한다"가 있었다.
     // 폭발이 감속 오라로 바뀌면서 능력이 붙을 **순간**이 사라졌으므로(서 있기만 하면 걸리는
-    // 지속 상태다) 불변식이 뒤집힌다: 합성은 merged 하나만 남기고 끝나야 한다. 티어에 비례하던
-    // 데미지 단언은 지킬 대상이 없어졌다 — 감속은 티어와 무관하고 나이트 공격력은 0이다.
+    // 지속 상태다) 불변식이 뒤집힌다: 합성은 merged 하나만 남기고 끝나야 한다.
+    // 여기 있던 "티어에 비례하는 데미지" 단언은 나이트 공격력이 0이 되면서 지킬 대상을 잃었는데,
+    // v1.13에서 **티어 축이 감속 세기로 돌아왔다** — 그래서 아래 틱 뒤 단언이 티어를 다시 본다.
+    // 합성 결과가 T2면 다음 틱이 거는 것도 T2 감속(−35%)이어야 한다. 흡수된 쪽의 T1이 남아
+    // 걸리면 합성한 보람이 조용히 사라지므로, 값이 아니라 **어느 기물의 티어인지**를 못박는다.
     const s = waveState();
     const mover = boardPiece('knight', 3, 4);
     // d4 → e6. v1.11부터 이 좌표가 L자인 것은 **이동 조건이 아니라** 아래 감속 단언의 조건이다
@@ -273,18 +286,23 @@ describe('합성 커밋 — 생존자·쿨다운·이벤트', () => {
     // 합성이 남기는 이벤트는 merged 하나뿐이다 — 조작 직후에 능력이 되살아나면 여기서 걸린다.
     expect(events.map(x => x.kind)).toEqual(['merged']);
     expect(onSurvivor.hp).toBe(hp0);                   // 피해를 주는 능력 자체가 없다
-    expect(s.enemies.map(x => x.slowed)).toEqual([false, false]);   // 감속도 아직이다
+    expect(s.enemies.map(x => x.slowTier)).toEqual([NO_SLOW, NO_SLOW]);   // 감속도 아직이다
 
     // 능력은 조작이 아니라 틱에 속한다(step.ts). 그리고 틱이 보는 것은 합성 결과 기물의
     // 지금 칸뿐이라, 흡수된 쪽이 있던 자리가 아니라 생존자의 L자 8칸이 덮인다.
     const tickEvents: GameEvent[] = [];
     updateSlowAura(s, tickEvents);
-    expect(onL.slowed).toBe(true);
-    expect(onSurvivor.slowed).toBe(false);             // 자기가 선 칸은 L자가 아니다
+    expect(onL.slowTier).toBe(occupant.tier);          // 재료의 T1이 아니라 합성 결과의 T2다
+    expect(onSurvivor.slowTier).toBe(NO_SLOW);         // 자기가 선 칸은 L자가 아니다
+    // 화면이 −30%가 아니라 −35%를 말하려면 이벤트가 그 티어를 실어 날라야 한다 —
+    // 렌더는 적의 상태를 뒤져 보지 않고 이 이벤트 하나로 라벨을 만든다(render/effects.ts).
+    expect(tickEvents).toContainEqual({
+      kind: 'enemySlowed', enemyId: onL.id, file: onL.file, y: onL.y, tier: 2,
+    });
   });
 });
 
-describe('능력치는 전부 tier에 정비례한다 ("능력치 합")', () => {
+describe('능력치는 tier에 정비례한다 ("능력치 합") — 단 감속만은 선형이다', () => {
   it('공격력: 각 티어는 바로 아래 티어 둘의 합 (단계마다 정확히 2배)', () => {
     const base = CONFIG.pieces.rook.damage;
     const t1 = boardPiece('rook', 0, 1);
@@ -334,6 +352,68 @@ describe('능력치는 전부 tier에 정비례한다 ("능력치 합")', () => 
 
     expect(target2.queenBuffCount).toBe(target1.queenBuffCount);
     expect(pieceDamage(target2)).toBe(pieceDamage(target1));
+  });
+
+  it('나이트 합성: 덮는 칸은 절반이 되지만 감속이 30% → 35%로 세진다 (v1.13에서 뒤집힌 거래)', () => {
+    // v1.12까지 나이트는 이 게임에서 **합성이 손해인 유일한 기물**이었다. 감속률이 티어와
+    // 무관해서, 두 기를 합치면 덮는 칸만 16 → 8로 줄고 얻는 것이 하나도 없었기 때문이다.
+    // 잃는 쪽은 지금도 그대로다 — 그래서 두 축을 한 테스트에서 함께 잰다. 바뀐 것은 그 대가로
+    // 받는 것이 생겼다는 쪽이고, 칸 단언을 빼면 "세진다"만 남아 거래의 절반이 안 보인다.
+    const s = waveState();
+    const mover = boardPiece('knight', 2, 3);
+    const occupant = boardPiece('knight', 5, 3);      // 두 L자 8칸이 한 칸도 겹치지 않는 배치
+    s.pieces.push(mover, occupant);
+    const sq = { file: 6, rank: 5 };                  // occupant의 L자 칸 — 합성 후에도 계속 덮인다
+
+    expect(slowCoverage(s).size).toBe(16);            // T1 둘 = 8칸 + 8칸
+    expect(slowFactorAt(s, sq)).toBe(slowMultiplier(1));
+
+    expect(moveOnBoard(s, mover.id, 5, 3, [], true)).toBe(true);
+    expect(occupant.tier).toBe(2);
+    expect(slowCoverage(s).size).toBe(8);                    // 잃는 것: 칸의 절반
+    expect(slowFactorAt(s, sq)).toBe(slowMultiplier(2));     // 얻는 것: 한 단계 센 감속
+
+    // 증가폭 자체는 CONFIG에서 유도한다. 이 스위트에서 감속만 갖는 성질이 여기 있다 —
+    // 다른 능력치처럼 "합"(배)이었다면 T2는 35%가 아니라 60%였을 것이다.
+    expect(slowPercent(2) - slowPercent(1)).toBe(CONFIG.slowAura.perTierPercent);
+    expect(slowPercent(2)).not.toBe(slowPercent(1) * 2);
+
+    // 그리고 사용자가 정한 표는 여기서 한 번 **리터럴로** 못박는다. 전부 유도하면 계수를 잘못
+    // 바꿔도 위 단언들이 새 값을 따라가 초록이다. 길이를 maxTier에서 뽑는 이유는 합성 사슬이
+    // 표보다 길어지는 순간 상한 티어의 감속률이 아무도 정하지 않은 값이 되기 때문이다.
+    const tiers = Array.from({ length: CONFIG.merge.maxTier.knight }, (_, i) => i + 1);
+    expect(tiers.map(t => slowPercent(t))).toEqual([30, 35, 40, 45, 50, 55]);
+  });
+
+  it('나이트 합성은 옆의 T1에 끌려 내려가지 않는다 — 티어는 타되 중첩은 여전히 없다', () => {
+    // 두 규칙을 한 테스트에 나란히 세운다. 따로 읽으면 "세진다"에서 합산을, "중첩 없음"에서
+    // 티어 무관을 각각 기대하게 되는데 실제 규칙은 그 사이에 있다 — 겹친 칸은 **가장 높은
+    // 티어 하나**가 이긴다. 합성 쪽에서 이 규칙이 걸리는 지점이 분명하다: 합성해 만든 T2
+    // 옆에 T1이 서 있다는 이유만으로 그 칸이 30%로 되돌아가면, 방금 두 기를 태워 산 세기가
+    // 배치를 조금 바꿨다는 이유로 조용히 사라진다.
+    const s = waveState();
+    const mover = boardPiece('knight', 2, 3);
+    const merged = boardPiece('knight', 5, 3);
+    s.pieces.push(mover, merged);
+    expect(moveOnBoard(s, mover.id, 5, 3, [], true)).toBe(true);
+    expect(merged.tier).toBe(2);
+    // 나중에 배치한다 = slowCoverage 순회에서 **뒤에 온다**. "마지막에 쓴 쪽이 이긴다"는
+    // 흔한 실수가 여기서만 드러나므로 순서가 이 테스트의 일부다.
+    const weak = boardPiece('knight', 4, 4);
+    s.pieces.push(weak);
+
+    const both = { file: 6, rank: 5 };        // T2와 T1이 함께 덮는 칸
+    const onlyWeak = { file: 5, rank: 6 };    // T1만 덮는 칸
+    expect(slowFactorAt(s, both)).toBe(slowMultiplier(merged.tier));
+    expect(slowFactorAt(s, both)).not.toBe(slowMultiplier(weak.tier));               // 끌어내리지 않고
+    expect(slowFactorAt(s, both)).not.toBe(slowMultiplier(1) * slowMultiplier(2));   // 곱해지지도 않는다
+    expect(slowFactorAt(s, onlyWeak)).toBe(slowMultiplier(1));   // 약한 쪽이 사라지는 것도 아니다
+
+    // 적이 드는 값도 하나뿐이다. 배수가 아니라 **티어**라 두 값을 섞는 코드가 의미조차 없다.
+    const e = enemyAt(1, both.file, both.rank);
+    s.enemies.push(e);
+    updateSlowAura(s, []);
+    expect(e.slowTier).toBe(merged.tier);
   });
 
   it('판매가: 합성 후 판매액 = 합성 전 각각의 판매액 합 (보이지 않는 골드 소각 없음)', () => {

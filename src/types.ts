@@ -53,14 +53,17 @@ export interface Enemy {
    *  줄이므로 "T1 둘 = T2 하나"라는 골드 중립성이 깨진다(실측 −23%). */
   shieldPool: number;
   /**
-   * 지금 감속 오라 안에 있는가 (v1.10). 매 틱 재계산되는 **파생 상태**이고, traits와 달리
-   * 정체성이 아니다 — 적이 칸을 벗어나면 즉시 false로 돌아온다.
+   * 지금 이 적을 감속시키고 있는 기물의 **티어** — 0이면 감속 없음(core/slow.ts의 NO_SLOW).
+   * 매 틱 재계산되는 **파생 상태**이고, traits와 달리 정체성이 아니다 — 적이 칸을 벗어나면
+   * 즉시 0으로 돌아온다.
    *
-   * ★ **boolean인 것이 중첩 금지 규칙 그 자체다.** 배수(0.7 / 0.49 …)를 담으면 언젠가
-   * 누군가 곱하기 시작한다. 표현 가능한 값이 둘뿐이면 나이트가 몇 기든 결과가 같다는 것이
-   * 타입 수준에서 보장되고, 배수는 CONFIG.slowAura 한 곳에만 산다.
+   * ★ **배수가 아니라 티어를 담는 것이 중첩 금지 규칙 그 자체다.** v1.12까지는 boolean이었고
+   * 그것이 "티어 무관"을 강제했다(사용자 결정). v1.13에서 티어별 세기가 생겨 boolean으로는
+   * 표현할 수 없게 됐지만, **배수(0.70 / 0.65 …) 대신 티어를 담는다**는 선택이 같은 역할을
+   * 이어받는다: 티어 둘을 곱하는 코드는 의미조차 없으므로 실수로 중첩시킬 방법이 없다.
+   * 여러 기물이 겹치면 **가장 높은 티어 하나**가 이긴다(slowCoverage).
    */
-  slowed: boolean;
+  slowTier: number;
 }
 
 export type Phase = 'prepare' | 'wave' | 'victory' | 'defeat';
@@ -94,14 +97,17 @@ export type GameEvent =
   /**
    * 적이 감속 오라에 **막 들어왔다** — false → true 전이에서만 발행한다 (v1.10).
    *
-   * 매 틱 "느린 상태"를 알리지 않고 전이만 알리는 것이 규칙의 반영이다: 이미 감속된 적이
-   * 다른 나이트의 범위로 넘어갈 때는 **아무 일도 일어나지 않으므로**(중첩 없음) 이 이벤트도
-   * 나지 않는다. 즉 이 이벤트가 뜨는 횟수가 곧 실제로 일어난 감속의 횟수다.
+   * 매 틱 "느린 상태"를 알리지 않고 **세지는 순간만** 알리는 것이 규칙의 반영이다: 이미
+   * 같거나 더 센 감속을 받고 있는 적이 다른 오라로 넘어갈 때는 아무 일도 일어나지 않으므로
+   * (중첩 없음 — 최댓값 하나만 적용된다) 이 이벤트도 나지 않는다. 반대로 T1 오라에서 T3
+   * 오라로 넘어가는 것은 실제로 일어난 일이라 알린다.
+   *
+   * `tier`는 그 순간 적용된 티어다 — 화면이 "−30%"인지 "−40%"인지를 이 값에서 유도한다.
    *
    * y가 칸이 아니라 픽셀인 이유: 적은 칸 사이를 연속으로 움직이므로 칸 중심에 라벨을 띄우면
    * 실제 위치와 최대 40px 어긋난다.
    */
-  | { kind: 'enemySlowed'; enemyId: string; file: number; y: number }
+  | { kind: 'enemySlowed'; enemyId: string; file: number; y: number; tier: number }
   // 합성 성사 — square는 생존한 기물(합쳐진 결과)이 서 있는 칸, tier는 합성 *후* 단계다.
   | { kind: 'merged'; square: Square; pieceType: PieceType; tier: number }
   | { kind: 'enemyDied'; enemyId: string; square: Square; isBoss: boolean; reward: number }

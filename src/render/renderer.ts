@@ -1,6 +1,6 @@
 import { CONFIG } from '../config';
 import { BOARD_H, BOARD_W, fileCenterX, rankToTopY } from '../core/grid';
-import { slowCoverage } from '../core/slow';
+import { NO_SLOW, slowFieldSquares } from '../core/slow';
 import { SLOW_HALO, SLOW_INK, SLOW_RGB } from './palette';
 import { ALLY_SPRITE_PX, getAllySprite, getEnemySprite } from './sprites';
 import { tierRingColor } from './tiers';
@@ -76,8 +76,8 @@ const COLOR = {
   enemyFill: '#141414', enemyStroke: '#f2f2f2',
   hpBack: '#3a3a3a', hpFill: '#e04b3a',
   // 감속 오라가 덮는 칸의 상시 표식. 알파가 낮은 이유는 이것이 **배경**이기 때문이다 —
-  // 그 위에 사거리·이동·선택 하이라이트가 얹혀도 둘 다 읽혀야 한다.
-  slowField: `rgba(${SLOW_RGB}, 0.30)`,
+  // 그 위에 사거리·선택 하이라이트가 얹혀도 둘 다 읽혀야 한다.
+  // ★ v1.13부터 알파가 티어에 따라 커진다(slowFieldAlpha). 아래 값은 T1 기준이다.
 };
 
 /** 꺾쇠 팔 길이. 칸 전체를 두르지 않는 이유는 잉크 총량이다 — L자 8칸은 서로 변으로 맞닿지
@@ -100,8 +100,7 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState, view: Vi
     // view.highlights **앞**이어야 선택·사거리 미리보기(일시적)가 상시 오라(배경) 위에 읽힌다.
     // 집합은 프레임당 정확히 한 번만 계산해 drawEnemy까지 넘긴다 — 적마다 다시 구하면
     // 60fps × 최대 46마리만큼의 중복 순회가 된다.
-    const slowField = slowCoverage(state);
-    drawSlowField(ctx, slowField);
+    drawSlowField(ctx, slowFieldSquares(state));
     for (const h of view.highlights) {
       ctx.fillStyle = h.color;
       ctx.fillRect(h.square.file * SQ, rankToTopY(h.square.rank), SQ, SQ);
@@ -144,28 +143,43 @@ function drawBoard(ctx: CanvasRenderingContext2D): void {
 }
 
 /**
- * 감속 오라가 덮는 칸 — 얼음색 옅은 채움 + 네 모서리 꺾쇠 (v1.10).
+ * 칸의 감속 세기를 알파로 — T1 0.30에서 티어마다 조금씩 진해진다 (v1.13).
  *
- * ★ **칸당 정확히 한 번만 그린다.** 그 보장은 인자가 Map이라는 데서 나온다(core/slow.ts) —
- * 나이트 셋이 같은 칸을 덮어도 원소가 하나라 알파가 겹쳐 쌓일 수가 없다. 겹쳐 칠하면 화면이
- * "저기는 더 느리다"고 말하는데 규칙은 정확히 ×0.7 한 번이라, 그 순간 연출이 거짓말이 된다.
- * **중첩 금지가 코드가 아니라 자료구조로 보장되는 지점이 여기다.**
+ * ⚠️ v1.12까지 이 자리 주석은 "알파 차이는 강도가 아니다 — 감속은 정확히 ×0.7 한 번뿐이라
+ * 강도 축이 존재하지 않는다"였다. **티어별 세기가 생기면서 그 서술이 거짓이 됐다.** 이제는
+ * 진한 칸이 실제로 더 느린 칸이고, 그래서 알파로 말하는 것이 정직해졌다.
+ *
+ * 백분율에 비례시키지 않고 완만하게 올리는 이유: T1 30% → T6 55%는 1.83배인데 알파를 그대로
+ * 1.83배 하면(0.30 → 0.55) 상시로 깔리는 배경이 사거리 하이라이트를 이긴다. 세기 차이가
+ * **읽히기만** 하면 되고 정확한 값은 진입 라벨("−40%")이 말한다.
+ */
+function slowFieldAlpha(tier: number): number {
+  return 0.30 + 0.03 * (tier - 1);
+}
+
+/**
+ * 감속 오라가 덮는 칸 — 얼음색 채움 + 네 모서리 꺾쇠 (v1.10).
+ *
+ * ★ **칸당 정확히 한 번만 그린다.** 그 보장은 core/slow.ts의 slowFieldSquares가 칸마다
+ * **최댓값 티어 하나**만 담아 돌려주는 데서 나온다 — 나이트 셋이 같은 칸을 덮어도 원소가
+ * 하나라 알파가 겹쳐 쌓일 수가 없다. 겹쳐 칠하면 화면이 "저기는 더 느리다"고 말하는데 규칙은
+ * 최댓값 하나뿐이라, 그 순간 연출이 거짓말이 된다. **중첩 금지가 코드가 아니라 자료구조로
+ * 보장되는 지점이 여기다.**
  *
  * 꺾쇠를 쓰고 칸 전체를 두르지 않는 이유는 SLOW_ARM 주석에 있다. 안쪽으로 1.5px 물려 그리는
  * 것은 인접한 오라 칸끼리 선이 붙어 한 덩어리로 뭉개지지 않게 하기 위함이다.
  */
-function drawSlowField(ctx: CanvasRenderingContext2D, field: Map<string, Square>): void {
-  if (field.size === 0) return;
+function drawSlowField(ctx: CanvasRenderingContext2D, field: { square: Square; tier: number }[]): void {
+  if (field.length === 0) return;
   ctx.save();
-  for (const sq of field.values()) {
+  for (const { square: sq, tier } of field) {
     const x = sq.file * SQ, y = rankToTopY(sq.rank);
-    ctx.fillStyle = COLOR.slowField;
+    ctx.fillStyle = `rgba(${SLOW_RGB}, ${slowFieldAlpha(tier)})`;
     ctx.fillRect(x, y, SQ, SQ);
   }
   // 선은 채움을 전부 끝낸 뒤 한 번에 긋는다 — 인접 칸의 채움이 앞 칸의 꺾쇠를 덮지 않는다.
-  ctx.lineWidth = 2;
   ctx.lineCap = 'round';
-  for (const sq of field.values()) {
+  for (const { square: sq } of field) {
     const x = sq.file * SQ + 1.5, y = rankToTopY(sq.rank) + 1.5;
     const w = SQ - 3;
     for (const pass of [SLOW_HALO, SLOW_INK]) {
@@ -310,7 +324,7 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy): void {
   const x = fileCenterX(e.file) + e.jitterX;     // 지터는 렌더 전용 (스펙 7.8)
   const size = CONFIG.enemy.spritePx;
   // 고리는 스프라이트 **아래**에 그린다 — 적의 실루엣을 가리면 무엇이 오는지 못 읽는다.
-  if (e.slowed) drawSlowRing(ctx, e, x, size);
+  if (e.slowTier !== NO_SLOW) drawSlowRing(ctx, e, x, size);
   const sprite = getEnemySprite(e.isBoss);
   if (sprite) {
     ctx.drawImage(sprite, x - size / 2, e.y - size / 2, size, size);

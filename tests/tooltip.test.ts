@@ -144,7 +144,7 @@ describe('updateTooltip (스펙 7.7 — 기물 hover 툴팁)', () => {
     state.pieces.push(p);
     updateTooltip(el, state, noInteraction({ hoverSquare: { file: 1, rank: 1 } }), { x: 0, y: 0 });
 
-    expect(el.innerHTML).toContain(`−${slowPercent()}%`);
+    expect(el.innerHTML).toContain(`−${slowPercent(p.tier)}%`);
     expect(el.innerHTML).toContain('L자 8칸');
     expect(el.innerHTML).toContain('8랭크 포함');
     // ⚠️ 폭발과 이동 쿨다운은 능력과 함께 사라졌다. 문구가 남으면 없는 규칙을 설명하게 된다.
@@ -154,26 +154,86 @@ describe('updateTooltip (스펙 7.7 — 기물 hover 툴팁)', () => {
     expect(el.innerHTML).not.toContain('남은 쿨다운');
   });
 
-  it('★ 중첩·강화가 소용없다는 것을 툴팁이 직접 말한다', () => {
-    // 이 줄이 없으면 플레이어는 나이트를 겹쳐 놓거나 합성해서 더 느리게 만들려고 한다. 둘 다
-    // 효과가 없고 합성은 오히려 덮는 칸이 줄어 손해라, 규칙을 말해 주는 편이 낫다.
-    // 게임 안에서 이 사실을 알 수 있는 유일한 자리다.
+  it('★ 강화는 듣고 중첩은 안 듣는다 — 툴팁이 두 규칙을 나란히 말한다', () => {
+    // v1.10~v1.12에서는 이 자리가 "중첩도 강화도 소용없다"였다. v1.13에서 **강화 쪽만**
+    // 뒤집혔고(단계마다 +5%p) 중첩 금지는 그대로다(사용자 결정). 남은 절반과 뒤집힌 절반이
+    // 한 줄 차이라 플레이어가 가장 헷갈리는 지점이므로, 툴팁도 이 테스트도 둘을 **함께**
+    // 보여준다 — 한쪽만 단언하면 나머지 절반이 조용히 반대로 바뀌어도 초록이다.
     const el = makeEl();
     const state = waveState();
-    state.pieces.push(boardPiece('knight', 1, 1));
+    const p = boardPiece('knight', 1, 1);
+    state.pieces.push(p);
     updateTooltip(el, state, noInteraction({ hoverSquare: { file: 1, rank: 1 } }), { x: 0, y: 0 });
-    expect(el.innerHTML).toContain('중첩');
+
+    // ① 강화는 듣는다. 다음 단계 수치까지 보여주지 않으면 합성 여부를 판단할 근거가 없다.
+    expect(el.innerHTML).toContain(`합성하면 −${slowPercent(p.tier + 1)}%`);
+    expect(slowPercent(p.tier + 1)).toBeGreaterThan(slowPercent(p.tier));
+    // ② 중첩은 안 듣는다(가장 높은 티어 하나만 적용된다). 이 줄이 없으면 플레이어는 나이트를
+    //    겹쳐 놓아 더 느리게 만들려고 한다 — 게임 안에서 이 사실을 알 수 있는 유일한 자리다.
+    expect(el.innerHTML).toContain('중첩되지 않는다');
   });
 
-  it('★ 감속 문구의 수치는 CONFIG에서 유도된다 — 리터럴 30이 아니다', () => {
-    // multiplier를 바꾸면 툴팁·시작 화면·"−30%" 라벨 셋이 함께 따라와야 한다. 리터럴을 박으면
-    // 그 어긋남은 테스트가 아니라 플레이어가 발견한다.
+  it('★ T1 나이트와 T3 나이트는 서로 다른 수치를 보여준다 — 자기 티어에서 유도한다', () => {
+    // 모든 나이트에 같은 문구를 찍던 것이 v1.12까지는 옳았지만 지금은 T3 앞에서 그 자리에서
+    // 거짓말이 된다(실제 −40%인데 −30%라고 적힘). 두 기물을 같은 보드에 놓고 각각 hover해
+    // **문구가 갈라지는지**를 본다.
+    const state = waveState();
+    state.pieces.push(boardPiece('knight', 1, 1), boardPiece('knight', 5, 5, 3));
+
+    const t1 = makeEl();
+    updateTooltip(t1, state, noInteraction({ hoverSquare: { file: 1, rank: 1 } }), { x: 0, y: 0 });
+    const t3 = makeEl();
+    updateTooltip(t3, state, noInteraction({ hoverSquare: { file: 5, rank: 5 } }), { x: 0, y: 0 });
+
+    expect(t1.innerHTML).toContain(`−${slowPercent(1)}%`);
+    expect(t3.innerHTML).toContain(`−${slowPercent(3)}%`);
+    // 교차로도 확인한다 — "둘 다 −30%"로 되돌아가는 회귀는 위 두 줄만으로 잡히지 않는다.
+    // 각 툴팁에는 다음 단계 수치(−35% / −45%)도 함께 떠 있어서 문자열이 겹칠 여지가 있는데,
+    // 서로의 값만은 절대 나타나지 않는다는 것이 "자기 티어에서 유도한다"의 관측 가능한 형태다.
+    expect(t1.innerHTML).not.toContain(`−${slowPercent(3)}%`);
+    expect(t3.innerHTML).not.toContain(`−${slowPercent(1)}%`);
+    expect(t1.innerHTML).toContain(`합성하면 −${slowPercent(2)}%`);
+    expect(t3.innerHTML).toContain(`합성하면 −${slowPercent(4)}%`);
+    // ★ 수치는 갈라져도 중첩 금지는 티어와 무관하게 둘 다 말한다 — 강화되는 축과 그대로인
+    //   축이 한 툴팁 안에 같이 있다는 것이 이 규칙 쌍의 전부다.
+    expect(t1.innerHTML).toContain('중첩되지 않는다');
+    expect(t3.innerHTML).toContain('중첩되지 않는다');
+  });
+
+  it('★ 최대 단계에서는 "합성하면" 대신 "최대 단계"라고 말한다 — 중첩 금지는 남는다', () => {
+    // 상한에서 다음 단계를 안내하면 존재하지 않는 강화를 파는 셈이 된다. 그리고 더 강화할 수
+    // 없게 된 플레이어가 가장 먼저 시도하는 것이 겹쳐 놓기라, 중첩 금지는 여기서 오히려 더
+    // 필요하다 — 상한 분기에서 그 문구를 함께 떨어뜨리는 실수를 이 줄이 잡는다.
+    const maxTier = CONFIG.merge.maxTier.knight;
+    const el = makeEl();
+    const state = waveState();
+    state.pieces.push(boardPiece('knight', 1, 1, maxTier));
+    updateTooltip(el, state, noInteraction({ hoverSquare: { file: 1, rank: 1 } }), { x: 0, y: 0 });
+
+    expect(el.innerHTML).toContain('최대 단계');
+    expect(el.innerHTML).not.toContain('합성하면');
+    expect(el.innerHTML).toContain(`−${slowPercent(maxTier)}%`);
+    expect(el.innerHTML).not.toContain(`−${slowPercent(maxTier + 1)}%`);   // 없는 단계(−60%)
+    expect(el.innerHTML).toContain('중첩되지 않는다');
+  });
+
+  it('★ 감속 수치는 CONFIG에서 유도되고, 사용자가 정한 표는 여기서 한 번 못박는다', () => {
+    // 계수를 바꾸면 툴팁·시작 화면·"−30%" 라벨 셋이 함께 따라와야 한다. 리터럴을 박으면 그
+    // 어긋남은 테스트가 아니라 플레이어가 발견한다 — 그래서 다른 단언은 전부 유도한다.
+    // 다만 **전부** 유도하면 basePercent를 잘못 고쳐도 단언이 같이 움직여 아무것도 지키지
+    // 못하므로, 사용자가 정한 표(T1 30% · 단계마다 +5%p · 상한 55%)를 이 한 자리에서만 박는다.
+    expect(CONFIG.merge.maxTier.knight).toBe(6);                        // 아래 표가 전 구간을 덮는다
+    expect([1, 2, 3, 4, 5, 6].map(t => slowPercent(t))).toEqual([30, 35, 40, 45, 50, 55]);
+    expect(slowPercent(1)).toBe(CONFIG.slowAura.basePercent);
+    expect(slowPercent(2) - slowPercent(1)).toBe(CONFIG.slowAura.perTierPercent);
+
+    // 그리고 그 숫자가 실제로 화면에 나온다 — 표를 못박아 봐야 툴팁이 다른 값을 그리면 소용없다.
     const el = makeEl();
     const state = waveState();
     state.pieces.push(boardPiece('knight', 1, 1));
     updateTooltip(el, state, noInteraction({ hoverSquare: { file: 1, rank: 1 } }), { x: 0, y: 0 });
-    expect(slowPercent()).toBe(Math.round((1 - CONFIG.slowAura.multiplier) * 100));
-    expect(el.innerHTML).toContain(`−${slowPercent()}%`);
+    expect(el.innerHTML).toContain('−30%');                             // 못박은 T1 값 그대로
+    expect(el.innerHTML).toContain(`−${slowPercent(1)}%`);
   });
 
   it('★ 융합물은 공격 주기와 감속을 둘 다 보여준다 — 겸업이 툴팁에서 읽힌다', () => {
@@ -181,10 +241,12 @@ describe('updateTooltip (스펙 7.7 — 기물 hover 툴팁)', () => {
     // 화면에서 사라진다. 가산 구조(배타 분기가 아님)가 유지되는지 확인하는 자리이기도 하다.
     const el = makeEl();
     const state = waveState();
-    state.pieces.push(boardPiece('archbishop', 1, 1));
+    const p = boardPiece('archbishop', 1, 1);
+    state.pieces.push(p);
     updateTooltip(el, state, noInteraction({ hoverSquare: { file: 1, rank: 1 } }), { x: 0, y: 0 });
     expect(el.innerHTML).toContain('공격 주기');
-    expect(el.innerHTML).toContain(`−${slowPercent()}%`);
+    // 감속량은 나이트에서 물려받은 능력이지만 수치는 **이 기물 자신의 티어**를 탄다(v1.13).
+    expect(el.innerHTML).toContain(`−${slowPercent(p.tier)}%`);
     expect(el.innerHTML).toContain('공격당 +');        // 비숍에서 온 골드 수입
   });
 

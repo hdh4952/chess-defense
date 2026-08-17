@@ -112,7 +112,7 @@ describe('전 게임 시뮬레이션', () => {
       s.spawnedCount = 1;                                // 보스 이미 스폰됨
       const boss = {
         id: 'b', file: 3, y: BOARD_H - 0.1, hp: bossHp, maxHp: bossHp, isBoss: true,
-        speed: bossSpeed, jitterX: 0, traits: [], shieldPool: 0, slowed: false,
+        speed: bossSpeed, jitterX: 0, traits: [], shieldPool: 0, slowTier: 0,
       };
       s.enemies.push(boss);
       run(s, 2, () => 0);

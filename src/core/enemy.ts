@@ -1,7 +1,7 @@
 import { CONFIG, enemyHp } from '../config';
 import type { Enemy, EnemyTrait, GameEvent, GameState } from '../types';
 import { BOARD_H } from './grid';
-import { effectiveSpeed } from './slow';
+import { NO_SLOW, effectiveSpeed } from './slow';
 
 function hashId(id: string): number {
   let h = 0;
@@ -27,8 +27,8 @@ export function createEnemy(
     traits,
     shieldPool: traits.includes('shielded') ? Math.round(hp * absorb) : 0,
     // 감속은 매 틱 재계산되는 파생 상태다(core/slow.ts). 스폰 시점에는 아직 판정 전이므로
-    // false로 시작하고, 첫 updateSlowAura가 곧바로 올바른 값으로 덮는다.
-    slowed: false,
+    // NO_SLOW(0)로 시작하고, 첫 updateSlowAura가 곧바로 올바른 값으로 덮는다.
+    slowTier: NO_SLOW,
   };
 }
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AUDIO_TUNING, CueResolver, type CueKind } from '../src/audio/cues';
+import { CONFIG } from '../src/config';
 import type { GameEvent, Phase, PieceType, Square } from '../src/types';
 
 // cues.ts는 DOM-free 정책 계층이라는 것이 이 스위트의 요지다 — 그래서 이 파일에는
@@ -11,6 +12,9 @@ const SQ: Square = { file: 0, rank: 0 };
 // resolve()는 v1.3에서 phase 인자를 추가로 받는다 — attack/enemyDied 등 phase 전환과 무관한
 // 기존 테스트는 이 중립값('wave')을 그대로 넘겨, phase 전환 감지 로직이 끼어들지 않게 한다.
 const WAVE: Phase = 'wave';
+// 감속 오라의 최고 단계. v1.13에서 enemySlowed가 tier를 싣게 됐으므로, "무음"을 단언할 때
+// 특정 단계 하나만 보면 부족하다 — 가장 센 오라까지 포함해 훑는 데 쓴다.
+const MAX_SLOW_TIER = CONFIG.merge.maxTier.knight;
 
 function attackEvent(pieceType: PieceType, targets: Square[] = [SQ]): GameEvent {
   return { kind: 'attack', pieceType, from: SQ, targets };
@@ -84,15 +88,20 @@ describe('CueResolver — 큐별 최소 간격 스로틀 (스펙 "2번 방어")'
 // → 'knight' 큐)가 지키던 것은 "나이트 능력이 발동하면 소리가 난다"였는데, 그 능력에는 이제
 // 발동 순간이 없다 — 아래 두 스위트가 그 자리를 물려받는다: 감속 이벤트는 무음이라는 계약과,
 // 'knight' 큐가 표에서 실제로 사라졌다는 확인.
-describe('CueResolver — enemySlowed는 무음이다 (v1.10 감속 오라)', () => {
-  it('감속 진입 이벤트는 몇 개가 오든 아무 큐도 내지 않는다', () => {
-    // 감속은 순간 사건이 아니라 지속 상태다. 적은 오라를 드나들 때마다 false→true 전이를 다시
+describe('CueResolver — enemySlowed는 무음이다 (v1.10 감속 오라, v1.13 티어별 감속)', () => {
+  it('감속 진입 이벤트는 티어가 무엇이든 몇 개가 오든 아무 큐도 내지 않는다', () => {
+    // 감속은 순간 사건이 아니라 지속 상태다. 적은 오라를 드나들 때마다 감속 전이를 다시
     // 일으키고, 웨이브 하나에 적이 수십 마리이므로 전이도 웨이브당 수십 번 쌓인다 — 전이마다
     // 울리면 스로틀로 깎아도 초당 몇 회짜리 잡음으로 남는다. 그래서 게인을 낮추는 대신 큐
-    // 자체를 주지 않기로 했다(감속 사실은 화면의 점선 고리와 "−30%" 라벨이 이미 전한다).
+    // 자체를 주지 않기로 했다(감속 사실은 화면의 점선 고리와 "−30%"/"−45%" 라벨이 이미 전한다).
+    //
+    // ★ v1.13에서 감속량이 티어별로 갈라지고(T1 30% … T6 55%) 이벤트가 tier를 싣게 됐지만,
+    // **소리 쪽은 여전히 티어 무관**이다 — 티어가 높아진다고 울릴 순간이 생기는 것은 아니다.
+    // 그래서 전 티어를 한 프레임에 섞어 넣고 훑는다: 나중에 "센 오라만 소리를 준다" 같은
+    // 분기가 들어오면 여기서 먼저 빨개진다.
     const resolver = new CueResolver();
     const events: GameEvent[] = Array.from({ length: 20 }, (_, i) => (
-      { kind: 'enemySlowed', enemyId: `e${i}`, file: i % 8, y: 40 * i }
+      { kind: 'enemySlowed', enemyId: `e${i}`, file: i % 8, y: 40 * i, tier: (i % MAX_SLOW_TIER) + 1 }
     ));
     expect(resolver.resolve(events, 0, false, WAVE)).toEqual([]);
     // 프레임을 한참 건너뛰어도 마찬가지 — 스로틀에 걸려 조용한 게 아니라 매핑 자체가 없다.
@@ -102,9 +111,11 @@ describe('CueResolver — enemySlowed는 무음이다 (v1.10 감속 오라)', ()
 
   it('같은 프레임에 섞인 다른 큐를 가리지 않는다', () => {
     // 무음 이벤트가 present 집합에 null로 끼어들어 뒤따르는 큐까지 삼키는 실수를 막는다.
+    // 최고 티어를 쓰는 이유: 무음이 "약한 오라라서"가 아니라 이벤트 종류 자체의 결정임을 못박는다.
     const resolver = new CueResolver();
     const cues = resolver.resolve(
-      [{ kind: 'enemySlowed', enemyId: 'e1', file: 0, y: 0 }, attackEvent('pawn')], 0, false, WAVE,
+      [{ kind: 'enemySlowed', enemyId: 'e1', file: 0, y: 0, tier: MAX_SLOW_TIER }, attackEvent('pawn')],
+      0, false, WAVE,
     );
     expect(cues).toEqual(['pawn']);
   });

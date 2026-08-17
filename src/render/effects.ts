@@ -7,14 +7,19 @@ import type { GameEvent, Square } from '../types';
 const SQ = CONFIG.board.squarePx;
 const center = (sq: Square) => ({ x: fileCenterX(sq.file), y: rankToTopY(sq.rank) + SQ / 2 });
 
-/** 감속 진입 라벨. 숫자는 CONFIG에서 유도한다 — multiplier를 바꾸면 이 문구도 따라온다. */
-const SLOW_LABEL = `−${slowPercent()}%`;
+/**
+ * 감속 진입 라벨. 숫자는 CONFIG에서 유도한다 — 계수를 바꾸면 이 문구도 따라온다.
+ * ★ v1.13부터 **티어마다 다르다**(T1 −30% · T2 −35% …). 상수로 굳히면 T3 오라에 들어간 적에게
+ * −30%라고 거짓말하게 되므로, 이벤트가 실어 보낸 티어에서 그때그때 만든다.
+ */
+const slowLabel = (tier: number): string => `−${slowPercent(tier)}%`;
 
 interface Fx {
   kind: 'shock' | 'crack' | 'beam' | 'puff' | 'coin' | 'mergeBurst' | 'frostTag' | 'spawnMark';
   x: number; y: number;
   x2?: number; y2?: number;      // 라인형(crack/beam)의 끝점
   amount?: number;               // coin 전용 — 표시할 골드 액수
+  label?: string;                // frostTag 전용 — 티어에서 유도한 "−35%" 같은 문구
   color?: string;                // mergeBurst 전용 — 결과 티어 색
   t: number; ttl: number;
 }
@@ -81,13 +86,15 @@ export class Effects {
       // 폭발이 담당하던 배치 피드백을 이쪽이 물려받되 **실제로 일어난 일만** 보여준다.
       // 아무것도 안 뜨면 그 배치가 지금은 아무 일도 하지 않았다는 정직한 신호다.
       //
-      // 이미 감속 중인 적이 다른 나이트의 범위로 넘어갈 때는 뜨지 않는다 — 중첩이 없으므로
-      // 정말로 아무 일도 일어나지 않았기 때문이다. 중첩 금지가 시간축에서도 보이는 지점이다.
+      // 이미 같거나 더 센 감속을 받는 적이 다른 오라로 넘어갈 때는 뜨지 않는다 — 최댓값
+      // 하나만 적용되므로 정말 아무 일도 일어나지 않았기 때문이다. 반대로 T1 → T3처럼
+      // **세지는** 경우는 실제 변화라 새 수치와 함께 다시 뜬다(v1.13).
       //
       // 좌표는 칸 중심이 아니라 적의 실제 픽셀 위치다(ev.y). 적은 칸 사이를 연속으로 움직이므로
       // 칸 중심에 띄우면 최대 40px 어긋난 자리에 라벨이 뜬다.
       this.list.push({
-        kind: 'frostTag', x: fileCenterX(ev.file), y: Math.max(16, ev.y - 42), t: 0, ttl: 0.7,
+        kind: 'frostTag', x: fileCenterX(ev.file), y: Math.max(16, ev.y - 42),
+        label: slowLabel(ev.tier), t: 0, ttl: 0.7,
       });
     }
     if (ev.kind === 'pieceSpawned') {
@@ -191,9 +198,9 @@ export class Effects {
           // 규칙이 renderer.test.ts에 못박혀 있어, 배수(×0.7)가 아니라 감산량으로 적는다 —
           // 어차피 플레이어에게는 "얼마나 느려지는가"가 곧 감산량이다.
           ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(8,22,36,0.85)';
-          ctx.strokeText(SLOW_LABEL, f.x, f.y);
+          ctx.strokeText(f.label!, f.x, f.y);
           ctx.fillStyle = SLOW_INK;
-          ctx.fillText(SLOW_LABEL, f.x, f.y);
+          ctx.fillText(f.label!, f.x, f.y);
           break;
         }
         case 'spawnMark': {        // 기물 스폰 — 칸을 감싸며 조여드는 이중 사각형
