@@ -1,4 +1,4 @@
-import { CONFIG, hasMoveCooldown } from '../config';
+import { CONFIG } from '../config';
 import { moveOnBoard, pieceAt, placeFromSlot, recallToSlot, reorderSlots, findPiece } from '../core/pieces';
 import { sellPiece, sellPrice } from '../core/economy';
 import type { UiAudio } from '../audio';
@@ -65,8 +65,6 @@ export class DragController {
   private ghost: HTMLDivElement;
   private ghostImg: HTMLImageElement;
   private downAt: { x: number; y: number } | null = null;
-  private cooldownLabel: HTMLDivElement;
-  private cooldownTimer: ReturnType<typeof setTimeout> | null = null;
   private zonesCache: DropZones | null = null;
 
   constructor(
@@ -92,11 +90,6 @@ export class DragController {
     this.ghostImg.setAttribute('draggable', 'false');
     this.ghost.appendChild(this.ghostImg);
     document.body.appendChild(this.ghost);
-    this.cooldownLabel = document.createElement('div');
-    this.cooldownLabel.style.cssText =
-      'position:fixed;pointer-events:none;font:12px system-ui;color:#ffd54a;' +
-      'background:#000a;padding:2px 6px;border-radius:4px;z-index:11;display:none';
-    document.body.appendChild(this.cooldownLabel);
 
     document.addEventListener('pointerdown', this.onDown);
     document.addEventListener('pointermove', this.onMove);
@@ -108,7 +101,7 @@ export class DragController {
     window.addEventListener('scroll', this.invalidateZones, true);
   }
 
-  /** 모든 document/window 리스너와 고스트·라벨 DOM을 제거한다 (검토 Finding 7 — 테스트 격리·재구성용) */
+  /** 모든 document/window 리스너와 고스트 DOM을 제거한다 (검토 Finding 7 — 테스트 격리·재구성용) */
   destroy(): void {
     document.removeEventListener('pointerdown', this.onDown);
     document.removeEventListener('pointermove', this.onMove);
@@ -118,9 +111,7 @@ export class DragController {
     document.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('resize', this.invalidateZones);
     window.removeEventListener('scroll', this.invalidateZones, true);
-    if (this.cooldownTimer !== null) clearTimeout(this.cooldownTimer);
     this.ghost.remove();
-    this.cooldownLabel.remove();
   }
 
   /** 캔버스/슬롯/판매 슬롯의 getBoundingClientRect는 매 pointermove(~100Hz)마다 부르면 강제 레이아웃을
@@ -172,15 +163,11 @@ export class DragController {
     const hit = this.pieceUnder(e.clientX, e.clientY);
     if (!hit) return;
     const piece = findPiece(this.state, hit.pieceId)!;
-    if (hasMoveCooldown(piece.type) && hit.from === 'board' && piece.cooldown > 0) {
-      this.showCooldown(e, piece.cooldown);            // 쿨다운 중: 시작 거부 + 표시 (스펙 5.3)
-      // downAt을 비워 onUp이 "클릭"으로 오인하지 않게 한다 (검토 Item 1) — 그렇지 않으면 드래그
-      // 시작이 거부된 이 눌림이 onUp에서 클릭-투-무브로 새어나가 쿨다운 중인 나이트가 그대로
-      // selectedPieceId가 되고, buildHighlights가 (결과가 비어 있더라도) 선택 상태를 만든다.
-      // 애초에 "거부된 눌림"이 어떤 제스처로도 이어지지 않게 막는 편이 더 명확하다.
-      this.downAt = null;
-      return;
-    }
+    // ⚠️ v1.10 이전에는 여기서 "쿨다운 중인 나이트는 집을 수조차 없다"고 거부하고 커서 옆에
+    // 남은 시간을 띄웠다. 폭발이 사라지면서 그 게이트의 근거가 통째로 없어졌으므로(감속은
+    // 언제 움직였는지와 무관하다) **모든 기물이 항상 집힌다.** 거부는 놓는 시점으로 미뤄지고,
+    // L자가 아닌 칸에 떨어뜨리면 dropAction의 moveOnBoard가 false를 돌려주어 기존 uiInvalid
+    // 경로로 자연히 흡수된다 — 새로 만들 처리가 없다.
     this.interaction.dragging = hit;
     this.ghostImg.src = ALLY_SPRITE_URL[piece.type];
     this.ghostImg.alt = PIECE_NAME[piece.type];
@@ -292,15 +279,4 @@ export class DragController {
     this.ghost.style.top = `${e.clientY}px`;
   }
 
-  private showCooldown(e: PointerEvent, remain: number): void {
-    if (this.cooldownTimer !== null) clearTimeout(this.cooldownTimer);   // 중첩 타이머 방지 (검토 Finding 5)
-    this.cooldownLabel.textContent = `이동 쿨다운 ${remain.toFixed(1)}s`;
-    this.cooldownLabel.style.left = `${e.clientX + 12}px`;
-    this.cooldownLabel.style.top = `${e.clientY - 8}px`;
-    this.cooldownLabel.style.display = 'block';
-    this.cooldownTimer = setTimeout(() => {
-      this.cooldownLabel.style.display = 'none';
-      this.cooldownTimer = null;
-    }, 800);
-  }
 }

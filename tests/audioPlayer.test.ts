@@ -185,12 +185,16 @@ describe('AudioPlayer — suspended 컨텍스트에서는 목소리를 시작하
 describe('AudioPlayer — 피치 변주 (디튠)', () => {
   afterEach(uninstallFakeAudioContext);
 
+  // 이 케이스는 원래 'knight'(폭발음)로 쟀다. v1.10에서 폭발이 감속 오라로 바뀌며 그 큐가
+  // 사라졌지만, 이 테스트가 지키는 불변식은 "어느 큐인가"가 아니라 "어떤 큐든 재생마다 디튠이
+  // 걸린다"이므로 같은 attack 계열의 bishop으로 바꿔 그대로 유지한다. (앞의 보이스 상한 케이스가
+  // pawn·uiInvalid를 쓰므로, 여기서 bishop을 쓰면 세 계열이 골고루 이 스위트를 지난다.)
   it('재생마다 playbackRate가 AUDIO_TUNING.pitchVariation 범위 안에서 흔들린다', () => {
     installFakeAudioContext();
     const player = new AudioPlayer();
-    player.setBufferForTest('knight', {} as AudioBuffer);
+    player.setBufferForTest('bishop', {} as AudioBuffer);
 
-    for (let i = 0; i < AUDIO_TUNING.maxVoices; i++) player.play('knight');
+    for (let i = 0; i < AUDIO_TUNING.maxVoices; i++) player.play('bishop');
 
     const ctx = FakeAudioContext.instances[0];
     expect(ctx.createdSources.length).toBeGreaterThan(0);

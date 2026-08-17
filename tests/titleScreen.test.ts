@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import { CONFIG } from '../src/config';
-import { bishopTargets, knightMoves } from '../src/core/patterns';
+import { bishopTargets, knightMoves, slowSquares } from '../src/core/patterns';
 import type { PieceType } from '../src/types';
 import { createTitleScreen, RANGE_CENTER, RANGE_RADIUS } from '../src/ui/titleScreen';
 
@@ -99,14 +99,28 @@ describe('createTitleScreen', () => {
     expect(markedSquares(app, 'bishop', 'is-target')).toEqual(expected);
   });
 
-  it('나이트 패널은 폭발 9칸과 L자 이동칸을 따로 표시한다', () => {
+  it('★ 나이트 패널은 감속 칸(얼음)과 L자 이동칸(점선)을 따로 표시한다', () => {
+    // 두 집합이 **다르다는 것**이 이 패널이 가르치는 전부다. 감속은 8랭크를 포함하고 이동은
+    // 아니라서, 5×5 창 안에서도 두 표시가 어긋나는 칸이 보인다.
     const app = mount();
-    const targets = markedSquares(app, 'knight', 'is-target');
-    expect(targets.size).toBe(9);                       // 자기 칸 포함 주변 3×3
-    expect(targets.has(`${RANGE_CENTER.file},${RANGE_CENTER.rank}`)).toBe(true);
+    // 나이트는 이제 공격하지 않는다 — 주황(is-target)이 한 칸도 없어야 한다.
+    expect(markedSquares(app, 'knight', 'is-target').size).toBe(0);
+
+    const slows = markedSquares(app, 'knight', 'is-slow');
+    expect(slows).toEqual(new Set(slowSquares(RANGE_CENTER).map(s => `${s.file},${s.rank}`)));
+    expect(slows.size).toBe(8);
+    expect(slows.has(`${RANGE_CENTER.file},${RANGE_CENTER.rank}`)).toBe(false);   // 자기 칸 제외
 
     const expectedMoves = new Set(knightMoves(RANGE_CENTER).map(s => `${s.file},${s.rank}`));
     expect(markedSquares(app, 'knight', 'is-move')).toEqual(expectedMoves);
+  });
+
+  it('★ 융합물 패널은 공격 칸과 감속 칸을 둘 다 표시한다', () => {
+    // 겸업이 이 기물들의 가치 명제인데, 한쪽만 그리면 그 명제가 그림에서 사라진다.
+    const app = mount();
+    expect(markedSquares(app, 'archbishop', 'is-target').size).toBeGreaterThan(0);
+    expect(markedSquares(app, 'archbishop', 'is-slow'))
+      .toEqual(new Set(slowSquares(RANGE_CENTER).map(s => `${s.file},${s.rank}`)));
   });
 
   it('나이트 패널은 칠해진 두 색이 각각 무엇인지 범례로 밝힌다', () => {
@@ -114,8 +128,11 @@ describe('createTitleScreen', () => {
     const legend = app.querySelector<HTMLElement>(
       '.title-panel[data-piece-type="knight"] .range-legend',
     )!;
-    expect(legend.textContent).toContain('폭발');
+    expect(legend.textContent).toContain('감속');
     expect(legend.textContent).toContain('L자 이동');
+    // ★ 8랭크 포함은 이 기물의 핵심 성질인데 그림만으로는 5×5 창 밖이라 안 보인다 — 글로 말한다.
+    expect(legend.textContent).toContain('8랭크');
+    expect(legend.textContent).not.toContain('폭발');
   });
 
   it('퀸 패널 범례는 칠해진 칸이 공격이 아니라 버프 범위임을 밝힌다', () => {

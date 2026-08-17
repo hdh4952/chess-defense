@@ -1,6 +1,7 @@
 import type { GameEvent, GameState, Phase } from '../types';
 import { updateCombat } from './combat';
 import { moveEnemies, processLeaks } from './enemy';
+import { updateSlowAura } from './slow';
 import { checkWaveEnd, updatePrepare, updateSpawning } from './wave';
 
 /**
@@ -17,7 +18,10 @@ export function stepGame(
   if (state.paused || state.phase === 'victory' || state.phase === 'defeat') return;
   updatePrepare(state, dt);                 // 준비 시간 카운트다운
   updateSpawning(state, dt, events, rng);   // 적 스폰 타이머
-  moveEnemies(state, dt);                   // 적 위치 갱신
+  // ★ 순서가 규칙이다. 스폰 뒤여야 갓 나온 적이 첫 틱부터 감속 판정을 받고, 이동 앞이어야
+  // 이번 틱에 오라로 들어온 적이 감속되지 않은 채 한 틱을 더 걷지 않는다.
+  updateSlowAura(state, events);            // 감속 오라 재판정 (진입한 적만 이벤트)
+  moveEnemies(state, dt);                   // 적 위치 갱신 (감속이 곱해진 속도로)
   updateCombat(state, dt, events);          // 기물 쿨다운 → 공격 판정 → 처치/골드
   processLeaks(state, events);              // 1랭크 통과 → 체력 감소
   // 위 첫 줄의 이른 반환(state.phase === 'victory' | 'defeat')으로 TypeScript는 이 지점의

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
-import { CONFIG, tierMultiplier } from '../src/config';
+import { CONFIG, slowPercent, tierMultiplier } from '../src/config';
 import { updateTooltip } from '../src/ui/tooltip';
 import { pieceDamage } from '../src/core/combat';
 import { sellPrice } from '../src/core/economy';
@@ -130,39 +130,62 @@ describe('updateTooltip (스펙 7.7 — 기물 hover 툴팁)', () => {
     expect(el.innerHTML).not.toContain('T1');
   });
 
-  it('나이트는 공격 주기 대신 이동 쿨다운으로 표시되고, interval 0에서는 "남은 쿨다운" 줄이 억제된다', () => {
+  it('★ 나이트는 감속 능력을 표시하고, 공격 주기·남은 쿨다운 줄은 없다', () => {
+    // 나이트는 v1.10부터 **공격 수단이 없다.** 이 줄이 없으면 툴팁 어디에도 "이 기물이 무엇을
+    // 하는가"가 나오지 않는다 — 공격력 줄도 골드 줄도 없기 때문이다.
+    //
+    // p.cooldown을 인위적으로 1.5로 강제하는 것은 예전 테스트에서 물려받았다: 억제 판정이
+    // p.cooldown이 아니라 **기물의 성질**(pattern === 'none')로 결정된다는 것을 증명한다.
+    // 실제로는 주기 공격이 없는 기물의 cooldown이 0에서 움직이지 않는다.
     const el = makeEl();
     const state = waveState();
     const p = boardPiece('knight', 1, 1);
-    // 실제 게임플레이에서는 interval 0인 나이트가 양수 cooldown을 가질 수 없다(재무장이 항상
-    // 즉시 0으로 돌아가므로) — 여기서는 억제 여부가 p.cooldown이 아니라 def.interval(config)로
-    // 결정된다는 것 자체를 증명하려고 인위적으로 1.5를 강제한다(리뷰 Minor 3).
     p.cooldown = 1.5;
     state.pieces.push(p);
     updateTooltip(el, state, noInteraction({ hoverSquare: { file: 1, rank: 1 } }), { x: 0, y: 0 });
 
-    expect(el.innerHTML).toContain('이동 쿨다운');
+    expect(el.innerHTML).toContain(`−${slowPercent()}%`);
+    expect(el.innerHTML).toContain('L자 8칸');
+    expect(el.innerHTML).toContain('8랭크 포함');
+    // ⚠️ 폭발과 이동 쿨다운은 능력과 함께 사라졌다. 문구가 남으면 없는 규칙을 설명하게 된다.
+    expect(el.innerHTML).not.toContain('폭발');
+    expect(el.innerHTML).not.toContain('이동 쿨다운');
     expect(el.innerHTML).not.toContain('공격 주기');
-    // "이동 쿨다운 없음" 바로 아래 "남은 쿨다운 0.0s"를 또 보여주면 중복이다 — interval이 0이면
-    // p.cooldown 값과 무관하게 "남은 쿨다운" 줄 자체를 그리지 않는다.
     expect(el.innerHTML).not.toContain('남은 쿨다운');
   });
 
-  it('나이트 이동 쿨다운 수치는 "없음"으로 표시된다 (게임 규칙 변경 — interval 0, 사용자 승인)', () => {
-    // 이전: CONFIG.pieces.knight.interval이 3.0이라 "이동 쿨다운 3s"처럼 실제 값을 그대로 보여줬다.
-    // 이제 interval이 0이므로, def.interval을 그대로 보간해 "이동 쿨다운 0s"라고 표시하면 마치
-    // "0초만 기다리면 된다"는 거짓 정보가 된다 — updateTooltip은 이 경우 "없음"으로 대체해야 한다.
-    // 이 문구는 def.interval 값으로 분기하므로(하드코딩이 아니므로), CONFIG를 되돌리면 문구도
-    // 자동으로 원래대로 돌아온다.
+  it('★ 중첩·강화가 소용없다는 것을 툴팁이 직접 말한다', () => {
+    // 이 줄이 없으면 플레이어는 나이트를 겹쳐 놓거나 합성해서 더 느리게 만들려고 한다. 둘 다
+    // 효과가 없고 합성은 오히려 덮는 칸이 줄어 손해라, 규칙을 말해 주는 편이 낫다.
+    // 게임 안에서 이 사실을 알 수 있는 유일한 자리다.
     const el = makeEl();
     const state = waveState();
-    const p = boardPiece('knight', 1, 1);
-    state.pieces.push(p);
+    state.pieces.push(boardPiece('knight', 1, 1));
     updateTooltip(el, state, noInteraction({ hoverSquare: { file: 1, rank: 1 } }), { x: 0, y: 0 });
+    expect(el.innerHTML).toContain('중첩');
+  });
 
-    expect(el.innerHTML).toContain('이동 쿨다운 없음');
-    expect(el.innerHTML).not.toContain('이동 쿨다운 0s');
-    expect(el.innerHTML).not.toContain('남은 쿨다운');   // 위와 같은 이유로 중복 줄이 없다 (리뷰 Minor 3)
+  it('★ 감속 문구의 수치는 CONFIG에서 유도된다 — 리터럴 30이 아니다', () => {
+    // multiplier를 바꾸면 툴팁·시작 화면·"−30%" 라벨 셋이 함께 따라와야 한다. 리터럴을 박으면
+    // 그 어긋남은 테스트가 아니라 플레이어가 발견한다.
+    const el = makeEl();
+    const state = waveState();
+    state.pieces.push(boardPiece('knight', 1, 1));
+    updateTooltip(el, state, noInteraction({ hoverSquare: { file: 1, rank: 1 } }), { x: 0, y: 0 });
+    expect(slowPercent()).toBe(Math.round((1 - CONFIG.slowAura.multiplier) * 100));
+    expect(el.innerHTML).toContain(`−${slowPercent()}%`);
+  });
+
+  it('★ 융합물은 공격 주기와 감속을 둘 다 보여준다 — 겸업이 툴팁에서 읽힌다', () => {
+    // 아치비숍의 가치 명제가 "비숍처럼 벌면서 늦춘다"인데, 한쪽 줄이 빠지면 그 명제가
+    // 화면에서 사라진다. 가산 구조(배타 분기가 아님)가 유지되는지 확인하는 자리이기도 하다.
+    const el = makeEl();
+    const state = waveState();
+    state.pieces.push(boardPiece('archbishop', 1, 1));
+    updateTooltip(el, state, noInteraction({ hoverSquare: { file: 1, rank: 1 } }), { x: 0, y: 0 });
+    expect(el.innerHTML).toContain('공격 주기');
+    expect(el.innerHTML).toContain(`−${slowPercent()}%`);
+    expect(el.innerHTML).toContain('공격당 +');        // 비숍에서 온 골드 수입
   });
 
   it('퀸은 공격력을 0인 수치처럼 표기하지 않고 버퍼임을 명시한다', () => {

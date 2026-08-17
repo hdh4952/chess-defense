@@ -1,6 +1,6 @@
-import { CONFIG, TRAITS, tierMultiplier } from '../config';
+import { CONFIG, TRAITS, slowPercent, tierMultiplier } from '../config';
 import { sellPrice } from '../core/economy';
-import { attackTargets, blastTargets, knightMoves, queenLines } from '../core/patterns';
+import { attackTargets, knightMoves, queenLines, slowTargets } from '../core/patterns';
 import { ALLY_SPRITE_URL } from '../render/sprites';
 import { tierRingColor } from '../render/tiers';
 import type { PieceType, Square } from '../types';
@@ -36,9 +36,11 @@ const BLURB: Record<PieceType, Blurb> = {
       + '가장 싸게 방어선을 넓힐 수 있다.',
   },
   knight: {
-    element: '불', role: '수동 조작 광역 버스트',
-    detail: '자동 공격이 없다. 대신 배치하거나 L자로 움직일 때마다 주변 9칸이 폭발한다 — '
-      + '화력이 오직 플레이어의 조작 속도로만 제한된다.',
+    element: '얼음', role: '감속 · 시간 벌기',
+    detail: '공격하지 않는다. 대신 L자 행마로 닿는 8칸에 들어온 적을 30% 느리게 만든다. '
+      + '적이 그 칸에 있는 동안 계속 걸리고, 벗어나면 풀린다. 8랭크(적이 나오는 줄)에도 걸리므로 '
+      + '판에 들어오는 순간부터 늦출 수 있다. 여러 기가 같은 칸을 덮어도 30%는 그대로이고 '
+      + '합성해도 늘지 않는다 — 나이트는 강화하는 기물이 아니라 넓게 까는 기물이다.',
   },
   bishop: {
     element: '빛', role: '골드 생산 · 전역 광역',
@@ -55,22 +57,23 @@ const BLURB: Record<PieceType, Blurb> = {
   // 수치만 보면(공격력 8 / 주기 3.0) 플레이어는 챈슬러를 룩과 같다고 읽고 만들지 않는다.
   // 동종 합성이 화력을 "압축"한다면 이종 융합은 역할을 "겸업"시킨다는 것이 핵심이다.
   archbishop: {
-    element: '빛+불', role: '경제 + 광역 버스트',
-    detail: '비숍과 나이트를 합친 기물. 대각선을 관통하며 골드를 벌고, 동시에 움직일 때마다 '
-      + '주변 9칸이 폭발한다. 나이트는 자동 공격이 없어 칸값을 못 하는데, 아치비숍은 그 폭발을 '
-      + '비숍의 수입과 같은 칸에서 겸한다.',
+    element: '빛+얼음', role: '경제 + 감속',
+    detail: '비숍과 나이트를 합친 기물. 대각선을 관통하며 골드를 벌고, 동시에 L자 8칸의 적을 '
+      + '30% 늦춘다. 느려진 적은 대각선 위에 더 오래 머무르므로 비숍의 수입도 함께 늘어난다 — '
+      + '두 능력이 서로를 돕는 유일한 조합이다.',
   },
   chancellor: {
-    element: '땅+불', role: '주력 딜러 + 광역 버스트',
-    detail: '룩과 나이트를 합친 기물. 가로·세로를 관통하는 자동 공격과 이동 폭발을 한 몸에 '
-      + '가진다. 공격력만 보면 룩 둘과 같지만, 룩 둘은 폭발하지 않는다 — 한 칸으로 지속 화력과 '
-      + '수동 화력을 동시에 내는 것이 이 기물의 값어치다.',
+    element: '땅+얼음', role: '주력 딜러 + 감속',
+    detail: '룩과 나이트를 합친 기물. 가로·세로를 관통하는 자동 공격과 L자 8칸 감속을 한 몸에 '
+      + '가진다. 공격력만 보면 룩 둘과 같지만, 룩 둘은 적을 늦추지 못한다 — 느려진 적은 자기 '
+      + '파일 안에 더 오래 머물러 같은 화력으로 더 많이 맞는다.',
   },
   amazon: {
-    element: '오라+불', role: '버퍼 + 광역 버스트',
-    detail: '퀸과 나이트를 합친 기물. 퀸이 처음으로 자기 몫의 화력을 갖는다 — 8방향 라인 버프를 '
-      + '유지하면서 움직일 때마다 폭발한다. 다만 버프 계수는 퀸의 절반이다: 퀸의 강화는 보드 '
-      + '전체의 화력에 곱해지므로, 버프를 겸하는 기물이 늘면 그 배율이 곱으로 겹친다.',
+    element: '오라+얼음', role: '버퍼 + 감속',
+    detail: '퀸과 나이트를 합친 기물. 8방향 라인 버프를 유지하면서 L자 8칸의 적을 30% 늦춘다 — '
+      + '아군의 화력을 올리는 동시에 적이 그 화력 안에 머무는 시간을 늘린다. 다만 버프 계수는 '
+      + '퀸의 절반이다: 퀸의 강화는 보드 전체의 화력에 곱해지므로, 버프를 겸하는 기물이 늘면 '
+      + '그 배율이 곱으로 겹친다.',
   },
   queen: {
     element: '오라', role: '공격력 배율 버퍼',
@@ -80,15 +83,18 @@ const BLURB: Record<PieceType, Blurb> = {
   },
 };
 
-/** 공격 주기 표기. tooltip.ts와 같은 규칙 — 나이트의 interval이 0(현재 설정: 쿨다운 폐지)이면
- * "0초"라는 거짓 정보 대신 그 사실을 그대로 적고, config 값을 되돌리면 문구도 자동 복원된다. */
+/** 공격 주기 표기. v1.10부터 interval의 뜻이 하나뿐이라(주기 공격) 규칙이 단순해졌다 —
+ * 주기 공격이 없으면 표시할 주기도 없다. 감속은 주기가 아니라 지속이므로 여기 오지 않는다. */
 function intervalLabel(type: PieceType): string {
-  const { interval } = CONFIG.pieces[type];
-  const t = TRAITS[type];
-  // blast를 먼저 본다 — 폭발 기물의 interval은 공격 주기가 아니라 이동 쿨다운이다.
-  if (t.blast) return interval > 0 ? `이동 쿨다운 ${interval}초` : '이동할 때마다 (쿨다운 없음)';
-  if (t.pattern === 'none') return '—';
-  return `${interval}초`;
+  if (TRAITS[type].pattern === 'none') return '—';
+  return `${CONFIG.pieces[type].interval}초`;
+}
+
+/** 감속 줄. 능력이 있는 기물에만 만든다 — 나머지에 "감속 없음"을 적어 봐야 정보가 없다. */
+function slowRow(type: PieceType): string {
+  return TRAITS[type].slow
+    ? `<dt>감속</dt><dd>L자 8칸 −${slowPercent()}% (지속 · 중첩·강화 없음)</dd>`
+    : '';
 }
 
 function damageLabel(type: PieceType): string {
@@ -102,36 +108,42 @@ function goldRow(type: PieceType): string {
   return goldPerAttack > 0 ? `<dt>골드</dt><dd>공격 1회당 +${goldPerAttack}G</dd>` : '';
 }
 
-/** 사거리 그림의 범례. 칠해진 칸이 무엇을 뜻하는지는 기물마다 다르다 — 나이트만 두 가지
- * 표시(폭발 범위 + L자 이동칸)를 겹쳐 쓰고, 퀸의 칸은 공격이 아니라 버프가 닿는 범위다. */
+/** 사거리 그림의 범례. 칠해진 칸이 무엇을 뜻하는지는 기물마다 다르다 — 주황은 공격,
+ * 파랑은 버프, **얼음색은 감속**이고, 점선은 이동 후보다. 나이트는 감속 8칸과 이동 8칸이
+ * 거의 같은 집합이라(8랭크에서만 갈린다) 두 표시가 겹쳐 보이는데, 그 어긋남 자체가 정보다. */
 const RANGE_LEGEND: Record<PieceType, string> = {
   pawn: '칠해진 칸 = 공격 범위',
-  knight: '칠해진 칸 = 폭발 범위 · 점선 = L자 이동',
+  knight: '얼음 칸 = 감속 범위 (8랭크 포함) · 점선 = L자 이동',
   bishop: '칠해진 칸 = 공격 범위 (보드 끝까지)',
   rook: '칠해진 칸 = 공격 범위 (보드 끝까지)',
   queen: '칠해진 칸 = 버프 범위 (보드 끝까지)',
-  archbishop: '칠해진 칸 = 공격 범위 + 이동 시 폭발 범위',
-  chancellor: '칠해진 칸 = 공격 범위 + 이동 시 폭발 범위',
-  amazon: '칠해진 칸 = 버프 범위 · 이동 시 주변 9칸 폭발',
+  archbishop: '주황 = 공격 범위 · 얼음 = 감속 범위',
+  chancellor: '주황 = 공격 범위 · 얼음 = 감속 범위',
+  amazon: '파랑 = 버프 범위 · 얼음 = 감속 범위',
 };
 
 const squareKey = (s: Square): string => `${s.file},${s.rank}`;
 
 /** 사거리 미리보기 — 실제 공격 패턴 함수를 그대로 호출한다 (설명과 게임 규칙의 단일 출처).
  * 퀸은 attackTargets가 빈 배열이므로(공격이 없다) 버프 라인인 queenLines를 보여준다. */
-function rangeSquares(type: PieceType): { targets: Set<string>; moves: Set<string> } {
+function rangeSquares(
+  type: PieceType,
+): { targets: Set<string>; moves: Set<string>; slows: Set<string> } {
   const t = TRAITS[type];
-  // 공격 사거리와 폭발 범위를 합집합으로 보여준다 — 둘을 겸하는 기물이 생기면 그림이 저절로
-  // 둘 다 담는다. 퀸처럼 공격이 없고 버프만 있는 기물은 버프 라인을 대신 보여준다.
-  const attack = t.buffFactor > 0
-    ? queenLines(RANGE_CENTER)
-    : [...attackTargets(type, RANGE_CENTER), ...blastTargets(type, RANGE_CENTER)];
+  // ★ 감속을 공격 사거리와 **합치지 않는다.** 예전에는 폭발 범위를 사거리에 합집합으로 얹었는데,
+  // 그때는 둘 다 "여기 있으면 맞는다"라 같은 색이 맞았다. 감속은 피해를 주지 않으므로 같은
+  // 색으로 칠하면 거짓말이 된다 — 특히 나이트는 이제 공격력이 0이다.
+  const attack = t.buffFactor > 0 ? queenLines(RANGE_CENTER) : attackTargets(type, RANGE_CENTER);
   const move = t.moveL ? knightMoves(RANGE_CENTER) : [];
-  return { targets: new Set(attack.map(squareKey)), moves: new Set(move.map(squareKey)) };
+  return {
+    targets: new Set(attack.map(squareKey)),
+    moves: new Set(move.map(squareKey)),
+    slows: new Set(slowTargets(type, RANGE_CENTER).map(squareKey)),
+  };
 }
 
 function buildRangeBoard(type: PieceType): HTMLElement {
-  const { targets, moves } = rangeSquares(type);
+  const { targets, moves, slows } = rangeSquares(type);
   const board = document.createElement('div');
   board.className = 'range-board';
   // rank는 위로 갈수록 커진다 — 보드와 같은 방향으로 그려야 폰이 "적 쪽(위)"을 친다는 게 보인다.
@@ -143,6 +155,7 @@ function buildRangeBoard(type: PieceType): HTMLElement {
       cell.dataset.rank = String(rank);
       const key = squareKey({ file, rank });
       if (targets.has(key)) cell.classList.add('is-target');
+      if (slows.has(key)) cell.classList.add('is-slow');
       if (moves.has(key)) cell.classList.add('is-move');
       if (file === RANGE_CENTER.file && rank === RANGE_CENTER.rank) {
         cell.classList.add('is-self');
@@ -197,6 +210,7 @@ function buildPanel(type: PieceType): HTMLElement {
         <dl>
           <dt>공격력</dt><dd>${damageLabel(type)}</dd>
           <dt>공격 주기</dt><dd>${intervalLabel(type)}</dd>
+          ${slowRow(type)}
           ${goldRow(type)}
           ${mergeRow(type)}
           <dt>속성</dt><dd>${blurb.element}</dd>

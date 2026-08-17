@@ -1,6 +1,7 @@
 import { CONFIG, enemyHp } from '../config';
 import type { Enemy, EnemyTrait, GameEvent, GameState } from '../types';
 import { BOARD_H } from './grid';
+import { effectiveSpeed } from './slow';
 
 function hashId(id: string): number {
   let h = 0;
@@ -25,12 +26,21 @@ export function createEnemy(
     jitterX: (hashId(id) % (2 * j + 1)) - j,
     traits,
     shieldPool: traits.includes('shielded') ? Math.round(hp * absorb) : 0,
+    // 감속은 매 틱 재계산되는 파생 상태다(core/slow.ts). 스폰 시점에는 아직 판정 전이므로
+    // false로 시작하고, 첫 updateSlowAura가 곧바로 올바른 값으로 덮는다.
+    slowed: false,
   };
 }
 
+/**
+ * 적 전진. **감속은 여기서 곱한다** — speed 필드에 굽지 않는다(위 createEnemy 주석 참조).
+ *
+ * prepare 단계에서는 이 함수 자체가 이른 반환하므로 감속도 자동으로 무의미해진다. 즉
+ * "준비 중에는 오라가 놀고 있다"는 것은 별도 가드가 아니라 이 한 줄에서 따라 나온다.
+ */
 export function moveEnemies(state: GameState, dt: number): void {
   if (state.phase !== 'wave') return;
-  for (const e of state.enemies) e.y += e.speed * dt;
+  for (const e of state.enemies) e.y += effectiveSpeed(e) * dt;
 }
 
 /** 1랭크 통과: 소멸 + 체력 감소. 체력 0이면 즉시 defeat 전환 후 중단 (스펙 10.5) */

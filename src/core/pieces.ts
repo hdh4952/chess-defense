@@ -1,10 +1,8 @@
-import { CONFIG, TRAITS, hasMoveCooldown } from '../config';
+import { CONFIG, TRAITS } from '../config';
 import type { GameEvent, GameState, Piece, PieceType, Square } from '../types';
 import { recalcQueenBuffs } from './buff';
-import { applyAttack, pieceDamage } from './combat';
 import { freeSlotIndex, SLOT_CAPACITY } from './economy';
 import { inBoard, sameSquare } from './grid';
-import { blastTargets } from './patterns';
 import { fusionResult } from './fusion';
 
 export function findPiece(state: GameState, pieceId: string): Piece | undefined {
@@ -32,7 +30,9 @@ export function isKnightMove(a: Square, b: Square): boolean {
 
 export type RejectReason =
   | 'outOfBounds'        // 보드 밖 또는 8랭크(스폰 구역)
-  | 'knightCooldown'     // 나이트 이동 쿨다운 중 (합성이면 점유자 쪽 쿨다운일 수도 있다)
+  // ⚠️ v1.10에서 'knightCooldown'이 사라졌다. 그 사유는 "미리보기가 약속한 폭발을 실제로도
+  // 터뜨리기 위해" 쿨다운 중 이동을 막는 장치였는데, 폭발 자체가 없어져 막을 대상이 없다.
+  // 되살리려면 근거부터 새로 만들어야 한다 — 감속은 쿨다운과 아무 관계가 없다.
   | 'knightPattern'      // L자 행마가 아님
   | 'typeMismatch'       // 트레이 기물 → 다른 종류가 점유 (밀려날 상대가 없어 맞교환 불가)
   | 'tierMismatch'       // 같은 종류지만 티어가 다르다 (같은 티어끼리만 합쳐진다)
@@ -79,10 +79,9 @@ export function resolveLanding(
 
   const fromBoard = piece.square !== null;
   if (fromBoard) {
-    // 두 게이트는 근거가 다르므로 술어도 분리한다. 쿨다운은 "미리보기가 약속한 폭발이 실제로
-    // 터지게" 하는 장치(blast)이고, L자는 행마 규칙(moveL)이다. 지금은 나이트가 둘 다 참이라
-    // 같은 블록처럼 보이지만, 폭발만 하고 자유 이동하는 기물이 생기면 즉시 갈라진다.
-    if (hasMoveCooldown(piece.type) && piece.cooldown > 0) return reject(null, 'knightCooldown');
+    // 남은 이동 제약은 행마 규칙 하나뿐이다. 쿨다운 게이트는 폭발과 함께 사라졌다(v1.10) —
+    // 감속은 서 있기만 하면 걸리는 상태라 "언제 움직였는가"와 무관하고, 따라서 이동을
+    // 제한할 근거가 없다. 사용자가 지적한 "이동 쿨타임이 불쾌하다"의 최종 해소이기도 하다.
     if (TRAITS[piece.type].moveL && !isKnightMove(piece.square!, square)) {
       return reject(null, 'knightPattern');
     }
@@ -105,13 +104,9 @@ export function resolveLanding(
           ? { kind: 'swap', occupant, resultTier: null }
           : reject(occupant, 'tierMismatch');
       }
-      // 폭발 기물이 쿨다운 중이면 합성 자체를 막는다. 검사하지 않으면 합성은 성사되는데 직후
-      // tryKnightBlast가 `if (cooldown > 0) return`에 걸려 조용히 폭발을 삼킨다 — 미리보기가
-      // 그린 3×3이 실제로는 0회가 되는, 이 파일이 막으려는 바로 그 상황이다. 현재 나이트의
-      // interval이 0이라 늘 통과하지만, 되돌리는 순간 코드 변경 없이 실전화된다.
-      if (hasMoveCooldown(occupant.type) && occupant.cooldown > 0) {
-        return reject(occupant, 'knightCooldown');
-      }
+      // ⚠️ 여기 있던 점유자 쿨다운 게이트도 사라졌다(v1.10). 그 게이트가 막던 것은 "합성은
+      // 성사됐는데 직후 폭발이 조용히 삼켜지는" 경우인데, 합성 직후에 일어나는 일이 이제
+      // 없다. 감속은 합성 결과 기물이 그 자리에 서 있다는 사실만으로 다음 틱에 저절로 걸린다.
       // 동종은 티어가 한 단계 오르고, 이종은 **티어가 그대로**다. 융합은 등급 상승이 아니라
       // 정체성 변경이고, 능력치를 재료 합으로 둔 것이 그 등가의 근거다 — 티어까지 올리면
       // 500G 재료로 1,000G짜리가 나와 골드 중립성이 무너진다.
@@ -176,23 +171,14 @@ function interactable(state: GameState): boolean {
   return !state.paused && (state.phase === 'prepare' || state.phase === 'wave');
 }
 
-/**
- * 나이트 폭발 — 쿨다운 0일 때만 발동하고 CONFIG.pieces.knight.interval로 쿨다운을 재시작한다
- * (검토 노트 3). 현재 설정값은 0이라(게임 규칙 변경, 사용자 승인) 사실상 매번 발동하고 매번
- * 즉시 재무장한다 — 값을 되돌리면 옛 쿨다운 동작이 코드 변경 없이 복원된다.
- * 호출 전에 recalcQueenBuffs가 끝나 있어야 한다 (폭발 시점 버프, 스펙 5.6).
+/*
+ * ⚠️ 여기 있던 tryKnightBlast가 v1.10에서 삭제됐다 (사용자 결정: 폭발 → 감속).
+ *
+ * 배치·이동·합성 직후 3×3에 피해를 주고 쿨다운을 재시작하던 함수인데, 감속에는 대응하는
+ * "순간"이 없다 — 기물이 서 있기만 하면 core/slow.ts가 매 틱 알아서 판정한다. 그래서 아래
+ * placeFromSlot·moveOnBoard에서 조작 직후 능력을 발동하는 호출이 통째로 사라졌고, 이 파일은
+ * 다시 **조작 규칙만** 다루는 파일이 됐다(피해를 주지 않으므로 combat.ts 의존도 없어졌다).
  */
-function tryKnightBlast(state: GameState, piece: Piece, events: GameEvent[]): void {
-  if (piece.cooldown > 0) return;
-  const targets = blastTargets(piece.type, piece.square!);
-  applyAttack(state, targets, pieceDamage(piece), events);
-  events.push({ kind: 'knightBlast', square: { ...piece.square! } });
-  // ★ 반드시 그 기물 자신의 interval을 읽는다. 예전에는 CONFIG.pieces.knight.interval이
-  // 하드코딩돼 있었는데, 폭발하는 기물이 나이트뿐이라 값이 같아 **어떤 테스트도 잡지 못했다.**
-  // 폭발을 겸하는 기물이 생기는 순간 그 기물이 나이트의 쿨다운(현재 0 = 무제한)을 물려받아
-  // 무제한 폭발기가 된다. 그 사고가 나기 전에 고쳐 둔다 — 순수 나이트에는 완전한 no-op다.
-  piece.cooldown = CONFIG.pieces[piece.type].interval;
-}
 
 /** 슬롯 → 보드. 쿨다운은 유지된다 (스펙 5.1) */
 export function placeFromSlot(
@@ -207,27 +193,29 @@ export function placeFromSlot(
     // 트레이발 합성이 슬롯을 하나 비워 canBuy를 다시 연다 — 보드가 꽉 찬 후반에도 구매 루프가
     // 계속 돌게 하는 의도된 동작이다. 흡수되는 건 트레이의 p이므로 보드 위 칸 수는 그대로다.
     commitMerge(state, p, landing.occupant, landing.resultTier, landing.resultType, events);
-    if (TRAITS[landing.occupant.type].blast) tryKnightBlast(state, landing.occupant, events);
     return true;
   }
   p.square = { file, rank };
   p.slotIndex = null;
   recalcQueenBuffs(state);
-  if (TRAITS[p.type].blast) tryKnightBlast(state, p, events);
   return true;
 }
 
 /**
- * 보드 → 보드. 웨이브 중에도 무제한 (나이트만 L자 + 쿨다운, 스펙 5.1/5.3).
+ * 보드 → 보드. 웨이브 중에도 무제한 (나이트만 L자 — 쿨다운 제약은 v1.10에서 사라졌다).
  * 목적지가 점유돼 있으면 실격이 아니라 맞교환이다 (게임 규칙 변경, 사용자 승인) — 두 기물의
  * square를 서로 맞바꾼다. 제자리(자기 자신의 현재 칸)로의 이동은 아무 효과가 없는 명시적
  * no-op이다: 나이트는 애초에 L자가 아니라 canLandAt에서 걸러지지만, 그 외 기물은 canLandAt이
  * 점유를 더 이상 실격 사유로 보지 않으므로 별도 가드 없이는 "자기 자신과 맞교환"을 그대로
  * 통과시켜 버린다.
  * 쿨다운은 기물(ID)에 묶여 있지 칸에 묶여 있지 않으므로, 맞교환 자체는 어느 쪽의 cooldown도
- * 건드리지 않는다 — 플레이어가 직접 움직인 기물만(나이트라면) 폭발을 시도하고, 밀려난 기물은
- * 스스로 선택한 이동이 아니므로 나이트여도 폭발하지 않는다. 버프는 스왑이 끝난 뒤 정확히 한 번만
- * 재계산한다(양쪽 칸이 모두 바뀌었으므로 재계산 전에 두 square 갱신이 끝나 있어야 한다).
+ * 건드리지 않는다. 버프는 스왑이 끝난 뒤 정확히 한 번만 재계산한다(양쪽 칸이 모두 바뀌었으므로
+ * 재계산 전에 두 square 갱신이 끝나 있어야 한다).
+ *
+ * ⚠️ v1.10 이전에는 "플레이어가 직접 움직인 기물만 폭발하고 밀려난 기물은 폭발하지 않는다"는
+ * 규칙이 여기 있었다. 감속에는 그 구분이 없다 — 밀려난 기물도 새 칸에서 그냥 감속을 건다.
+ * 능력이 "누가 움직였는가"가 아니라 "지금 어디 서 있는가"에만 의존하기 때문이고, 그래서
+ * 이 함수는 더 이상 이동 자체 외에 아무 부수효과도 갖지 않는다.
  */
 export function moveOnBoard(
   state: GameState, pieceId: string, file: number, rank: number, events: GameEvent[],
@@ -239,11 +227,9 @@ export function moveOnBoard(
   const landing = resolveLanding(state, p, { file, rank }, allowMerge);
   if (landing.kind === 'reject' || landing.kind === 'self') return false;
   if (landing.kind === 'merge') {
-    // 합성 후 폭발은 생존자(점유자) 기준으로 정확히 1회다. 흡수된 쪽은 폭발하지 않는데, 이는
-    // "플레이어가 직접 움직인 기물만 폭발한다"는 맞교환 규칙과 같은 근거다 — 다만 합성에서는
-    // 움직인 쪽이 사라지므로 그 화력이 생존자에게 넘어간다(티어가 갱신된 뒤의 데미지로 터진다).
+    // 합성 직후에 발동할 능력이 이제 없다(v1.10). 결과 기물의 감속 범위는 다음 틱의
+    // updateSlowAura가 새 종류·새 칸 기준으로 알아서 잡는다 — 여기서 할 일은 없다.
     commitMerge(state, p, landing.occupant, landing.resultTier, landing.resultType, events);
-    if (TRAITS[landing.occupant.type].blast) tryKnightBlast(state, landing.occupant, events);
     return true;
   }
   const from = p.square;
@@ -251,7 +237,6 @@ export function moveOnBoard(
   p.square = { file, rank };
   if (occupant) occupant.square = from;
   recalcQueenBuffs(state);
-  if (TRAITS[p.type].blast) tryKnightBlast(state, p, events);
   return true;
 }
 

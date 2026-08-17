@@ -189,9 +189,10 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-/** DragController가 document.body에 붙인 고스트/쿨다운 라벨 (constructor에서 app 다음으로 추가됨) */
+/** DragController가 document.body에 붙인 고스트 (constructor에서 app 다음으로 추가됨).
+ *  ⚠️ v1.10에서 쿨다운 라벨이 사라져 body의 자식이 하나로 줄었다 — 인덱스로 집는 이 헬퍼는
+ *  그 개수에 의존하므로, 새 DOM 노드를 붙이면 여기부터 고쳐야 한다. */
 function ghostEl(): HTMLDivElement { return document.body.children[1] as HTMLDivElement; }
-function cooldownEl(): HTMLDivElement { return document.body.children[2] as HTMLDivElement; }
 
 function pointer(type: string, x: number, y: number, button = 0): PointerEvent {
   return new PointerEvent(type, { clientX: x, clientY: y, button, bubbles: true });
@@ -566,8 +567,12 @@ describe('DragController — 클릭-투-무브 (스펙 7.5 동작표 7행, 자�
   });
 });
 
-describe('DragController — 나이트 쿨다운 / 일시정지 (스펙 5.3, 7.7)', () => {
-  it('쿨다운 중인 나이트: 드래그 시작 자체를 거부하고 남은 쿨다운을 표시한다', () => {
+describe('DragController — 이동 제약 없음 / 일시정지 (v1.10, 스펙 7.7)', () => {
+  it('★ 쿨다운이 남아 있어도 나이트를 집을 수 있다 — 이동 게이트가 사라졌다', () => {
+    // 사용자가 "이동 쿨타임 있는게 불쾌하다"고 지적했던 바로 그 동작이다. 폭발이 감속으로
+    // 바뀌면서 게이트의 근거 자체가 없어졌다 — 감속은 "언제 움직였는가"와 무관하기 때문이다.
+    // cooldown을 인위적으로 넣어 두는 이유는, 게이트가 값이 아니라 **존재하지 않는 규칙**
+    // 때문에 통과한다는 것을 증명하기 위해서다.
     const { state, drag } = setup('wave');
     const p = boardPiece('knight', 2, 2);
     p.cooldown = 2.4;
@@ -575,55 +580,43 @@ describe('DragController — 나이트 쿨다운 / 일시정지 (스펙 5.3, 7.7
 
     document.dispatchEvent(pointer('pointerdown', squareCenter(2, 2).x, squareCenter(2, 2).y));
 
-    expect(drag.interaction.dragging).toBeNull();          // 드래그 시작 자체가 거부됨
-    expect(p.square).toEqual({ file: 2, rank: 2 });
-    expect(p.cooldown).toBe(2.4);
-    expect(cooldownEl().style.display).toBe('block');
-    expect(cooldownEl().textContent).toBe('이동 쿨다운 2.4s');
-
-    document.dispatchEvent(pointer('pointerup', squareCenter(2, 2).x, squareCenter(2, 2).y));
-    expect(p.square).toEqual({ file: 2, rank: 2 });         // 직선 칸으로는 여전히 이동 안 됨
+    expect(drag.interaction.dragging).toEqual({ pieceId: p.id, from: 'board' });
+    expect(ghostEl().style.display).toBe('block');
+    expect(p.cooldown).toBe(2.4);                          // 집는 것만으로 쿨다운이 바뀌지는 않는다
   });
 
-  it('쿨다운 중인 나이트를 눌렀다 놓아도 클릭-투-무브 선택으로 새어나가지 않는다 (검토 Item 1)', () => {
-    // onDown이 드래그 시작을 거부하면서도 downAt을 남겨 두면, onUp이 "클릭"으로 오인해
-    // 이 나이트를 selectedPieceId로 만들어 버린다 — 실제로는 아무 이동도 할 수 없는 기물이
-    // 선택된 것처럼 보이는 상태다. downAt을 함께 비워 이 눌림이 어떤 제스처로도 이어지지 않게 한다.
+  it('★ 쿨다운 중인 나이트도 L자로 실제로 이동한다', () => {
+    // 위 테스트가 "집힌다"만 재는 것과 달리, 이건 드롭까지 가서 규칙(resolveLanding)에도
+    // 쿨다운 거부가 남아 있지 않은지 확인한다. 두 곳 중 하나만 고치면 집히기는 하는데
+    // 놓으면 원위치로 돌아오는 상태가 된다.
+    const { state } = setup('wave');
+    const p = boardPiece('knight', 2, 2);
+    p.cooldown = 2.4;
+    state.pieces.push(p);
+
+    drag_(squareCenter(2, 2), squareCenter(3, 4));         // (2,2) → (3,4)는 L자
+    expect(p.square).toEqual({ file: 3, rank: 4 });
+  });
+
+  it('★ 쿨다운 중인 나이트도 클릭-투-무브로 선택된다', () => {
+    // 예전에는 거부된 눌림이 클릭-투-무브로 새어나가지 않게 downAt을 비웠다(검토 Item 1).
+    // 거부 경로가 사라졌으므로 그 방어도 함께 사라졌고, 이제는 평범하게 선택돼야 한다.
     const { state, drag } = setup('wave');
     const p = boardPiece('knight', 2, 2);
     p.cooldown = 2.4;
     state.pieces.push(p);
 
-    document.dispatchEvent(pointer('pointerdown', squareCenter(2, 2).x, squareCenter(2, 2).y));
-    document.dispatchEvent(pointer('pointerup', squareCenter(2, 2).x, squareCenter(2, 2).y));
-
-    expect(drag.interaction.selectedPieceId).toBeNull();
-    expect(p.square).toEqual({ file: 2, rank: 2 });
+    click(squareCenter(2, 2));
+    expect(drag.interaction.selectedPieceId).toBe(p.id);
   });
 
-  it('다른 기물이 이미 선택된 상태에서 쿨다운 중인 나이트를 클릭하면 그 선택이 그대로 유지된다 (검토 회귀 6)', () => {
-    // downAt을 비우는 위 수정(Item 1)의 부수효과를 고정한다: 예전에는 이 클릭이 onUp의
-    // 클릭-투-무브 분기까지 도달해, 이미 선택돼 있던 다른 기물(x)을 나이트가 있는 칸으로
-    // 옮기려 시도했다(점유 칸이라 실패) — 그 뒤 어느 쪽이든 selectedPieceId는 null로
-    // 지워졌다. 이제는 그 분기 자체에 진입하지 않으므로 x의 선택이 그대로 남는다. 두 경로
-    // 모두 실제 이동은 전혀 일어나지 않으므로("both paths end with no move") 결과는
-    // 동등하게 안전하고, "거부된 눌림은 어떤 기존 상태도 건드리지 않는다"는 원칙에 새
-    // 동작이 더 부합한다고 판단해 그대로 유지하고 이 테스트로 고정한다.
-    const { state, drag } = setup('wave');
-    const x = boardPiece('rook', 0, 1);
-    const n = boardPiece('knight', 5, 5);
-    n.cooldown = 2.0;
-    state.pieces.push(x, n);
+  it('L자가 아닌 칸에 놓으면 여전히 거부된다 — 사라진 것은 쿨다운이지 행마 규칙이 아니다', () => {
+    const { state } = setup('wave');
+    const p = boardPiece('knight', 2, 2);
+    state.pieces.push(p);
 
-    click(squareCenter(0, 1));                              // x를 클릭 선택
-    expect(drag.interaction.selectedPieceId).toBe(x.id);
-
-    document.dispatchEvent(pointer('pointerdown', squareCenter(5, 5).x, squareCenter(5, 5).y));
-    document.dispatchEvent(pointer('pointerup', squareCenter(5, 5).x, squareCenter(5, 5).y));
-
-    expect(drag.interaction.selectedPieceId).toBe(x.id);    // 기존 선택이 그대로 유지된다
-    expect(x.square).toEqual({ file: 0, rank: 1 });          // x는 옮겨지지 않았다
-    expect(n.square).toEqual({ file: 5, rank: 5 });          // n도 그대로
+    drag_(squareCenter(2, 2), squareCenter(2, 5));         // 직선 — L자가 아니다
+    expect(p.square).toEqual({ file: 2, rank: 2 });
   });
 
   it('일시정지 중에는 드래그 시작 자체가 막힌다 — ghost도 뜨지 않는다 (Finding 2: onDown 가드에 실질적 검증)', () => {
@@ -767,31 +760,10 @@ describe('DragController — pointercancel / Esc / 우클릭 / hover 정리 (검
   });
 });
 
-describe('DragController — 쿨다운 라벨 타이머 (검토 Finding 5)', () => {
-  it('반복 거부 시 이전 타이머가 새 라벨을 조기에 숨기지 않는다', () => {
-    vi.useFakeTimers();
-    const { state } = setup('wave');
-    const p = boardPiece('knight', 2, 2);
-    p.cooldown = 3.0;
-    state.pieces.push(p);
-    const at = squareCenter(2, 2);
-
-    document.dispatchEvent(pointer('pointerdown', at.x, at.y));       // t=0: 첫 거부, 타이머A(만료 t=800)
-    document.dispatchEvent(pointer('pointerup', at.x, at.y));
-    expect(cooldownEl().style.display).toBe('block');
-
-    vi.advanceTimersByTime(600);                                      // t=600
-    document.dispatchEvent(pointer('pointerdown', at.x, at.y));       // 재시도 → 타이머A 취소, 타이머B(만료 t=1400)
-    document.dispatchEvent(pointer('pointerup', at.x, at.y));
-    expect(cooldownEl().style.display).toBe('block');
-
-    vi.advanceTimersByTime(600);                                      // t=1200: 타이머A였다면 이미 만료(800)됐을 시점
-    expect(cooldownEl().style.display).toBe('block');                 // 타이머A가 취소됐으므로 라벨은 계속 보인다
-
-    vi.advanceTimersByTime(250);                                      // t=1450: 타이머B(1400) 만료
-    expect(cooldownEl().style.display).toBe('none');
-  });
-});
+// ⚠️ 여기 있던 "쿨다운 라벨 타이머" 스위트가 v1.10에서 삭제됐다. 커서 옆에 남은 쿨다운을
+// 띄우던 기구(showCooldown + 중첩 타이머 방지, 검토 Finding 5) 자체가 사라졌기 때문이다.
+// ★ 그 기구는 원래 tierMismatch/tierOverflow 같은 **다른 거부 사유**를 알리는 데 재활용할
+// 후보였다(그 사유들은 지금 무음으로 거부된다). 되살릴 일이 생기면 이 커밋을 참고할 것.
 
 describe('DragController — zones() 캐시 (검토 Finding 6, 스펙 9.4)', () => {
   it('resize 전까지는 캐시된 사각형을 재사용하고, resize 후에는 새 레이아웃으로 갱신한다', () => {
@@ -862,17 +834,15 @@ describe('DragController — 드래그 고스트 이미지 안전장치 (지난 
 });
 
 describe('DragController — destroy() (검토 Finding 7)', () => {
-  it('destroy()는 리스너와 ghost/쿨다운 라벨 DOM을 정리하고, 이후 이벤트를 무시한다', () => {
+  it('destroy()는 리스너와 ghost DOM을 정리하고, 이후 이벤트를 무시한다', () => {
     const { state, drag } = setup('wave');
     const p = boardPiece('pawn', 2, 2);
     state.pieces.push(p);
     const ghost = ghostEl();
-    const cooldown = cooldownEl();
 
     drag.destroy();
 
     expect(document.body.contains(ghost)).toBe(false);
-    expect(document.body.contains(cooldown)).toBe(false);
 
     drag_(squareCenter(2, 2), squareCenter(4, 4));      // destroy 이후에는 더 이상 반응하지 않는다
     expect(p.square).toEqual({ file: 2, rank: 2 });
@@ -897,15 +867,18 @@ describe('DragController — UI 제스처 사운드 (스펙 §10.1 v1.3/v1.4)', 
     expect(audio.played).toEqual([]);
   });
 
-  it('쿨다운으로 거부된 나이트 드래그 시작도 여전히 아무 소리도 내지 않는다', () => {
-    const { state, audio } = setup('wave');
+  it('쿨다운이 남은 나이트를 집어도 아무 소리도 나지 않는다', () => {
+    // 예전에는 이 눌림이 **거부**됐고 그래도 무음이라는 것을 고정했다. 이제는 정상적으로
+    // 집히는데 여전히 무음이어야 한다 — v1.4에서 uiPickup 큐 자체를 없앴기 때문이다.
+    const { state, audio, drag } = setup('wave');
     const p = boardPiece('knight', 2, 2);
     p.cooldown = 2.4;
     state.pieces.push(p);
 
     document.dispatchEvent(pointer('pointerdown', squareCenter(2, 2).x, squareCenter(2, 2).y));
 
-    expect(audio.played).toEqual([]);
+    expect(drag.interaction.dragging).not.toBeNull();     // 실제로 집혔는데도
+    expect(audio.played).toEqual([]);                     // 무음이다
   });
 
   it('빈 칸 클릭(선택 없음)은 아무 소리도 내지 않는다', () => {

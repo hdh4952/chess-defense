@@ -4,6 +4,7 @@ import { pieceDamage, pieceGold, updateCombat } from '../src/core/combat';
 import { recalcQueenBuffs } from '../src/core/buff';
 import { sellPiece, sellPrice } from '../src/core/economy';
 import { moveOnBoard, placeFromSlot, resolveLanding, canLandAt } from '../src/core/pieces';
+import { updateSlowAura } from '../src/core/slow';
 import { buildHighlights, HIGHLIGHT_COLORS } from '../src/render/highlights';
 import { TIER_COLORS, tierRingColor } from '../src/render/tiers';
 import { render, createFrameView } from '../src/render/renderer';
@@ -174,21 +175,34 @@ describe('합성 커밋 — 생존자·쿨다운·이벤트', () => {
     expect(s.pieces.filter(p => p.square?.file === 1 && p.square?.rank === 2)).toHaveLength(1);
   });
 
-  it('나이트 합성은 생존자 기준으로 정확히 1회 폭발한다 (티어가 갱신된 뒤의 데미지로)', () => {
+  it('합성 직후에는 아무 능력도 발동하지 않는다 — 감속은 다음 틱이 생존자의 칸으로 건다', () => {
+    // v1.10 전까지 이 자리에는 "나이트 합성은 생존자 기준으로 정확히 1회 폭발한다"가 있었다.
+    // 폭발이 감속 오라로 바뀌면서 능력이 붙을 **순간**이 사라졌으므로(서 있기만 하면 걸리는
+    // 지속 상태다) 불변식이 뒤집힌다: 합성은 merged 하나만 남기고 끝나야 한다. 티어에 비례하던
+    // 데미지 단언은 지킬 대상이 없어졌다 — 감속은 티어와 무관하고 나이트 공격력은 0이다.
     const s = waveState();
     const mover = boardPiece('knight', 3, 4);
     const occupant = boardPiece('knight', 4, 6);       // d4 → e6 = L자
     s.pieces.push(mover, occupant);
-    const e = enemyAt(1, 4, 6);                        // 폭발 중심 칸의 적
-    s.enemies.push(e);
-    const hp0 = e.hp;
+    const onSurvivor = enemyAt(1, 4, 6);               // 예전 폭발이 중심으로 삼던 칸
+    const onL = enemyAt(1, 3, 4);                      // 합성 결과 기물의 L자 칸(= 출발 칸)
+    s.enemies.push(onSurvivor, onL);
+    const hp0 = onSurvivor.hp;
     const events: GameEvent[] = [];
 
     expect(moveOnBoard(s, mover.id, 4, 6, events, true)).toBe(true);
     expect(occupant.tier).toBe(2);
-    expect(events.filter(x => x.kind === 'knightBlast')).toHaveLength(1);
-    // 합성 전 공격력(3)이 아니라 합성 후(3×2)로 터진다
-    expect(hp0 - e.hp).toBe(CONFIG.pieces.knight.damage * 2);
+    // 합성이 남기는 이벤트는 merged 하나뿐이다 — 조작 직후에 능력이 되살아나면 여기서 걸린다.
+    expect(events.map(x => x.kind)).toEqual(['merged']);
+    expect(onSurvivor.hp).toBe(hp0);                   // 피해를 주는 능력 자체가 없다
+    expect(s.enemies.map(x => x.slowed)).toEqual([false, false]);   // 감속도 아직이다
+
+    // 능력은 조작이 아니라 틱에 속한다(step.ts). 그리고 틱이 보는 것은 합성 결과 기물의
+    // 지금 칸뿐이라, 흡수된 쪽이 있던 자리가 아니라 생존자의 L자 8칸이 덮인다.
+    const tickEvents: GameEvent[] = [];
+    updateSlowAura(s, tickEvents);
+    expect(onL.slowed).toBe(true);
+    expect(onSurvivor.slowed).toBe(false);             // 자기가 선 칸은 L자가 아니다
   });
 });
 

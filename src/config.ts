@@ -55,10 +55,12 @@ export const CONFIG = {
    */
   pieces: {
     pawn:   { cost: 100, damage: 2, interval: 0.5, goldPerAttack: 0  },
-    // 이동 쿨다운 없음 (게임 규칙 변경, 사용자 승인) — 나이트는 배치·이동마다 매번 폭발한다.
-    // 게이트(canLandAt/tryKnightBlast/drag.ts)는 그대로 남아 있으므로 3.0 등으로 되돌리면
-    // 옛 쿨다운 동작이 코드 변경 없이 복원된다.
-    knight: { cost: 300, damage: 3, interval: 0,   goldPerAttack: 0  },
+    // ★ v1.10: 나이트는 **공격 수단이 하나도 없다.** 폭발(3×3, 배치·이동마다)을 잃고 감속
+    // 오라를 받았다(사용자 결정). damage 0은 밸런스 조정이 아니라 그 사실의 기록이다 —
+    // 3을 남겨 두면 어디에서도 읽지 않는 값이 "나이트는 3딜"이라고 거짓말한다.
+    // interval도 이제 아무 의미가 없다: 주기 공격이 없고(pattern 'none') 이동 쿨다운 게이트도
+    // 함께 사라졌다. 0으로 두는 것은 "이 기물에 시간 축이 없다"는 뜻이고, 퀸(0)과 같은 이유다.
+    knight: { cost: 300, damage: 0, interval: 0,   goldPerAttack: 0  },
     bishop: { cost: 200, damage: 1, interval: 3.0, goldPerAttack: 10 },
     rook:   { cost: 500, damage: 5, interval: 3.0, goldPerAttack: 0  },
     queen:  { cost: 900, damage: 0, interval: 0,   goldPerAttack: 0  },
@@ -68,14 +70,46 @@ export const CONFIG = {
     // 능력치는 **재료 합**이다. 그래야 §5.4의 골드 중립성과 판매가 불변식(원가 × 2^(t−1) × 0.5)이
     // 그대로 성립한다 — cost도 재료 원가의 합으로 둔 이유가 그것이다. 융합은 "더 세지는" 것이
     // 아니라 **역할을 겸업시키는** 것이다: 나이트는 자동 공격이 없어 칸값을 못 하는데, 융합물은
-    // 재료의 주기 공격 + 나이트의 이동 폭발을 한 칸에서 겸한다.
+    // 재료의 주기 공격 + 나이트의 **감속**을 한 칸에서 겸한다 (v1.10 — 예전에는 이동 폭발이었다).
     //
     // interval은 나이트 것(0)을 물려받지 않고 **주기 공격을 담당하는 재료의 것**을 쓴다.
-    // 나이트의 interval 0을 상속하면 드래그 반복만으로 무제한 폭발하는 기물이 된다.
-    archbishop: { cost: 500,  damage: 4, interval: 3.0, goldPerAttack: 10 },  // 비숍(200)+나이트(300)
-    chancellor: { cost: 800,  damage: 8, interval: 3.0, goldPerAttack: 0  },  // 룩(500)+나이트(300)
-    amazon:     { cost: 1200, damage: 3, interval: 0,   goldPerAttack: 0  },  // 퀸(900)+나이트(300)
+    //
+    // ★ v1.10에서 damage가 4 → 1, 8 → 5로 내려갔다. **밸런스 조정이 아니라 재료 합 규칙을
+    // 지킨 결과다**: 나이트의 damage가 3 → 0이 됐으므로 비숍 1 + 나이트 0 = 1, 룩 5 + 0 = 5다.
+    // 예전 값(4·8)을 그대로 두면 500G짜리가 200G 비숍의 4배 화력을 내게 되어, 이 표 바로 위가
+    // 말하는 골드 중립성이 무너진다 — 그리고 그 중립성은 core/pieces.ts와 core/fusion.ts가
+    // 융합의 존재 근거로 인용하는 바로 그 규칙이다.
+    //
+    // 나이트가 내놓는 300G의 몫이 화력에서 **감속**으로 바뀐 것이지 사라진 것이 아니다:
+    // 챈슬러는 이제 "룩과 같은 화력 + 감속"이고, 값은 룩(500) + 나이트(300)로 정확히 맞다.
+    archbishop: { cost: 500,  damage: 1, interval: 3.0, goldPerAttack: 10 },  // 비숍(200)+나이트(300)
+    chancellor: { cost: 800,  damage: 5, interval: 3.0, goldPerAttack: 0  },  // 룩(500)+나이트(300)
+    // 아마존도 같은 규칙이다: 퀸(0) + 나이트(0) = 0. 순수 지원 기물이 됐다(버프 절반 + 감속).
+    amazon:     { cost: 1200, damage: 0, interval: 0,   goldPerAttack: 0  },  // 퀸(900)+나이트(300)
   },
+
+  /**
+   * 감속 오라 — 나이트 계열이 **L자 행마 8칸**에 있는 적의 이동속도를 깎는다 (v1.10).
+   *
+   * 폭발을 대체한 능력이다(사용자 결정). 성질이 정반대라 코드 구조도 반대가 된다: 폭발은
+   * 배치·이동 **순간**의 사건이라 GameEvent 하나로 끝났지만, 감속은 적이 그 칸에 있는 동안
+   * 계속 걸리는 **상태**라 매 틱 재계산해야 한다(core/slow.ts).
+   *
+   * ★ **중첩이 없다.** 나이트가 몇 기든 같은 칸이면 정확히 ×0.7 한 번이다(사용자 결정).
+   * 그래서 이 값은 "기물당 배수"가 아니라 **"감속당한 적의 배수"**다 — 곱셈으로 쌓을 수
+   * 있는 형태로 두면 언젠가 누군가 쌓는다. 코어가 Enemy.slowed를 **boolean**으로 들고 있는
+   * 것이 그 금지의 구조적 보증이다: 표현 가능한 값이 둘뿐이라 중첩을 만들 방법이 없다.
+   *
+   * ★ **티어와도 무관하다.** T6 나이트도 30%다. tierMultiplier를 곱하지 않는 유일한 능력이고,
+   * 그래서 나이트는 이 게임에서 **합성이 손해인 유일한 기물**이다(두 기가 덮던 칸이 한 기
+   * 몫으로 줄고 감속량은 그대로다). 의도된 성질이며, 되돌리려면 여기가 아니라 slow.ts에서
+   * 배수를 티어 함수로 바꿔야 한다 — 그러면 중첩 금지와 충돌하므로 규칙을 다시 설계해야 한다.
+   *
+   * 값은 **이진 정확값**을 쓴다(traitDefs와 같은 이유). 0.7은 이진 근사값이라 0.7 × 3 같은
+   * 계산이 정확하지 않지만, 이 값은 dt에 곱해질 뿐 정수 단언에 쓰이지 않아 문제되지 않는다.
+   * 화면 문구의 "30%"는 리터럴이 아니라 slowPercent()가 이 값에서 유도한다.
+   */
+  slowAura: { multiplier: 0.7 },
 
   /**
    * 동일 기물 합성 — **같은 종류 · 같은 티어**끼리만 합쳐지고 티어가 한 단계 오른다
@@ -196,10 +230,17 @@ export type AttackPattern = 'pawn' | 'bishop' | 'rook' | 'none';
 export interface PieceTraits {
   /** 주기 발사 패턴. 'none'이면 updateCombat의 발사 루프에서 제외된다. */
   pattern: AttackPattern;
-  /** 배치·이동·합성 직후 주변 3×3 폭발 (tryKnightBlast). */
-  blast: boolean;
-  /** 보드 위 이동이 L자로 제한되는가. blast와 근거가 다르다 — 이쪽은 행마 규칙이고,
-   *  blast 쪽 쿨다운 게이트는 "미리보기가 약속한 폭발을 실제로도 터뜨리기 위한" 장치다. */
+  /**
+   * L자 8칸의 적을 감속시키는가 (core/slow.ts). v1.10에서 `blast`를 대체했다.
+   *
+   * 개명이 아니라 **다른 축이다.** blast는 "배치·이동 직후 한 번 터진다"는 순간 사건이라
+   * 이동 쿨다운 게이트와 짝을 이뤘지만, slow는 서 있기만 하면 걸리는 상태라 쿨다운과
+   * 아무 관계가 없다. 그래서 hasMoveCooldown()도 함께 사라졌다.
+   */
+  slow: boolean;
+  /** 보드 위 이동이 L자로 제한되는가. slow와 근거가 다르다 — 이쪽은 **행마 규칙**이고
+   *  slow는 **능력 범위**다. 두 집합이 거의 같아 보이지만 8랭크에서 갈린다:
+   *  이동은 8랭크(스폰 구역)로 갈 수 없고, 감속은 8랭크에도 걸린다. */
   moveL: boolean;
   /** 퀸 라인 버프 계수. 0이면 버프를 주지 않는다(buff.ts). */
   buffFactor: number;
@@ -208,20 +249,26 @@ export interface PieceTraits {
 }
 
 export const TRAITS: Record<PieceType, PieceTraits> = {
-  pawn:   { pattern: 'pawn',   blast: false, moveL: false, buffFactor: 0, purchasable: true },
-  knight: { pattern: 'none',   blast: true,  moveL: true,  buffFactor: 0, purchasable: true },
-  bishop: { pattern: 'bishop', blast: false, moveL: false, buffFactor: 0, purchasable: true },
-  rook:   { pattern: 'rook',   blast: false, moveL: false, buffFactor: 0, purchasable: true },
-  queen:  { pattern: 'none',   blast: false, moveL: false, buffFactor: 1, purchasable: true },
+  pawn:   { pattern: 'pawn',   slow: false, moveL: false, buffFactor: 0, purchasable: true },
+  knight: { pattern: 'none',   slow: true,  moveL: true,  buffFactor: 0, purchasable: true },
+  bishop: { pattern: 'bishop', slow: false, moveL: false, buffFactor: 0, purchasable: true },
+  rook:   { pattern: 'rook',   slow: false, moveL: false, buffFactor: 0, purchasable: true },
+  queen:  { pattern: 'none',   slow: false, moveL: false, buffFactor: 1, purchasable: true },
 
   // 융합물은 재료 둘의 특성을 겸한다. **moveL은 물려받지 않는다** — 나이트의 L자 제약을
   // 상속하면 융합물이 인접 칸으로 한 칸 미는 조작조차 못 하게 되어, 룩보다 기동성이
-  // *낮아진다*(룩은 이미 보드 위 아무 칸으로나 순간이동한다). 폭발 능력만 물려받는다.
-  archbishop: { pattern: 'bishop', blast: true, moveL: false, buffFactor: 0, purchasable: false },
-  chancellor: { pattern: 'rook',   blast: true, moveL: false, buffFactor: 0, purchasable: false },
+  // *낮아진다*(룩은 이미 보드 위 아무 칸으로나 순간이동한다).
+  //
+  // ★ 물려받는 나이트 능력은 v1.10부터 **감속**이다(폭발이 아니라). 융합물의 설계 근거가
+  // "재료의 주기 공격 + 나이트의 능력 겸업"이므로 나이트의 정체성이 바뀌면 따라간다
+  // (사용자 결정). 즉 아치비숍은 "비숍처럼 쏘면서 L자 8칸을 늦춘다"가 된다.
+  // moveL은 여전히 false이므로 **감속 범위와 이동 범위가 아예 다른 기물**이고, 이것이
+  // slow와 moveL을 별도 필드로 둔 이유가 처음으로 실전에서 드러나는 지점이다.
+  archbishop: { pattern: 'bishop', slow: true, moveL: false, buffFactor: 0, purchasable: false },
+  chancellor: { pattern: 'rook',   slow: true, moveL: false, buffFactor: 0, purchasable: false },
   // 아마존은 퀸의 버프를 물려받되 계수를 절반으로 둔다 — 퀸의 티어는 보드 전체 화력의
   // 지수라(§5.4) 버프를 겸하는 기물이 늘면 그 지수가 곱으로 겹친다.
-  amazon:     { pattern: 'none',   blast: true, moveL: false, buffFactor: 0.5, purchasable: false },
+  amazon:     { pattern: 'none',   slow: true, moveL: false, buffFactor: 0.5, purchasable: false },
 };
 
 /**
@@ -252,19 +299,18 @@ export function enemyCount(wave: number): number {
 
 
 /**
- * 이 기물의 `interval`이 **이동 쿨다운**을 뜻하는가.
+ * 감속률을 백분율 정수로 — 화면 문구 전용 ("이동속도 −30%").
  *
- * 같은 필드가 기물에 따라 다른 뜻을 갖는다. 나이트처럼 주기 공격이 없는 폭발 기물에게
- * interval은 "다음 이동(=다음 폭발)까지 기다리는 시간"이지만, 겸업 기물(아치비숍·챈슬러)
- * 에게는 **공격 주기**다. 둘을 구분하지 않으면 겸업 기물이 자동 공격을 할 때마다 이동이
- * 3초씩 잠긴다 — 사거리에 적이 있는 동안 사실상 못 움직인다.
+ * 문구에 30을 리터럴로 쓰지 않는 이유는 이 저장소의 다른 유도 함수들과 같다: multiplier를
+ * 0.6으로 바꾸는 순간 툴팁·시작 화면·이펙트 라벨 셋이 각자 옛 숫자를 말하기 시작하는데,
+ * **그 어긋남은 테스트가 아니라 플레이어가 발견한다.**
  *
- * 폭발 자체는 여전히 쿨다운의 제약을 받는다(tryKnightBlast가 cooldown > 0이면 건너뛴다).
- * 막히는 것은 이동이 아니라 폭발이고, 그게 원래 의도였다.
+ * ⚠️ 여기서 hasMoveCooldown()이 사라졌다(v1.10). 그 함수는 "폭발 기물의 interval은 공격
+ * 주기가 아니라 이동 쿨다운"이라는 구분이었는데, 폭발이 없어지면서 구분할 대상 자체가
+ * 없어졌다. 이제 interval은 모든 기물에서 **공격 주기 하나**만 뜻한다 — 되살리지 말 것.
  */
-export function hasMoveCooldown(type: PieceType): boolean {
-  const t = TRAITS[type];
-  return t.blast && t.pattern === 'none';
+export function slowPercent(): number {
+  return Math.round((1 - CONFIG.slowAura.multiplier) * 100);
 }
 
 /**

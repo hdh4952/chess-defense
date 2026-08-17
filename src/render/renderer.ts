@@ -1,5 +1,7 @@
 import { CONFIG } from '../config';
 import { BOARD_H, BOARD_W, fileCenterX, rankToTopY } from '../core/grid';
+import { slowCoverage } from '../core/slow';
+import { SLOW_HALO, SLOW_INK, SLOW_RGB } from './palette';
 import { ALLY_SPRITE_PX, getAllySprite, getEnemySprite } from './sprites';
 import { tierRingColor } from './tiers';
 import type { Enemy, EnemyTrait, GameState, Piece, PieceType, Square } from '../types';
@@ -73,7 +75,15 @@ const COLOR = {
   allyFill: '#ffffff', allyStroke: '#2b2b2b',
   enemyFill: '#141414', enemyStroke: '#f2f2f2',
   hpBack: '#3a3a3a', hpFill: '#e04b3a',
+  // 감속 오라가 덮는 칸의 상시 표식. 알파가 낮은 이유는 이것이 **배경**이기 때문이다 —
+  // 그 위에 사거리·이동·선택 하이라이트가 얹혀도 둘 다 읽혀야 한다.
+  slowField: `rgba(${SLOW_RGB}, 0.30)`,
 };
+
+/** 꺾쇠 팔 길이. 칸 전체를 두르지 않는 이유는 잉크 총량이다 — L자 8칸은 서로 변으로 맞닿지
+ *  않아 테두리가 하나로 병합되지 않으므로, 나이트 한 기만으로도 독립 사각형 8개가 생긴다.
+ *  모서리만 남기면 칸당 선 길이가 320px → 112px로 줄면서 "여기가 경계다"는 인지는 유지된다. */
+const SLOW_ARM = 14;
 
 export function render(ctx: CanvasRenderingContext2D, state: GameState, view: ViewState = EMPTY_VIEW): void {
   ctx.save();
@@ -85,6 +95,13 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState, view: Vi
   try {
     ctx.translate(view.shake.x, view.shake.y);
     drawBoard(ctx);
+    // ★ 순서가 규칙이다. drawBoard **뒤**여야 8랭크 명도 오버레이 위에 얹혀 스폰 구역의 오라
+    // 칸이 보이고(감속 범위는 8랭크를 포함한다 — 이 게임에서 유일하게 새로운 정보다),
+    // view.highlights **앞**이어야 선택·사거리 미리보기(일시적)가 상시 오라(배경) 위에 읽힌다.
+    // 집합은 프레임당 정확히 한 번만 계산해 drawEnemy까지 넘긴다 — 적마다 다시 구하면
+    // 60fps × 최대 46마리만큼의 중복 순회가 된다.
+    const slowField = slowCoverage(state);
+    drawSlowField(ctx, slowField);
     for (const h of view.highlights) {
       ctx.fillStyle = h.color;
       ctx.fillRect(h.square.file * SQ, rankToTopY(h.square.rank), SQ, SQ);
@@ -124,6 +141,73 @@ function drawBoard(ctx: CanvasRenderingContext2D): void {
   ctx.fillRect(0, 0, BOARD_W, SQ);
   ctx.fillStyle = COLOR.spawnBorder;
   ctx.fillRect(0, SQ - SPAWN_BORDER_PX, BOARD_W, SPAWN_BORDER_PX);
+}
+
+/**
+ * 감속 오라가 덮는 칸 — 얼음색 옅은 채움 + 네 모서리 꺾쇠 (v1.10).
+ *
+ * ★ **칸당 정확히 한 번만 그린다.** 그 보장은 인자가 Map이라는 데서 나온다(core/slow.ts) —
+ * 나이트 셋이 같은 칸을 덮어도 원소가 하나라 알파가 겹쳐 쌓일 수가 없다. 겹쳐 칠하면 화면이
+ * "저기는 더 느리다"고 말하는데 규칙은 정확히 ×0.7 한 번이라, 그 순간 연출이 거짓말이 된다.
+ * **중첩 금지가 코드가 아니라 자료구조로 보장되는 지점이 여기다.**
+ *
+ * 꺾쇠를 쓰고 칸 전체를 두르지 않는 이유는 SLOW_ARM 주석에 있다. 안쪽으로 1.5px 물려 그리는
+ * 것은 인접한 오라 칸끼리 선이 붙어 한 덩어리로 뭉개지지 않게 하기 위함이다.
+ */
+function drawSlowField(ctx: CanvasRenderingContext2D, field: Map<string, Square>): void {
+  if (field.size === 0) return;
+  ctx.save();
+  for (const sq of field.values()) {
+    const x = sq.file * SQ, y = rankToTopY(sq.rank);
+    ctx.fillStyle = COLOR.slowField;
+    ctx.fillRect(x, y, SQ, SQ);
+  }
+  // 선은 채움을 전부 끝낸 뒤 한 번에 긋는다 — 인접 칸의 채움이 앞 칸의 꺾쇠를 덮지 않는다.
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  for (const sq of field.values()) {
+    const x = sq.file * SQ + 1.5, y = rankToTopY(sq.rank) + 1.5;
+    const w = SQ - 3;
+    for (const pass of [SLOW_HALO, SLOW_INK]) {
+      ctx.strokeStyle = pass;
+      ctx.lineWidth = pass === SLOW_HALO ? 3.5 : 2;
+      ctx.beginPath();
+      for (const [cx, cy, dx, dy] of [
+        [x, y, 1, 1], [x + w, y, -1, 1], [x, y + w, 1, -1], [x + w, y + w, -1, -1],
+      ] as const) {
+        ctx.moveTo(cx + dx * SLOW_ARM, cy);
+        ctx.lineTo(cx, cy);
+        ctx.lineTo(cx, cy + dy * SLOW_ARM);
+      }
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+/**
+ * 감속당한 적에게 붙는 회전 점선 고리.
+ *
+ * ★ **위상을 벽시계가 아니라 `e.y`에서 뽑는다.** 그래서 고리는 적이 실제로 나아가는 속도로
+ * 돌고, 감속된 적의 고리는 정확히 30% 느리게 돈다 — **연출 자체가 규칙이다.** 덤으로 일시정지·
+ * 준비 단계에서 저절로 멈춘다(적이 안 움직이므로). 시간 기반으로 두면 그 셋을 전부 따로
+ * 처리해야 하고, main.ts가 dt를 0으로 눌러 막는 함정(Effects.shakeOffset 전례)에 다시 걸린다.
+ *
+ * ⚠️ `arc`와 `stroke`로만 그린다 — renderer.test.ts가 fillRect(80×80 64개, 640폭 2개)와
+ * '×'로 시작하는 fillText의 개수를 리터럴로 못박고 있어서, 다른 프리미티브를 쓰면 감속과
+ * 무관한 렌더 테스트가 무더기로 깨진다(drawTraitMarks와 같은 제약).
+ */
+function drawSlowRing(ctx: CanvasRenderingContext2D, e: Enemy, x: number, size: number): void {
+  const r = size / 2 + 5;
+  ctx.save();
+  ctx.translate(x, e.y);
+  ctx.rotate((e.y / SQ) * 0.9);            // 한 칸 내려올 때마다 0.9rad — 눈에 보일 만큼만
+  ctx.setLineDash([7, 6]);
+  ctx.lineWidth = 4; ctx.strokeStyle = SLOW_HALO;
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.stroke();
+  ctx.lineWidth = 2; ctx.strokeStyle = SLOW_INK;
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.stroke();
+  ctx.restore();
 }
 
 // 바닥 그림자(타원)는 제거했다 (사용자 요청). 스펙 8.1은 이를 진영 구분 단서 중 하나로 들었지만,
@@ -225,6 +309,8 @@ function drawPiece(ctx: CanvasRenderingContext2D, p: Piece): void {
 function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy): void {
   const x = fileCenterX(e.file) + e.jitterX;     // 지터는 렌더 전용 (스펙 7.8)
   const size = CONFIG.enemy.spritePx;
+  // 고리는 스프라이트 **아래**에 그린다 — 적의 실루엣을 가리면 무엇이 오는지 못 읽는다.
+  if (e.slowed) drawSlowRing(ctx, e, x, size);
   const sprite = getEnemySprite(e.isBoss);
   if (sprite) {
     ctx.drawImage(sprite, x - size / 2, e.y - size / 2, size, size);

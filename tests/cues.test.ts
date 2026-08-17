@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AUDIO_TUNING, CueResolver } from '../src/audio/cues';
+import { AUDIO_TUNING, CueResolver, type CueKind } from '../src/audio/cues';
 import type { GameEvent, Phase, PieceType, Square } from '../src/types';
 
 // cues.ts는 DOM-free 정책 계층이라는 것이 이 스위트의 요지다 — 그래서 이 파일에는
@@ -8,7 +8,7 @@ import type { GameEvent, Phase, PieceType, Square } from '../src/types';
 // 요구가 실제로 지켜지고 있음을 보증한다.
 
 const SQ: Square = { file: 0, rank: 0 };
-// resolve()는 v1.3에서 phase 인자를 추가로 받는다 — attack/knightBlast 등 phase 전환과 무관한
+// resolve()는 v1.3에서 phase 인자를 추가로 받는다 — attack/enemyDied 등 phase 전환과 무관한
 // 기존 테스트는 이 중립값('wave')을 그대로 넘겨, phase 전환 감지 로직이 끼어들지 않게 한다.
 const WAVE: Phase = 'wave';
 
@@ -66,18 +66,56 @@ describe('CueResolver — 큐별 최소 간격 스로틀 (스펙 "2번 방어")'
     expect(cues).toEqual(['rook']);
   });
 
-  it('각 큐 종류는 서로 다른 스로틀 윈도우 시각을 독립적으로 갖는다 (bishop/rook/knight)', () => {
+  it('각 큐 종류는 서로 다른 스로틀 윈도우 시각을 독립적으로 갖는다 (bishop/rook/enemyDied)', () => {
+    // 세 번째 큐로 attack 경로 밖(enemyDied)을 고르는 것이 요점이다 — 스로틀 맵의 키가 큐
+    // 종류이지 이벤트 종류가 아님을 보이려면 서로 다른 경로에서 온 큐가 섞여야 한다.
+    // (v1.10 전에는 이 자리에 knightBlast→'knight'가 있었다. 폭발 능력이 사라지며 그 큐도
+    // 함께 없어졌으므로, 같은 불변식을 남은 비-attack 큐로 다시 쓴 것이다.)
     const resolver = new CueResolver();
     expect(resolver.resolve([attackEvent('bishop')], 0, false, WAVE)).toEqual(['bishop']);
     expect(resolver.resolve([attackEvent('rook')], 0, false, WAVE)).toEqual(['rook']);
-    expect(resolver.resolve([{ kind: 'knightBlast', square: SQ }], 0, false, WAVE)).toEqual(['knight']);
+    expect(resolver.resolve(
+      [{ kind: 'enemyDied', enemyId: 'e1', square: SQ, isBoss: false, reward: 10 }], 0, false, WAVE,
+    )).toEqual(['enemyDied']);
   });
 });
 
-describe('CueResolver — knightBlast 매핑', () => {
-  it('knightBlast 이벤트는 knight 큐로 매핑된다', () => {
+// v1.10에서 나이트의 폭발이 감속 오라로 교체됐다. 예전 'knightBlast 매핑' 스위트(knightBlast
+// → 'knight' 큐)가 지키던 것은 "나이트 능력이 발동하면 소리가 난다"였는데, 그 능력에는 이제
+// 발동 순간이 없다 — 아래 두 스위트가 그 자리를 물려받는다: 감속 이벤트는 무음이라는 계약과,
+// 'knight' 큐가 표에서 실제로 사라졌다는 확인.
+describe('CueResolver — enemySlowed는 무음이다 (v1.10 감속 오라)', () => {
+  it('감속 진입 이벤트는 몇 개가 오든 아무 큐도 내지 않는다', () => {
+    // 감속은 순간 사건이 아니라 지속 상태다. 적은 오라를 드나들 때마다 false→true 전이를 다시
+    // 일으키고, 웨이브 하나에 적이 수십 마리이므로 전이도 웨이브당 수십 번 쌓인다 — 전이마다
+    // 울리면 스로틀로 깎아도 초당 몇 회짜리 잡음으로 남는다. 그래서 게인을 낮추는 대신 큐
+    // 자체를 주지 않기로 했다(감속 사실은 화면의 점선 고리와 "−30%" 라벨이 이미 전한다).
     const resolver = new CueResolver();
-    expect(resolver.resolve([{ kind: 'knightBlast', square: SQ }], 0, false, WAVE)).toEqual(['knight']);
+    const events: GameEvent[] = Array.from({ length: 20 }, (_, i) => (
+      { kind: 'enemySlowed', enemyId: `e${i}`, file: i % 8, y: 40 * i }
+    ));
+    expect(resolver.resolve(events, 0, false, WAVE)).toEqual([]);
+    // 프레임을 한참 건너뛰어도 마찬가지 — 스로틀에 걸려 조용한 게 아니라 매핑 자체가 없다.
+    // (스로틀이었다면 윈도우가 지난 이 호출에서 다시 울렸을 것이다.)
+    expect(resolver.resolve(events, 10_000, false, WAVE)).toEqual([]);
+  });
+
+  it('같은 프레임에 섞인 다른 큐를 가리지 않는다', () => {
+    // 무음 이벤트가 present 집합에 null로 끼어들어 뒤따르는 큐까지 삼키는 실수를 막는다.
+    const resolver = new CueResolver();
+    const cues = resolver.resolve(
+      [{ kind: 'enemySlowed', enemyId: 'e1', file: 0, y: 0 }, attackEvent('pawn')], 0, false, WAVE,
+    );
+    expect(cues).toEqual(['pawn']);
+  });
+});
+
+describe("CueResolver — 'knight' 큐 제거 (v1.10)", () => {
+  it('AUDIO_TUNING.cues에 knight 항목이 남아 있지 않다', () => {
+    // 큐가 물고 있던 폭발음(blast-knight.ogg)은 능력과 함께 삭제됐다. uiPickup 때와 같은
+    // 이유로 런타임 표까지 확인한다 — 리터럴에 여분의 키가 남아도 컴파일은 통과하고, 그러면
+    // player.ts가 존재하지 않는 에셋을 계속 프리로드하려 든다.
+    expect(Object.keys(AUDIO_TUNING.cues)).not.toContain('knight');
   });
 });
 
@@ -143,15 +181,32 @@ describe('CueResolver — prepareStarted (스펙 7.9 2단계 보스 경고, §10
   });
 });
 
-describe('CueResolver — attack이 아닌 경로의 예외', () => {
-  it("pieceType이 'queen'이나 'knight'인 attack 이벤트는(실제로는 combat.ts가 만들지 않지만) 아무 큐도 내지 않는다", () => {
-    // combat.ts:49에서 knight/queen은 'attack' 이벤트 자체를 push하지 않는다(퀸은 damage===0,
-    // 나이트는 별도 knightBlast 경로) — 이 테스트는 그 사실에 기대지 않고, ATTACK_CUE_BY_PIECE에
-    // 나중에 누군가 잘못된 매핑을 추가해도 이 계약이 여전히 지켜지는지 독립적으로 확인한다.
-    const resolver = new CueResolver();
-    expect(resolver.resolve([attackEvent('queen')], 0, false, WAVE)).toEqual([]);
-    expect(resolver.resolve([attackEvent('knight')], 0, false, WAVE)).toEqual([]);
-  });
+describe('CueResolver — attack 큐 전수 매핑 (ATTACK_CUE_BY_PIECE)', () => {
+  // 표를 Partial이 아니라 전수 Record로 둔 이유("소리 없음"이 누락이 아니라 결정이 되도록)를
+  // 테스트도 전수로 지킨다 — 기물이 추가되면 이 표가 먼저 빨개져서 결정을 강요한다.
+  const EXPECTED: Record<PieceType, CueKind[]> = {
+    pawn: ['pawn'],
+    bishop: ['bishop'],
+    rook: ['rook'],
+    // 융합물은 재료의 주기 공격 소리를 그대로 물려받는다(새 에셋 없음).
+    archbishop: ['bishop'],
+    chancellor: ['rook'],
+    // 셋 다 pattern이 'none'이라 combat.ts의 발사 루프가 통째로 건너뛴다 — 즉 이 입력은 실전에
+    // 도달하지 않는다. 그래도 표에 잘못된 매핑이 끼어드는 쪽을 여기서 독립적으로 잡는다.
+    // ⚠️ v1.10에서 knight/amazon이 무음인 **근거가 바뀌었다**: 예전에는 "주기 공격 대신 폭발음을
+    // 따로 냈다"였지만, 이제는 낼 소리가 애초에 없다 — 감속은 지속 상태라 울릴 순간이 없다.
+    knight: [],
+    queen: [],
+    amazon: [],
+  };
+
+  for (const [type, expected] of Object.entries(EXPECTED) as [PieceType, CueKind[]][]) {
+    it(`${type}의 attack 이벤트는 ${expected.length === 0 ? '아무 큐도 내지 않는다' : `${expected[0]} 큐를 낸다`}`, () => {
+      // 큐마다 새 resolver를 쓴다 — 공유하면 스로틀이 끼어들어 매핑이 아니라 시간을 측정하게 된다.
+      const resolver = new CueResolver();
+      expect(resolver.resolve([attackEvent(type)], 0, false, WAVE)).toEqual(expected);
+    });
+  }
 });
 
 describe('CueResolver — 일시정지', () => {

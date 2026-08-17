@@ -110,7 +110,7 @@ function startGame(root: HTMLDivElement): void {
       // phase는 victory/defeat 전환 감지용(cues.ts CueResolver.resolve 참고).
       audio.onFrame(events, now, state.paused, state.phase);
       banners.update(state, realDt);
-      // 일시정지 중에는 이펙트도 멈춘다 — 그렇지 않으면 게임 상태는 얼어있는데 폭발/광선 페이드와
+      // 일시정지 중에는 이펙트도 멈춘다 — 그렇지 않으면 게임 상태는 얼어있는데 광선·코인 페이드와
       // 화면 진동만 벽시계 기준으로 계속 진행돼 버린다 (banners.bossFlash의 Task 17 리뷰 수정과 동일한 사유).
       fx.update(state.paused ? 0 : realDt);
 

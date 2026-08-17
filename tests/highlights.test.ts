@@ -1,14 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { buildHighlights, HIGHLIGHT_COLORS } from '../src/render/highlights';
-import { bishopTargets, knightBlastTargets, knightMoves, pawnTargets, queenLines, rookTargets } from '../src/core/patterns';
+import { bishopTargets, knightMoves, pawnTargets, queenLines, rookTargets, slowSquares } from '../src/core/patterns';
 import { isKnightMove } from '../src/core/pieces';
 import { sameSquare } from '../src/core/grid';
+import { CONFIG } from '../src/config';
 import type { Interaction, Piece, PieceType, Square } from '../src/types';
 import { boardPiece, waveState } from './helpers';
 
 // buildHighlights는 순수 함수 — DOM 없이 (state, interaction)만으로 테스트할 수 있다 (컨트롤러 결정,
 // 브리프 Step 4의 수동 검증을 대체). 기대값은 가능한 한 patterns.ts에서 직접 파생시켜, 미리보기가
-// 실제 공격/버프 계산과 어긋날 수 없게 한다.
+// 실제 공격/버프/감속 계산과 어긋날 수 없게 한다.
+//
+// ⚠️ v1.10에서 knightBlastTargets(3×3)가 사라졌다. 나이트 계열의 능력이 배치·이동 직후 터지는
+// 폭발에서 서 있는 동안 계속 걸리는 감속 오라로 바뀌었기 때문이다(사용자 결정). 미리보기 쪽
+// 기대값의 출처도 그에 맞춰 slowSquares(L자 8칸)로 옮겨졌다.
 
 function slotPiece(id: string, type: PieceType, slotIndex: number): Piece {
   return { id, type, square: null, slotIndex, cooldown: 0, queenBuffCount: 0, tier: 1 };
@@ -119,7 +124,7 @@ describe('buildHighlights — 폰/비숍/룩 (hover 칸 기준 attackTargets)', 
   });
 });
 
-describe('buildHighlights — 나이트 (2계층: 이동 칸 + hover 시 폭발 미리보기)', () => {
+describe('buildHighlights — 나이트 (2계층: 초록 이동 칸 + hover 시 얼음 감속 링)', () => {
   it('보드 위 나이트 선택: 점유된 L자 칸도 이제 이동(맞교환) 대상으로 포함된다 (게임 규칙 변경 — 점유 칸은 더 이상 실격 사유가 아니다)', () => {
     // 이전에는 점유된 L자 칸(e6)이 초록 하이라이트에서 제외됐다(moveOnBoard가 거부했으므로). 이제
     // moveOnBoard는 점유 칸으로의 이동을 맞교환으로 허용하므로, 미리보기도 그 칸을 정상 이동 칸으로
@@ -143,15 +148,42 @@ describe('buildHighlights — 나이트 (2계층: 이동 칸 + hover 시 폭발 
   });
 
   it('7랭크 근처 나이트: 8랭크로 향하는 이동 칸은 애초에 knightMoves에서 제외된다', () => {
+    // hover가 없으면 감속 링은 아예 그려지지 않으므로(착지 예정 칸이 정해지지 않았다) 이 단언이
+    // 성립한다. 반대편 — 감속 링은 8랭크를 덮는다 — 은 바로 아래 ★ 테스트가 고정한다.
     const s = waveState();
     const n = boardPiece('knight', 3, 7);   // d7
     s.pieces.push(n);
     const hl = buildHighlights(s, noInteraction({ selectedPieceId: n.id }));
     const squares = highlightSquares(hl);
-    for (const sq of squares) expect(sq.rank).toBeLessThanOrEqual(7);
+    for (const sq of squares) expect(sq.rank).toBeLessThanOrEqual(CONFIG.board.ranks - 1);
   });
 
-  it('이동 가능 칸 중 하나에 hover하면 그 칸에 착지했을 때의 3×3 폭발 범위가 추가된다', () => {
+  it('★ 초록 이동 칸과 얼음 감속 칸은 서로 다른 집합이다 — 감속만 8랭크(스폰 구역)를 덮는다', () => {
+    // 두 집합은 같은 L자 오프셋 표에서 나오지만 필터가 다르다: knightMoves는 착지 후보라
+    // 8랭크를 빼고, slowSquares는 능력 범위라 8랭크를 포함한다(patterns.ts). 한 색으로 합쳐
+    // 그리면 "여기로 갈 수 있다"와 "여기를 늦춘다"가 화면에서 구분되지 않고, 무엇보다 적이
+    // 쏟아져 내려오는 바로 그 랭크가 미리보기에서 통째로 빠져 능력이 약해 보인다.
+    const s = waveState();
+    const n = boardPiece('knight', 3, 4);   // d4
+    s.pieces.push(n);
+    const dest = { file: 4, rank: 6 };      // e6 — 여기 착지하면 감속 링이 8랭크까지 닿는다
+    expect(knightMoves({ file: 3, rank: 4 })).toContainEqual(dest);
+
+    const hl = buildHighlights(s, noInteraction({ selectedPieceId: n.id, hoverSquare: dest }));
+    const green = hl.highlights.filter(h => h.color === HIGHLIGHT_COLORS.move).map(h => h.square);
+    const ice = hl.highlights.filter(h => h.color === HIGHLIGHT_COLORS.slow).map(h => h.square);
+
+    expect(green).toEqual(knightMoves({ file: 3, rank: 4 }));
+    expect(ice).toEqual(slowSquares(dest));
+    // 감속 링만 스폰 랭크를 덮는다. 이동 칸에는 8랭크가 한 칸도 없다.
+    expect(ice.some(sq => sq.rank === CONFIG.board.ranks)).toBe(true);
+    for (const sq of green) expect(sq.rank).toBeLessThanOrEqual(CONFIG.board.ranks - 1);
+    // 두 집합은 겹치지도 않는다 — 초록은 나이트의 **현재** 칸 기준이고 얼음은 **착지 예정** 칸
+    // 기준이라, 애초에 다른 원점에서 뻗은 링이다.
+    for (const sq of ice) expect(green.some(g => sameSquare(g, sq))).toBe(false);
+  });
+
+  it('이동 가능 칸 중 하나에 hover하면 그 칸에 착지했을 때의 감속 링 8칸이 얼음색으로 추가된다', () => {
     const s = waveState();
     const n = boardPiece('knight', 3, 4);   // d4
     s.pieces.push(n);
@@ -161,16 +193,19 @@ describe('buildHighlights — 나이트 (2계층: 이동 칸 + hover 시 폭발 
     const hl = buildHighlights(s, noInteraction({ selectedPieceId: n.id, hoverSquare: dest }));
     const squares = highlightSquares(hl);
 
-    const blast = knightBlastTargets(dest);
-    expect(blast).toHaveLength(9);
-    for (const b of blast) expect(squares).toContainEqual(b);
-    // 이동 칸 하이라이트(초록, 중복 제거 없음) + 폭발 하이라이트(파랑) + 선택 표식(나이트의 실제 칸) 1개
+    const ring = slowSquares(dest);
+    expect(ring).toHaveLength(8);   // 보드 한가운데라 L자 8칸이 하나도 잘리지 않는다
+    for (const sq of ring) expect(hl.highlights).toContainEqual({ square: sq, color: HIGHLIGHT_COLORS.slow });
+    // 나이트는 이제 공격 수단이 하나도 없다(pattern 'none', damage 0). 감속 링을 주황(사거리)으로
+    // 칠하면 "여기 있으면 맞는다"는 거짓말이 되므로, 주황은 단 한 칸도 나오면 안 된다.
+    expect(hl.highlights.some(h => h.color === HIGHLIGHT_COLORS.range)).toBe(false);
+    // 이동 칸(초록, 중복 제거 없음) + 감속 링(얼음) + 선택 표식(나이트의 실제 칸) 1개
     const moves = knightMoves({ file: 3, rank: 4 });
-    expect(squares).toHaveLength(moves.length + blast.length + 1);
+    expect(squares).toHaveLength(moves.length + ring.length + 1);
     expect(last(hl.highlights)).toEqual({ square: { file: 3, rank: 4 }, color: HIGHLIGHT_COLORS.selected });
   });
 
-  it('hover 칸이 이동 가능 칸이 아니면 폭발 미리보기가 추가되지 않는다', () => {
+  it('hover 칸이 이동 가능 칸이 아니면 감속 미리보기가 추가되지 않는다', () => {
     const s = waveState();
     const n = boardPiece('knight', 3, 4);
     s.pieces.push(n);
@@ -182,11 +217,11 @@ describe('buildHighlights — 나이트 (2계층: 이동 칸 + hover 시 폭발 
     expect(squares).toHaveLength(knightMoves({ file: 3, rank: 4 }).length + 1);   // + 선택 표식
   });
 
-  it('점유된 L자 칸을 hover하면 이제 폭발 미리보기가 뜬다 (게임 규칙 변경 — 점유 칸도 맞교환 대상)', () => {
+  it('점유된 L자 칸을 hover하면 이제 감속 미리보기가 뜬다 (게임 규칙 변경 — 점유 칸도 맞교환 대상)', () => {
     // 이 테스트는 원래 "점유돼 도달 불가능한 L자 칸을 hover해도 폭발 미리보기가 뜨지 않는다"였다
     // (리뷰 Finding 1 회귀 방지). 점유 칸이 moveOnBoard에서 실격 사유였던 시절에는 옳은 단언이었지만,
-    // 이제 점유 칸은 맞교환 대상으로 허용되므로 이 hover에서 폭발 미리보기가 뜨는 쪽이 실제 규칙과
-    // 맞다 — 뜨지 않으면 오히려 미리보기가 실제로 가능한 이동/폭발을 숨기는 셈이 된다.
+    // 이제 점유 칸은 맞교환 대상으로 허용되므로 이 hover에서 미리보기가 뜨는 쪽이 실제 규칙과
+    // 맞다 — 뜨지 않으면 오히려 미리보기가 실제로 가능한 이동/감속을 숨기는 셈이 된다.
     const s = waveState();
     const n = boardPiece('knight', 3, 4);        // d4
     const occupiedDest = { file: 4, rank: 6 };   // e6 — d4에서 갈 수 있는 L자 칸
@@ -197,21 +232,25 @@ describe('buildHighlights — 나이트 (2계층: 이동 칸 + hover 시 폭발 
     const hl = buildHighlights(s, noInteraction({ selectedPieceId: n.id, hoverSquare: occupiedDest }));
     const squares = highlightSquares(hl);
 
-    const blast = knightBlastTargets(occupiedDest);
-    for (const b of blast) expect(squares).toContainEqual(b);   // 3×3 폭발 미리보기가 그려진다
+    const ring = slowSquares(occupiedDest);
+    for (const sq of ring) expect(squares).toContainEqual(sq);   // 감속 링 미리보기가 그려진다
     const allMoves = knightMoves({ file: 3, rank: 4 });
-    expect(squares).toHaveLength(allMoves.length + blast.length + 1);   // 이동 칸(점유 칸 포함) + 폭발 칸 + 선택 표식
+    expect(squares).toHaveLength(allMoves.length + ring.length + 1);   // 이동 칸(점유 칸 포함) + 감속 칸 + 선택 표식
   });
 
-  it('8랭크로 향하는 L자 칸을 hover해도 폭발 미리보기가 뜨지 않는다 (여전히 착지 불가 — 점유 칸에서 8랭크로 예시만 교체)', () => {
+  it('8랭크로 향하는 L자 칸을 hover해도 감속 미리보기가 뜨지 않는다 (착지 자체가 불가능하므로)', () => {
     // moveOnBoard가 여전히 거부하는 대상(8랭크, 스폰 구역)을 hover했을 때 미리보기가 그걸 약속하지
-    // 않는지 확인한다. 단, 이 테스트는 "hover 판정이 필터링 이전 knightMoves()를 참조하는 회귀"는
-    // 잡지 못한다 — knightMoves()(patterns.ts) 자체가 이미 8랭크를 무조건 걸러내므로(스펙 5.3),
-    // (5,8)은 필터 전/후 목록 어느 쪽에도 애초에 없다. 즉 이 케이스에서는 필터링 전후 결과가 같아
-    // 회귀와 정상 동작을 구분하지 못한다(리뷰로 뮤테이션 테스트를 통해 확인됨) — 그 회귀를 실제로
-    // 잡는 유일한 케이스는 바로 아래 "쿨다운 중인 나이트" 테스트다(쿨다운은 knightMoves()가 모르는
-    // 조건이라, 필터 전/후 목록이 거기서는 실제로 달라진다). 이 테스트는 단지 "8랭크는 여전히
-    // 착지 불가"라는 사실 자체를 고정해 둘 뿐이다.
+    // 않는지 확인한다. 여기서 걸러지는 것은 **착지**이지 감속이 아니다 — 나이트가 실제로 저기
+    // 설 수 없으니 "저기 서면 이렇게 늦춘다"는 그림도 그리면 안 된다는 뜻이고, 8랭크가 감속
+    // 범위에서 빠진다는 뜻이 아니다(위 ★ 테스트가 그 반대편을 고정한다).
+    //
+    // 단, 이 테스트는 "hover 판정이 필터링 이전 knightMoves()를 참조하는 회귀"는 잡지 못한다 —
+    // knightMoves() 자체가 이미 8랭크를 무조건 걸러내므로(스펙 5.3) (5,8)은 필터 전/후 목록 어느
+    // 쪽에도 애초에 없다. ⚠️ v1.10 이전에는 그 회귀를 잡는 케이스가 하나 있었다(쿨다운 중인
+    // 나이트 — knightMoves()가 모르는 조건이라 필터 전/후가 실제로 달라졌다). 이동 쿨다운 게이트가
+    // 삭제되면서 그 커버리지는 사라졌고, 지금은 보드 위 나이트에 대해 canLandAt이 L자 칸을 거부할
+    // 사유가 하나도 남지 않았다 — 즉 legalMoves 필터는 현재 항상 항등이다. 되살릴 방법이 생기면
+    // (새 착지 제약이 추가되면) 그 조건으로 이 커버리지를 복원할 것.
     const s = waveState();
     const n = boardPiece('knight', 3, 7);        // d7
     s.pieces.push(n);
@@ -223,53 +262,117 @@ describe('buildHighlights — 나이트 (2계층: 이동 칸 + hover 시 폭발 
     const squares = highlightSquares(hl);
 
     expect(squares).not.toContainEqual(rank8Dest);
-    expect(squares).toHaveLength(knightMoves({ file: 3, rank: 7 }).length + 1);   // 폭발 9칸은 안 섞이고, 선택 표식만 +1
+    expect(hl.highlights.some(h => h.color === HIGHLIGHT_COLORS.slow)).toBe(false);
+    expect(squares).toHaveLength(knightMoves({ file: 3, rank: 7 }).length + 1);   // 감속 8칸은 안 섞이고, 선택 표식만 +1
   });
 
-  it('쿨다운 중인 나이트를 클릭 선택하면 이동 하이라이트도 폭발 미리보기도 뜨지 않지만 선택 표식은 남는다 (검토 Item 1 — "필터링 전 knightMoves() 참조" 회귀를 실제로 잡는 유일한 케이스)', () => {
-    // drag.ts는 쿨다운 중인 보드 위 나이트의 드래그 "시작"은 거부하지만, onUp이 클릭-투-무브로
-    // 새어나가면 selectedPieceId가 채워질 수 있었다. buildHighlights가 canPlaceAt만 보고 쿨다운을
-    // 보지 않던 시절에는, 그 상태에서 moveOnBoard가 거부할 이동 전체가 그대로 초록으로 칠해지고
-    // hover한 칸에는 일어나지 않을 폭발까지 미리 그렸다. canLandAt으로 통합한 뒤에는 쿨다운 중인
-    // 나이트의 모든 후보 칸이 canLandAt에서 걸러져 legalMoves가 통째로 비어야 한다.
+  it('쿨다운이 남아 있어도 이동 칸과 감속 미리보기가 그대로 그려진다 (v1.10 — 이동 쿨다운 게이트 삭제)', () => {
+    // 이 테스트는 원래 정반대를 단언했다: 쿨다운 중인 나이트는 legalMoves가 통째로 비어
+    // 하이라이트에 선택 표식 하나만 남는다는 것. 그 게이트의 근거는 "미리보기가 약속한 폭발을
+    // 실제로도 터뜨린다"였는데, 폭발이 사라지면서 막을 대상 자체가 없어져 RejectReason의
+    // 'knightCooldown'과 함께 삭제됐다(core/pieces.ts). 감속은 서 있기만 하면 걸리는 상태라
+    // "언제 움직였는가"와 아무 관계가 없다.
     //
-    // 게임 규칙 변경(점유 칸 맞교환 허용) 이후, "hover 판정이 필터링 전 knightMoves()를 그대로
-    // 참조하는" 회귀를 실제로 검출할 수 있는 유일한 남은 케이스가 바로 이 쿨다운 케이스다 — 아래
-    // dest는 knightMoves()에는 들어 있지만(L자·보드 내) canLandAt은 쿨다운 때문에 거부하는 칸이다.
-    // knightMoves() 자체는 쿨다운을 전혀 모르므로(패턴 계산은 기물 상태와 무관), 필터링 전/후 목록이
-    // 여기서는 실제로 달라진다 — legalMoves.some(...) 대신 knightMoves(...).some(...)으로 되돌리면
-    // (회귀) 쿨다운 중에도 이 dest가 "이동 가능"으로 오인돼 hl.highlights가 비지 않게 된다. 8랭크
-    // 예시(바로 위 테스트)는 knightMoves() 자체가 8랭크를 걸러내므로 이 구분을 못 한다 — 리뷰의
-    // 뮤테이션 테스트로 확인됐다.
+    // 지우지 않고 뒤집어 남겨 두는 이유: 쿨다운 게이트가 되살아나면 나이트가 조용히 다시 못
+    // 움직이게 되는데(사용자가 불쾌하다고 지적해 걷어낸 바로 그 감각), 그 회귀를 잡는 테스트가
+    // 이것 하나뿐이다.
     const s = waveState();
     const n = boardPiece('knight', 3, 4);   // d4
     n.cooldown = 1.5;
     s.pieces.push(n);
-    const dest = { file: 5, rank: 5 };      // 쿨다운만 아니면 정상적인 L자 이동 칸
+    const dest = { file: 5, rank: 5 };      // 예전이라면 쿨다운 때문에 거부됐을 L자 이동 칸
     expect(knightMoves({ file: 3, rank: 4 })).toContainEqual(dest);
 
     const hl = buildHighlights(s, noInteraction({ selectedPieceId: n.id, hoverSquare: dest }));
+    const green = hl.highlights.filter(h => h.color === HIGHLIGHT_COLORS.move).map(h => h.square);
+    const ice = hl.highlights.filter(h => h.color === HIGHLIGHT_COLORS.slow).map(h => h.square);
 
-    // 초록 이동 칸도, 파란 폭발 미리보기도 전혀 없다 — 하지만 "무엇이 선택됐는지"는 여전히
-    // 보여야 하므로, 나이트의 실제 칸에 선택 표식 하나만 남는다.
-    expect(hl.highlights).toEqual([{ square: { file: 3, rank: 4 }, color: HIGHLIGHT_COLORS.selected }]);
+    expect(green).toEqual(knightMoves({ file: 3, rank: 4 }));   // 한 칸도 깎이지 않는다
+    expect(ice).toEqual(slowSquares(dest));
+    expect(last(hl.highlights)).toEqual({ square: { file: 3, rank: 4 }, color: HIGHLIGHT_COLORS.selected });
     expect(hl.lines).toEqual([]);
   });
 
-  it('나이트가 슬롯에서 드래그 중이면(보드 위가 아님) L자 이동 미리보기 대신 hover 칸의 폭발 범위(attackTargets)를 보여준다', () => {
+  it('나이트가 슬롯에서 드래그 중이면(보드 위가 아님) L자 이동 미리보기 대신 hover 칸의 감속 링을 보여준다', () => {
     const s = waveState();
     const n = slotPiece('nk', 'knight', 0);
     s.pieces.push(n);
     const anchor = { file: 4, rank: 4 };
     const hl = buildHighlights(s, noInteraction({ dragging: { pieceId: n.id, from: 'slot' }, hoverSquare: anchor }));
 
-    const blast = knightBlastTargets(anchor);   // 3×3 블록은 항상 자기 칸(anchor)을 포함한다
-    const squares = highlightSquares(hl);
-    // attackTargets(knight, anchor)가 이미 anchor를 포함하므로 origin이 별도로 중복 push되지
-    // 않는다 (리뷰 Finding 2) — 총 개수는 attackTargets(=blast)와 정확히 같다.
-    expect(squares).toHaveLength(blast.length);
-    for (const b of blast) expect(squares).toContainEqual(b);
-    expect(squares).toContainEqual(anchor);
+    const ring = slowSquares(anchor);
+    // ★ 3×3 폭발과 달리 감속 링은 **자기 칸을 포함하지 않는다.** 그래서 origin 표식이 따로
+    // 찍히는 것이 맞다(리뷰 Finding 2의 "중복 금지"와 충돌하지 않는다) — 안 찍으면 링만 뜨고
+    // 정작 기물이 어디에 서는지가 화면에서 사라진다. 폭발 시절과 달라진 의도된 동작이다.
+    expect(ring.some(sq => sameSquare(sq, anchor))).toBe(false);
+    expect(hl.highlights).toContainEqual({ square: anchor, color: HIGHLIGHT_COLORS.origin });
+    for (const sq of ring) expect(hl.highlights).toContainEqual({ square: sq, color: HIGHLIGHT_COLORS.slow });
+    // 링 8칸 + origin 1칸. 트레이 기물이라 선택 표식은 찍히지 않는다(보드 칸이 없다).
+    expect(hl.highlights).toHaveLength(ring.length + 1);
+  });
+});
+
+describe('buildHighlights — 감속 칸은 사거리와 갈라진 축이다 (previewRange가 두 배열을 돌려준다)', () => {
+  // previewRange는 예전에 사거리 ∪ 폭발의 **합집합 하나**를 돌려줬다. 그때는 둘 다 "여기 있으면
+  // 맞는다"라 한 색이 맞았지만, 감속은 피해를 전혀 주지 않으므로 같은 주황으로 칠하면 거짓말이
+  // 된다. 색이 갈라지려면 배열부터 갈라져 있어야 하고, 아래 테스트들이 그 분리를 고정한다 —
+  // 합집합으로 되돌리는 회귀는 "얼음 칸이 0개"로 즉시 드러난다.
+
+  it.each<[string, PieceType, (sq: Square) => Square[]]>([
+    ['아치비숍', 'archbishop', bishopTargets],
+    ['챈슬러', 'chancellor', rookTargets],
+  ])('보드 위 %s를 선택하면 재료의 사거리는 주황으로, L자 8칸은 얼음으로 따로 칠해진다', (_label, type, pattern) => {
+    const s = waveState();
+    const anchor = { file: 3, rank: 4 };   // d4
+    const p = boardPiece(type, anchor.file, anchor.rank);
+    s.pieces.push(p);
+    const hl = buildHighlights(s, noInteraction({ selectedPieceId: p.id }));
+
+    const orange = hl.highlights.filter(h => h.color === HIGHLIGHT_COLORS.range).map(h => h.square);
+    const ice = hl.highlights.filter(h => h.color === HIGHLIGHT_COLORS.slow).map(h => h.square);
+    expect(orange).toEqual(pattern(anchor));       // 재료의 주기 공격 사거리 그대로
+    expect(ice).toEqual(slowSquares(anchor));      // 나이트에게 물려받은 감속 범위
+    expect(orange.length).toBeGreaterThan(0);      // 한쪽이 비면 합집합 시절로 되돌아간 것이다
+    expect(ice).toHaveLength(8);
+    // 같은 칸이 두 색으로 겹쳐 칠해지는 일은 없다 — L자 오프셋은 대각선에도 직선에도 속하지 않는다.
+    for (const sq of ice) expect(orange.some(o => sameSquare(o, sq))).toBe(false);
+    // 융합물은 moveL을 물려받지 않으므로(보드 어디로든 간다) 초록 이동 칸은 나오지 않는다.
+    expect(hl.highlights.some(h => h.color === HIGHLIGHT_COLORS.move)).toBe(false);
+    expect(last(hl.highlights)).toEqual({ square: anchor, color: HIGHLIGHT_COLORS.selected });
+  });
+
+  it('아마존을 선택하면 파란 퀸 라인과 얼음 감속 칸이 한 화면에 동시에 나오고, 두 색이 서로 다르다', () => {
+    // 아마존은 buffFactor > 0이면서 감속도 하는 유일한 기물이다 — 한 번의 선택으로 두 파랑
+    // 계열이 같은 보드에 그려진다. 색이 같으면 "버프 칸"과 "감속 칸"이 화면에서 한 덩어리로
+    // 합쳐져, 어느 쪽이 아군을 강화하고 어느 쪽이 적을 늦추는지 읽을 수 없게 된다.
+    expect(HIGHLIGHT_COLORS.slow).not.toBe(HIGHLIGHT_COLORS.queenLine);
+
+    const s = waveState();
+    const anchor = { file: 3, rank: 4 };
+    const a = boardPiece('amazon', anchor.file, anchor.rank);
+    s.pieces.push(a);
+    const hl = buildHighlights(s, noInteraction({ selectedPieceId: a.id }));
+
+    const blue = hl.highlights.filter(h => h.color === HIGHLIGHT_COLORS.queenLine).map(h => h.square);
+    const ice = hl.highlights.filter(h => h.color === HIGHLIGHT_COLORS.slow).map(h => h.square);
+    expect(blue).toEqual(queenLines(anchor));
+    expect(ice).toEqual(slowSquares(anchor));
+    expect(hl.lines).toHaveLength(8);   // 8방향 버프 라인은 감속이 생겨도 그대로다
+    // 아마존은 퀸(0) + 나이트(0)이라 공격력이 0이다 — 주황 사거리는 한 칸도 없어야 한다.
+    expect(hl.highlights.some(h => h.color === HIGHLIGHT_COLORS.range)).toBe(false);
+    // 퀸 라인이 이미 anchor를 덮으므로 origin은 따로 찍히지 않는다 (감속 링은 anchor를 비워 둔다).
+    expect(hl.highlights.some(h => h.color === HIGHLIGHT_COLORS.origin)).toBe(false);
+    expect(highlightSquares(hl)).toHaveLength(blue.length + ice.length + 1);   // + 선택 표식
+  });
+
+  it('감속 능력이 없는 기물(룩)에는 얼음 칸이 한 칸도 없다 — slowTargets의 게이트', () => {
+    // slowSquares를 무조건 부르는 회귀(게이트 누락)를 잡는다. 룩에 L자 링이 뜨면 플레이어는
+    // 있지도 않은 능력을 믿고 배치를 정하게 된다.
+    const s = waveState();
+    const r = boardPiece('rook', 3, 4);
+    s.pieces.push(r);
+    const hl = buildHighlights(s, noInteraction({ selectedPieceId: r.id }));
+    expect(hl.highlights.some(h => h.color === HIGHLIGHT_COLORS.slow)).toBe(false);
   });
 });
 

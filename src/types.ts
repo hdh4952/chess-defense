@@ -44,6 +44,15 @@ export interface Enemy {
   /** 남은 흡수 피해량. **횟수가 아니라 피해량**이다 — 횟수로 세면 합성이 피격 수를 절반으로
    *  줄이므로 "T1 둘 = T2 하나"라는 골드 중립성이 깨진다(실측 −23%). */
   shieldPool: number;
+  /**
+   * 지금 감속 오라 안에 있는가 (v1.10). 매 틱 재계산되는 **파생 상태**이고, traits와 달리
+   * 정체성이 아니다 — 적이 칸을 벗어나면 즉시 false로 돌아온다.
+   *
+   * ★ **boolean인 것이 중첩 금지 규칙 그 자체다.** 배수(0.7 / 0.49 …)를 담으면 언젠가
+   * 누군가 곱하기 시작한다. 표현 가능한 값이 둘뿐이면 나이트가 몇 기든 결과가 같다는 것이
+   * 타입 수준에서 보장되고, 배수는 CONFIG.slowAura 한 곳에만 산다.
+   */
+  slowed: boolean;
 }
 
 export type Phase = 'prepare' | 'wave' | 'victory' | 'defeat';
@@ -74,7 +83,17 @@ export type GameEvent =
   // 공격이 골드를 낳았을 때만(= CONFIG.pieces[type].goldPerAttack > 0) attack 바로 뒤에 따라온다.
   // square는 골드를 번 기물의 칸 — 렌더가 그 자리에 "+10G"를 띄운다.
   | { kind: 'goldGained'; square: Square; amount: number }
-  | { kind: 'knightBlast'; square: Square }
+  /**
+   * 적이 감속 오라에 **막 들어왔다** — false → true 전이에서만 발행한다 (v1.10).
+   *
+   * 매 틱 "느린 상태"를 알리지 않고 전이만 알리는 것이 규칙의 반영이다: 이미 감속된 적이
+   * 다른 나이트의 범위로 넘어갈 때는 **아무 일도 일어나지 않으므로**(중첩 없음) 이 이벤트도
+   * 나지 않는다. 즉 이 이벤트가 뜨는 횟수가 곧 실제로 일어난 감속의 횟수다.
+   *
+   * y가 칸이 아니라 픽셀인 이유: 적은 칸 사이를 연속으로 움직이므로 칸 중심에 라벨을 띄우면
+   * 실제 위치와 최대 40px 어긋난다.
+   */
+  | { kind: 'enemySlowed'; enemyId: string; file: number; y: number }
   // 합성 성사 — square는 생존한 기물(합쳐진 결과)이 서 있는 칸, tier는 합성 *후* 단계다.
   | { kind: 'merged'; square: Square; pieceType: PieceType; tier: number }
   | { kind: 'enemyDied'; enemyId: string; square: Square; isBoss: boolean; reward: number }

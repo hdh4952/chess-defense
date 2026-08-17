@@ -54,7 +54,8 @@ export function resolveDamage(e: Enemy, raw: number): number {
  * 대상 칸들의 모든 적에게 피해. 처치 시 골드 = maxHp (스펙 4.1/5.1/6)
  *
  * ⚠️ `damage` 인자의 의미가 **'감산 전 원피해'**다. 적마다 장갑·보호막이 다르므로 실제 피해는
- * 적별로 갈라진다. 이 함수를 나이트 폭발(pieces.ts)도 공유한다.
+ * 적별로 갈라진다. v1.10 이전에는 나이트 폭발(pieces.ts)도 이 함수를 공유했으나 그 능력이
+ * 사라져, 지금 호출부는 아래 updateCombat 하나뿐이다.
  */
 export function applyAttack(
   state: GameState, targets: Square[], damage: number, events: GameEvent[],
@@ -84,10 +85,10 @@ const COOLDOWN_EPS = 1e-9;
  * 쿨다운 진행 + 폰/비숍/룩 주기 발사.
  * - 쿨다운은 슬롯에 있어도 계속 흐른다 (기물 ID 종속, 스펙 5.1/10.5)
  * - 사거리 내 적이 없으면 쿨 0에서 대기, 적 진입 즉시 발사 (계획서 검토 노트 5)
- * - 나이트는 이동 쿨다운만 감소 (폭발은 pieces.ts), 퀸은 공격 없음
+ * - 나이트·퀸·아마존은 공격이 없다(pattern 'none' + damage 0) — 쿨다운만 흐르고 발사하지 않는다
  * - goldPerAttack이 있는 기물(현재 비숍)은 발사할 때마다 정액 골드를 번다. 지급 지점이
- *   applyAttack이 아니라 여기인 이유: applyAttack은 나이트 폭발(pieces.ts)과 공유되는 "피해
- *   적용" 함수이고, 골드는 피해나 처치가 아니라 *발사 1회*에 묶인 보상이기 때문이다. 그래서
+ *   applyAttack이 아니라 여기인 이유: applyAttack은 "피해 적용"만 담당하는 함수이고, 골드는
+ *   피해나 처치가 아니라 *발사 1회*에 묶인 보상이기 때문이다. 그래서
  *   적을 한 마리도 못 죽여도, 대각선에 몇 마리가 걸려 있어도 액수는 같다.
  */
 export function updateCombat(state: GameState, dt: number, events: GameEvent[]): void {

@@ -34,6 +34,18 @@ export function sameSquare(a: Square, b: Square): boolean {
   return a.file === b.file && a.rank === b.rank;
 }
 
+/**
+ * 칸의 집합 키. Set/Map에 칸을 넣을 때 쓴다 — Square는 객체라 값이 같아도 참조가 달라
+ * `Set<Square>`는 중복을 걸러내지 못한다.
+ *
+ * 감속 오라(core/slow.ts)에서 이것이 **중첩 금지의 구조적 보증**이다: 나이트 셋이 같은 칸을
+ * 덮어도 키가 하나라 원소가 하나뿐이고, 그래서 규칙(감속 판정)도 그림(칸 칠하기)도 중첩을
+ * 만들 방법이 없다. 여러 곳에서 같은 문자열 조립을 반복하지 않도록 여기 한 번만 둔다.
+ */
+export function squareKey(sq: Square): string {
+  return `${sq.file},${sq.rank}`;
+}
+
 export function fileLabel(file: number): string {
   return 'abcdefgh'[file];
 }

@@ -1,16 +1,19 @@
-import { CONFIG, TRAITS } from '../config';
+import { CONFIG, TRAITS, slowPercent } from '../config';
 import { fileCenterX, rankToTopY } from '../core/grid';
+import { SLOW_INK } from './palette';
 import { tierRingColor } from './tiers';
 import type { GameEvent, Square } from '../types';
 
 const SQ = CONFIG.board.squarePx;
 const center = (sq: Square) => ({ x: fileCenterX(sq.file), y: rankToTopY(sq.rank) + SQ / 2 });
 
+/** 감속 진입 라벨. 숫자는 CONFIG에서 유도한다 — multiplier를 바꾸면 이 문구도 따라온다. */
+const SLOW_LABEL = `−${slowPercent()}%`;
+
 interface Fx {
-  kind: 'shock' | 'crack' | 'beam' | 'explosion' | 'ember' | 'puff' | 'coin' | 'mergeBurst';
+  kind: 'shock' | 'crack' | 'beam' | 'puff' | 'coin' | 'mergeBurst' | 'frostTag';
   x: number; y: number;
   x2?: number; y2?: number;      // 라인형(crack/beam)의 끝점
-  vx?: number; vy?: number;      // 파티클 속도
   amount?: number;               // coin 전용 — 표시할 골드 액수
   color?: string;                // mergeBurst 전용 — 결과 티어 색
   t: number; ttl: number;
@@ -19,6 +22,12 @@ interface Fx {
 /**
  * 속성별 공격 이펙트 + 화면 진동 (스펙 8.2). 렌더 전용 — GameState를 읽거나 쓰지 않고
  * GameEvent 스트림만 소비한다. 데미지/처치 판정에는 절대 관여하지 않는다.
+ *
+ * ⚠️ **나이트 계열은 이 계층에 지속 연출을 갖지 않는다**(v1.10). 감속은 사건이 아니라 상태라
+ * 이벤트 스트림으로 표현할 수 없고, 오라 범위와 감속당한 적은 renderer.ts가 매 프레임 state를
+ * 직접 읽어 그린다. 여기 남은 것은 진입 순간의 "−30%" 라벨 하나뿐이다 — 그것만이 사건이다.
+ * 예전의 폭발(explosion + ember 14개 + 진동 0.25)은 능력과 함께 통째로 사라졌으므로,
+ * "나이트 이펙트가 왜 없지?"라는 질문의 답은 여기 있다. 되살리지 말 것.
  */
 export class Effects {
   private list: Fx[] = [];
@@ -66,18 +75,20 @@ export class Effects {
       // pattern 'none'은 주기 발사가 없으므로 attack 이벤트가 오지 않는다. 새 패턴을 추가하면
       // 여기 분기도 함께 늘려야 한다 — 안 늘리면 그 기물만 조용히 무연출이 된다.
     }
-    if (ev.kind === 'knightBlast') {
-      const c = center(ev.square);
-      this.list.push({ kind: 'explosion', ...c, t: 0, ttl: 0.35 });
-      for (let i = 0; i < 14; i++) {
-        const ang = (i / 14) * Math.PI * 2;
-        this.list.push({
-          kind: 'ember', ...c,
-          vx: Math.cos(ang) * (60 + (i % 3) * 40), vy: Math.sin(ang) * (60 + (i % 3) * 40),
-          t: 0, ttl: 0.5,
-        });
-      }
-      this.shake = Math.max(this.shake, 0.25);
+    if (ev.kind === 'enemySlowed') {
+      // 감속이 **막 걸린** 순간에만 뜬다(코어가 false→true 전이에서만 발행). 나이트를 놓는
+      // 순간 범위 안 적들에게 동시에 뜨고, 그것이 곧 "이 배치가 방금 무엇을 했는가"다 —
+      // 폭발이 담당하던 배치 피드백을 이쪽이 물려받되 **실제로 일어난 일만** 보여준다.
+      // 아무것도 안 뜨면 그 배치가 지금은 아무 일도 하지 않았다는 정직한 신호다.
+      //
+      // 이미 감속 중인 적이 다른 나이트의 범위로 넘어갈 때는 뜨지 않는다 — 중첩이 없으므로
+      // 정말로 아무 일도 일어나지 않았기 때문이다. 중첩 금지가 시간축에서도 보이는 지점이다.
+      //
+      // 좌표는 칸 중심이 아니라 적의 실제 픽셀 위치다(ev.y). 적은 칸 사이를 연속으로 움직이므로
+      // 칸 중심에 띄우면 최대 40px 어긋난 자리에 라벨이 뜬다.
+      this.list.push({
+        kind: 'frostTag', x: fileCenterX(ev.file), y: Math.max(16, ev.y - 42), t: 0, ttl: 0.7,
+      });
     }
     if (ev.kind === 'goldGained') {
       // 공격 이펙트(0.3초)보다 길게 살려 둔다 — 광선이 사라진 뒤에도 "번 돈"이 잠깐 남아야
@@ -98,10 +109,7 @@ export class Effects {
   }
 
   update(dt: number): void {
-    for (const f of this.list) {
-      f.t += dt;
-      if (f.kind === 'ember') { f.x += f.vx! * dt; f.y += f.vy! * dt; }
-    }
+    for (const f of this.list) f.t += dt;
     this.list = this.list.filter(f => f.t < f.ttl);
     if (dt > 0) {                    // dt===0(일시정지 프레임)에는 감쇠도 재추첨도 건너뛴다
       this.shake = Math.max(0, this.shake - dt);
@@ -150,21 +158,6 @@ export class Effects {
           line(ctx, f);
           break;
         }
-        case 'explosion': {        // 나이트 — 불: 방사형 폭발
-          const r = 10 + (1 - k) * SQ * 1.4;
-          const g = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, r);
-          g.addColorStop(0, 'rgba(255,200,80,0.9)');
-          g.addColorStop(0.6, 'rgba(240,90,30,0.6)');
-          g.addColorStop(1, 'rgba(240,90,30,0)');
-          ctx.fillStyle = g;
-          ctx.beginPath(); ctx.arc(f.x, f.y, r, 0, Math.PI * 2); ctx.fill();
-          break;
-        }
-        case 'ember': {            // 잔불 파티클
-          ctx.fillStyle = '#ff8c3a';
-          ctx.fillRect(f.x - 2, f.y - 2, 4, 4);
-          break;
-        }
         case 'puff': {             // 처치 연출
           ctx.fillStyle = '#999';
           ctx.beginPath(); ctx.arc(f.x, f.y, (1 - k) * 14, 0, Math.PI * 2); ctx.fill();
@@ -176,6 +169,20 @@ export class Effects {
           ctx.lineWidth = 3 + k * 4;
           ctx.strokeStyle = f.color!;
           ctx.stroke();
+          break;
+        }
+        case 'frostTag': {         // 감속 진입 — 적 머리 위 "−30%"
+          // coin과 같은 이유로 마지막 구간에서만 사라지게 한다 — 선형이면 읽기 전에 흐려진다.
+          ctx.globalAlpha = Math.min(1, k / 0.35);
+          ctx.font = 'bold 13px system-ui';
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          // 문자열이 '−'(U+2212)로 시작한다. '×'로 시작하는 fillText는 퀸 버프 배지라는
+          // 규칙이 renderer.test.ts에 못박혀 있어, 배수(×0.7)가 아니라 감산량으로 적는다 —
+          // 어차피 플레이어에게는 "얼마나 느려지는가"가 곧 감산량이다.
+          ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(8,22,36,0.85)';
+          ctx.strokeText(SLOW_LABEL, f.x, f.y);
+          ctx.fillStyle = SLOW_INK;
+          ctx.fillText(SLOW_LABEL, f.x, f.y);
           break;
         }
         case 'coin': {             // 골드 획득 — 위로 떠오르며 사라지는 "+10G"

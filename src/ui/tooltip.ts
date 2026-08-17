@@ -1,4 +1,4 @@
-import { CONFIG, TRAITS, tierMultiplier } from '../config';
+import { CONFIG, TRAITS, slowPercent, tierMultiplier } from '../config';
 import { pieceDamage, pieceGold } from '../core/combat';
 import { sellPrice } from '../core/economy';
 import { pieceAt } from '../core/pieces';
@@ -14,12 +14,11 @@ export function updateTooltip(
   const p = sq ? pieceAt(state, sq.file, sq.rank) : undefined;
   if (!p || !mouse) { el.hidden = true; return; }
   const def = CONFIG.pieces[p.type];
-  // 나이트이면서 interval이 0(현재 설정 — 게임 규칙 변경으로 쿨다운 폐지)이면 "남은 쿨다운
-  // 0.0s"를 바로 위 "이동 쿨다운 없음"과 나란히 보여주는 게 중복이다 — 어차피 이 나이트의
-  // cooldown은 항상 0이므로(재무장이 즉시 일어남) 그 줄이 알려주는 정보가 없다. interval을
-  // config에서 되돌리면(0이 아니게 되면) 이 줄도 자동으로 다시 나타난다.
-  const suppressRemainingCooldown = TRAITS[p.type].blast && def.interval === 0;
   const t = TRAITS[p.type];
+  // 주기 공격이 없는 기물(나이트·퀸·아마존)은 쿨다운이 영원히 0이라 "남은 쿨다운 0.0s"가
+  // 알려주는 정보가 없다. 예전에는 이 판정이 blast를 봤지만 이제 근거가 더 단순하다 —
+  // 쿨다운을 소비하는 것은 주기 공격뿐이므로 pattern 하나로 결정된다.
+  const suppressRemainingCooldown = t.pattern === 'none';
   // ★ 배타 삼항을 **가산**으로 바꿨다. 예전에는 "퀸이면 버퍼 3행, 아니면 데미지 4행"이었는데,
   // 버프와 공격을 겸하는 기물(아마존)이 생기면서 그 구조로는 한쪽이 통째로 사라진다.
   // 각 행을 "이 기물이 그 성질을 갖는가"로 독립 판단한다.
@@ -46,18 +45,15 @@ export function updateTooltip(
     rows.push('여러 버퍼의 라인이 겹치면 그만큼 더 쌓인다');
   }
 
-  // 주기 공격과 이동 폭발은 서로 다른 축이다. 겸업 기물은 **둘 다** 갖는다.
+  // 주기 공격과 감속 오라는 서로 다른 축이다. 겸업 기물(아치비숍·챈슬러)은 **둘 다** 갖는다.
   if (t.pattern !== 'none') rows.push(`공격 주기 ${def.interval}s`);
-  if (t.blast) {
-    // 폭발 여부는 **항상** 적는다. 예전에는 이 자리에 쿨다운만 적혀 있었는데, 주기 공격이
-    // 없는 기물(나이트·아마존)은 그러면 "폭발한다"는 사실 자체가 툴팁 어디에도 안 나온다.
-    rows.push('이동·배치할 때 주변 9칸 폭발');
-    // 주기 공격이 없는 기물에게 interval은 곧 이동 쿨다운이다. 겸업 기물은 위의 "공격 주기"
-    // 줄이 같은 값을 이미 쓰고 있으므로(폭발과 공격이 쿨다운을 공유한다) 중복해 적지 않는다.
-    // def.interval이 0이면 "0s"라는 거짓 정보 대신 쿨다운이 없다는 사실을 그대로 알린다.
-    if (t.pattern === 'none') {
-      rows.push(def.interval > 0 ? `이동 쿨다운 ${def.interval}s` : '이동 쿨다운 없음');
-    }
+  if (t.slow) {
+    // 감속 여부는 **항상** 적는다. 주기 공격이 없는 기물(나이트·아마존)은 이 줄이 없으면
+    // 툴팁 어디에도 "이 기물이 무엇을 하는가"가 나오지 않는다 — 공격력 줄도 없기 때문이다.
+    rows.push(`L자 8칸의 적 이동속도 −${slowPercent()}% (지속 · 8랭크 포함)`);
+    // ★ 이 줄이 없으면 플레이어는 나이트를 겹쳐 놓거나 합성해서 더 느리게 만들려고 한다.
+    // 둘 다 효과가 없고, 합성은 오히려 덮는 칸이 줄어 손해다. 규칙을 말해 주는 편이 낫다.
+    rows.push('중첩·강화로 더 느려지지 않는다');
   }
   // 골드를 벌지 않는 기물에는 줄 자체를 만들지 않는다 — "공격당 +0G"는 알려주는 정보가 없다.
   if (def.goldPerAttack > 0) rows.push(`공격당 +${pieceGold(p)}G (버프 미적용)`);

@@ -8,7 +8,7 @@ import type { GameEvent, PieceType, Phase } from '../types';
  * 실제 재생(AudioContext/디코딩/보이스 관리)은 src/audio/player.ts가 맡는다.
  *
  * v1.3에서 전체 효과음 세트로 확장했다 (스펙 §10.1). 세 가지 트리거 경로가 이 파일 하나에 모인다:
- *   1) GameEvent → cueForEvent (attack/knightBlast + enemyDied/enemyLeaked/bossSpawned/waveCleared/
+ *   1) GameEvent → cueForEvent (attack + enemyDied/enemyLeaked/bossSpawned/waveCleared/
  *      prepareStarted) — resolve()가 소비.
  *   2) state.phase 전환(victory/defeat) — GameEvent가 아니라 상태값이므로 resolve()가 phase를
  *      별도 인자로 받아 이전 프레임과 비교한다. cues.ts가 이미 스로틀 상태(lastPlayedAt)를 들고
@@ -19,8 +19,14 @@ import type { GameEvent, PieceType, Phase } from '../types';
  *      참고.)
  */
 
-/** attack 이벤트 중 소리를 내는 기물 3종 + knightBlast. 퀸은 공격하지 않으므로(damage=0) 대상이 아니다. */
-export type AttackCueKind = 'pawn' | 'bishop' | 'rook' | 'knight';
+/**
+ * attack 이벤트 중 소리를 내는 기물 3종. 나머지는 damage가 0이라 발사 자체를 하지 않는다.
+ *
+ * ⚠️ v1.10에서 'knight'가 빠졌다. 그 큐는 폭발음(blast-knight.ogg)이었는데 폭발 능력이
+ * 사라졌다 — 감속은 지속 상태라 울릴 순간이 없다. 큐 종류를 남겨 두면 AUDIO_TUNING·CUE_URL·
+ * 테스트가 전부 "언젠가 울릴 소리"를 계속 부양하게 되므로 함께 걷어냈다.
+ */
+export type AttackCueKind = 'pawn' | 'bishop' | 'rook';
 
 /** core GameEvent(전투 외)·phase 전환에서 나오는 큐. */
 export type CoreCueKind =
@@ -78,7 +84,7 @@ export interface CueTuning {
  *   (resolve()의 프레임 내 코일레싱이 "한 프레임에 여러 마리" 쪽은 이미 처리하므로, 이 스로틀은
  *   "연속된 여러 프레임에 걸쳐 죽는" 쪽을 억제한다.)
  * - 그 외(bossDied/enemyLeaked/bossSpawn/waveClear/victory/defeat/uiBuy/uiSell/uiPlace/uiInvalid)는
- *   충분히 드물어 bishop/rook/knight와 같은 기본값(200ms)에서 시작한다 — victory/defeat는 애초에
+ *   충분히 드물어 bishop/rook과 같은 기본값(200ms)에서 시작한다 — victory/defeat는 애초에
  *   게임당 정확히 1회만 나오므로 스로틀 값 자체가 사실상 의미 없다.
  *
  * v1.4: uiPickup(집기/선택 시작)을 완전히 제거했다(사용자 요청 — 무음이 맞는 느낌이었다). 그
@@ -96,7 +102,6 @@ export const AUDIO_TUNING: {
     pawn: { throttleMs: 120, gain: 0.35 },
     bishop: { throttleMs: 200, gain: 0.55 },
     rook: { throttleMs: 200, gain: 0.6 },
-    knight: { throttleMs: 200, gain: 0.8 },
 
     enemyDied: { throttleMs: 100, gain: 0.35 },
     bossDied: { throttleMs: 200, gain: 0.7 },
@@ -123,8 +128,10 @@ export const AUDIO_TUNING: {
  * 됐다 — 침묵으로 실패하는 종류의 구멍이라 테스트도 잡지 못한다. null을 명시하게 하면
  * "소리가 없다"가 누락이 아니라 결정이 된다.
  *
- * knight/queen이 null인 이유: 둘 다 'attack' 이벤트를 내지 않는다(나이트는 knightBlast로,
- * 퀸은 damage 0이라 발사 루프에서 제외). 도달하지 않는 값이지만 명시해 둔다.
+ * knight/queen/amazon이 null인 이유: 셋 다 'attack' 이벤트를 내지 않는다 — damage가 0이고
+ * pattern이 'none'이라 발사 루프에서 제외된다. 도달하지 않는 값이지만 명시해 둔다.
+ * ★ v1.10부터 나이트에게는 **어떤 소리도 없다**. 폭발음이 능력과 함께 사라졌고, 감속은
+ * 지속 상태라 울릴 순간이 없다(아래 enemySlowed 참조).
  */
 const ATTACK_CUE_BY_PIECE: Record<PieceType, CueKind | null> = {
   pawn: 'pawn',
@@ -133,7 +140,7 @@ const ATTACK_CUE_BY_PIECE: Record<PieceType, CueKind | null> = {
   knight: null,
   queen: null,
   // 융합물은 재료의 주기 공격 소리를 그대로 쓴다 — 새 에셋이 필요 없고, "이 기물은 무엇에서
-  // 왔는가"가 소리로도 드러난다. 아마존은 주기 공격이 없어 null이다(폭발은 knightBlast로 난다).
+  // 왔는가"가 소리로도 드러난다. 아마존은 주기 공격이 없어 null이다.
   archbishop: 'bishop',
   chancellor: 'rook',
   amazon: null,
@@ -156,9 +163,13 @@ function cueForEvent(ev: GameEvent): CueKind | null {
     // 골드 획득은 무음 — 언제나 같은 프레임의 attack 이벤트와 짝을 이루므로 이미 그 기물의
     // 공격 소리가 난다. 전용 큐를 주면 비숍이 발사할 때마다 소리가 두 겹으로 겹칠 뿐이다.
     case 'goldGained': return null;
-    case 'knightBlast': return 'knight';
+    // ★ 감속 진입은 **무음이다.** 소리를 붙일 수 있는 유일한 순간이지만 붙이지 않는다:
+    // 웨이브 하나에 적이 최대 46마리이고 각자 오라를 여러 번 드나들므로, 전이마다 울리면
+    // 초당 수 회짜리 잡음이 된다. 배치의 청각 피드백은 uiPlace가 이미 담당하고, 감속이
+    // 실제로 걸렸다는 사실은 화면(적에게 붙는 점선 고리 + "−30%")이 말한다.
+    case 'enemySlowed': return null;
     // 합성은 무음 — 전용 효과음 에셋이 없고, 합성 성사는 화면(티어 링 교체 + 합성 이펙트)이
-    // 이미 분명히 알린다. 나이트 합성만은 직후 knightBlast가 따라와 폭발음이 난다.
+    // 이미 분명히 알린다.
     case 'merged': return null;
     // 지급은 구매와 같은 종류의 사건이라 같은 소리를 쓴다. 실패(트레이 만석)는 거부음이다.
     case 'granted': return 'uiBuy';

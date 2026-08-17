@@ -3,7 +3,6 @@ import { AUDIO_TUNING, type CueKind } from './cues';
 import firePawnUrl from '../assets/sounds/fire-pawn.ogg';
 import fireBishopUrl from '../assets/sounds/fire-bishop.ogg';
 import fireRookUrl from '../assets/sounds/fire-rook.ogg';
-import blastKnightUrl from '../assets/sounds/blast-knight.ogg';
 import enemyDieUrl from '../assets/sounds/enemy-die.ogg';
 import bossDieUrl from '../assets/sounds/boss-die.ogg';
 import enemyLeakUrl from '../assets/sounds/enemy-leak.ogg';
@@ -38,7 +37,6 @@ const CUE_URL: Record<CueKind, string> = {
   pawn: firePawnUrl,
   bishop: fireBishopUrl,
   rook: fireRookUrl,
-  knight: blastKnightUrl,
 
   enemyDied: enemyDieUrl,
   bossDied: bossDieUrl,
