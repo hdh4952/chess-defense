@@ -1,6 +1,7 @@
 import { CONFIG } from '../config';
 import { BOARD_H, BOARD_W, fileCenterX, rankToTopY } from '../core/grid';
 import { NO_SLOW, slowFieldSquares } from '../core/slow';
+import type { EnemyFx } from './enemyFx';
 import { SLOW_HALO, SLOW_INK, SLOW_RGB } from './palette';
 import { ALLY_SPRITE_PX, getAllySprite, getEnemySprite } from './sprites';
 import { tierRingColor } from './tiers';
@@ -87,7 +88,15 @@ const COLOR = {
  *  모서리만 남기면 칸당 선 길이가 320px → 112px로 줄면서 "여기가 경계다"는 인지는 유지된다. */
 const SLOW_ARM = 14;
 
-export function render(ctx: CanvasRenderingContext2D, state: GameState, view: ViewState = EMPTY_VIEW): void {
+/**
+ * ★ `enemyFx`는 **선택 인자**다. 없으면 피격 플래시와 체력바 보간이 꺼지고 실제 값이 그대로
+ * 그려진다 — 렌더러가 그 상태를 소유하지 않는다는 계층 규칙(render/는 GameState를 읽기만
+ * 한다)을 유지하면서, 그 상태를 못 가진 호출부(테스트)도 그대로 동작하게 한다.
+ */
+export function render(
+  ctx: CanvasRenderingContext2D, state: GameState, view: ViewState = EMPTY_VIEW,
+  enemyFx?: EnemyFx,
+): void {
   ctx.save();
   // save()/restore()를 try/finally로 감싼다 (회귀 3). main.ts의 Item 3 수정 전에는 여기서 던지면
   // rAF 루프 자체가 멈췄으니 restore 누락이 관측될 일이 없었지만, 이제는 루프가 살아남아 다음
@@ -119,7 +128,7 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState, view: Vi
     // 기물 위, 적 아래 — 미리보기는 대상 기물을 덮어야 읽히지만 적을 가리면 안 된다.
     if (view.mergePreview) drawMergePreview(ctx, view.mergePreview);
     const sorted = [...state.enemies].sort((a, b) => a.y - b.y);
-    for (const e of sorted) drawEnemy(ctx, e);
+    for (const e of sorted) drawEnemy(ctx, e, enemyFx);
     drawBossVignette(ctx, state);
   } finally {
     ctx.restore();
@@ -322,7 +331,7 @@ function drawPiece(ctx: CanvasRenderingContext2D, p: Piece): void {
   }
 }
 
-function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy): void {
+function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy, enemyFx?: EnemyFx): void {
   const x = fileCenterX(e.file) + e.jitterX;     // 지터는 렌더 전용 (스펙 7.8)
   const size = CONFIG.enemy.spritePx;
   // 고리는 스프라이트 **아래**에 그린다 — 적의 실루엣을 가리면 무엇이 오는지 못 읽는다.
@@ -333,6 +342,18 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy): void {
   } else {
     drawGlyph(ctx, e.isBoss ? '♚' : '♟', x, e.y, size, COLOR.enemyFill, COLOR.enemyStroke);
   }
+  // ★ 피격 플래시 (v1.15). 스프라이트를 **덮어** 흰색으로 번쩍인다 — 적 스프라이트는 순검정
+  // 실루엣이라 흰색이 가장 크게 읽힌다. 'source-atop'이라 스프라이트가 있는 픽셀만 칠해져
+  // 사각형이 드러나지 않는다(글리프 폴백에서도 같다).
+  const flash = enemyFx?.flashAmount(e.id) ?? 0;
+  if (flash > 0) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-atop';
+    ctx.globalAlpha = Math.min(1, flash);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x - size / 2, e.y - size / 2, size, size);
+    ctx.restore();
+  }
   const w = 40, h = 4;                           // 체력바 상시 표시 (스펙 4.1/7.8) — 스프라이트 유무와 무관
   const top = e.y - size / 2 - 8;
   ctx.fillStyle = COLOR.hpBack;
@@ -341,7 +362,8 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy): void {
   //   나타나지 않아, 플레이어가 "다 깎았는데 안 죽는다"를 겪으면서 이유를 볼 수 없다.
   //   hp는 음수로 내려갈 수 있으므로(적립) 분자를 0으로 하한 짓는다.
   const total = e.maxHp + e.auraBonus;
-  const alive = Math.max(0, e.hp + e.auraBonus);
+  // ★ 보간된 표시값을 쓴다 (v1.15). enemyFx가 없으면 실제 값이 그대로 온다.
+  const alive = enemyFx ? enemyFx.displayHp(e) : Math.max(0, e.hp + e.auraBonus);
   ctx.fillStyle = COLOR.hpFill;
   ctx.fillRect(x - w / 2, top, w * Math.min(1, alive / total), h);
   if (e.auraBonus > 0) {

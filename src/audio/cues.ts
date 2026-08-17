@@ -176,6 +176,9 @@ function cueForEvent(ev: GameEvent): CueKind | null {
     // playUi('uiBuy')를 부르므로(shop.ts) 여기서 또 울리면 두 겹이 된다.
     case 'pieceSpawned': return ev.bought ? null : 'uiBuy';
     case 'grantDiscarded': return 'uiInvalid';
+    // 피격은 무음이다. 한 프레임에 수십 번 발행될 수 있으므로 소리를 붙이면 그대로 잡음이고,
+    // 발사음(attack)이 이미 같은 프레임에 울린다 — 피격은 그 발사의 결과이지 별개 사건이 아니다.
+    case 'enemyHit': return null;
     case 'enemyDied': return ev.isBoss ? 'bossDied' : 'enemyDied';
     // 분열은 무음이다. 같은 프레임에 enemyDied가 이미 울리므로 전용 큐를 주면 처치음과
     // 두 겹으로 겹치고, 분열은 "죽었다"의 결과이지 별개의 사건이 아니다. 갈라졌다는 사실은

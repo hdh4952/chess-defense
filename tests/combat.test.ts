@@ -57,7 +57,11 @@ describe('applyAttack', () => {
     expect(s.gold).toBe(300 + 20);
     expect(s.stats.totalKills).toBe(2);
     expect(s.stats.totalGoldEarned).toBe(20);
-    expect(ev).toHaveLength(2);
+    // ★ v1.15부터 피격마다 enemyHit이 함께 나온다 — 적 2마리이므로 hit 2 + died 2 = 4다.
+    // 종류별로 세는 것이 총수를 세는 것보다 낫다: 새 이벤트가 하나 늘 때마다 무관한 테스트가
+    // 깨지는 대신, "처치 이벤트가 적 수만큼 정확히 난다"는 원래 요지만 지킨다.
+    expect(ev.filter(x => x.kind === 'enemyDied')).toHaveLength(2);
+    expect(ev.filter(x => x.kind === 'enemyHit')).toHaveLength(2);
     expect(ev).toContainEqual({
       kind: 'enemyDied', enemyId: 'v1', square: { file: 2, rank: 5 }, isBoss: false, reward: 10,
     });

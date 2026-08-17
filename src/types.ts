@@ -134,6 +134,18 @@ export type GameEvent =
   | { kind: 'enemySlowed'; enemyId: string; file: number; y: number; tier: number }
   // 합성 성사 — square는 생존한 기물(합쳐진 결과)이 서 있는 칸, tier는 합성 *후* 단계다.
   | { kind: 'merged'; square: Square; pieceType: PieceType; tier: number }
+  /**
+   * 적이 피해 판정을 한 번 받았다 (v1.15). **피해가 0이어도 발행된다** — 그것이 이 이벤트의
+   * 절반이다: 장갑형 문턱에 막혔는지(`blocked`) 화면이 말해 주지 않으면 플레이어는 폰이
+   * 왜 아무것도 못 하는지 알 수 없다.
+   *
+   * 좌표가 칸이 아니라 픽셀(file + y)인 이유는 enemySlowed와 같다 — 적은 칸 사이를 연속으로
+   * 움직이므로 칸 중심에 숫자를 띄우면 실제 위치와 최대 40px 어긋난다.
+   *
+   * ⚠️ 발행량이 이 이벤트만 다르다. 한 프레임에 기물 수 × 사거리 안 적 수만큼 나올 수 있으므로
+   * 소비하는 쪽이 반드시 병합·상한을 걸어야 한다(render/effects.ts가 적별로 합친다).
+   */
+  | { kind: 'enemyHit'; enemyId: string; file: number; y: number; damage: number; blocked: boolean }
   | { kind: 'enemyDied'; enemyId: string; square: Square; isBoss: boolean; reward: number }
   /**
    * 분열형이 죽어 분열체가 태어났다 (v1.14). 같은 프레임의 enemyDied **바로 뒤**에 온다.

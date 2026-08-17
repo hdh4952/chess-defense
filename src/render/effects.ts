@@ -1,6 +1,7 @@
 import { CONFIG, TRAITS, slowPercent } from '../config';
 import { fileCenterX, rankToTopY } from '../core/grid';
 import { SLOW_INK } from './palette';
+import { prefersReducedMotion } from './enemyFx';
 import { tierRingColor } from './tiers';
 import type { GameEvent, Square } from '../types';
 
@@ -16,11 +17,12 @@ const slowLabel = (tier: number): string => `−${slowPercent(tier)}%`;
 
 interface Fx {
   kind: 'shock' | 'crack' | 'beam' | 'puff' | 'coin' | 'mergeBurst' | 'frostTag' | 'spawnMark'
-    | 'splitArrow';
+    | 'splitArrow' | 'dmgNum' | 'blockMark';
   x: number; y: number;
   x2?: number; y2?: number;      // 라인형(crack/beam)의 끝점
   amount?: number;               // coin 전용 — 표시할 골드 액수
   label?: string;                // frostTag 전용 — 티어에서 유도한 "−35%" 같은 문구
+  enemyId?: string;              // dmgNum 전용 — 같은 적의 연속 피격을 합치는 키
   color?: string;                // mergeBurst 전용 — 결과 티어 색
   t: number; ttl: number;
 }
@@ -109,6 +111,31 @@ export class Effects {
       const c = center(ev.square);
       this.list.push({ kind: 'spawnMark', ...c, t: 0, ttl: 1.2 });
     }
+    if (ev.kind === 'enemyHit') {
+      // ★ **적별로 합친다.** 이 이벤트는 한 프레임에 기물 수 × 사거리 안 적 수만큼 나올 수
+      //   있어서(이 게임의 이벤트 중 유일하게 그렇다) 하나씩 팝업을 띄우면 화면이 숫자로
+      //   덮인다. 같은 적의 팝업이 아직 살아 있으면 값을 더하고 수명을 되돌린다 — 룩 여러
+      //   기가 한 적을 때리는 흔한 상황에서 "총 얼마나 들어갔는가"가 한 숫자로 읽힌다.
+      const y = Math.max(14, ev.y - 26);
+      if (ev.blocked) {
+        // 막힌 피격은 숫자가 아니라 표식이다. "0"을 띄우면 데미지 0인 공격과 구분되지 않고,
+        // 장갑형 문턱에 막혔다는 사실이 이 게임에서 가장 배우기 어려운 규칙이다.
+        this.list.push({ kind: 'blockMark', x: fileCenterX(ev.file), y, t: 0, ttl: 0.5 });
+        return;
+      }
+      if (ev.damage <= 0) return;
+      const merged = this.list.find(f => f.kind === 'dmgNum' && f.enemyId === ev.enemyId);
+      if (merged) {
+        merged.amount = (merged.amount ?? 0) + ev.damage;
+        merged.t = 0;
+        merged.y = y;
+        return;
+      }
+      this.list.push({
+        kind: 'dmgNum', x: fileCenterX(ev.file), y, amount: ev.damage, enemyId: ev.enemyId,
+        t: 0, ttl: 0.6,
+      });
+    }
     if (ev.kind === 'goldGained') {
       // 공격 이펙트(0.3초)보다 길게 살려 둔다 — 광선이 사라진 뒤에도 "번 돈"이 잠깐 남아야
       // 플레이어가 비숍이 무슨 일을 했는지 눈으로 따라갈 수 있다.
@@ -157,6 +184,8 @@ export class Effects {
   }
 
   draw(ctx: CanvasRenderingContext2D): void {
+    // 모션 축소 요청 시 **움직임만** 끈다 — 숫자·표식 같은 정보는 그대로 보여준다.
+    const reduced = prefersReducedMotion();
     for (const f of this.list) {
       const k = 1 - f.t / f.ttl;   // 1 → 0
       ctx.save();
@@ -234,6 +263,33 @@ export class Effects {
             ctx.lineTo(f.x + dir * spread, f.y + 7);
             ctx.stroke();
           }
+          break;
+        }
+        case 'dmgNum': {           // 피해 숫자 — 위로 떠오르며 페이드
+          // coin과 같은 이유로 마지막 구간에서만 사라진다. 색은 체력바 채움(#e04b3a)과 같은
+          // 계열이라 "체력이 이만큼 깎였다"가 두 곳에서 같은 색으로 읽힌다.
+          ctx.globalAlpha = Math.min(1, k / 0.35);
+          const dy = reduced ? 0 : (1 - k) * 22;
+          ctx.font = 'bold 15px system-ui';
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.lineWidth = 3.5; ctx.strokeStyle = 'rgba(20,6,6,0.85)';
+          const text = String(Math.round(f.amount ?? 0));
+          ctx.strokeText(text, f.x, f.y - dy);
+          ctx.fillStyle = '#ff8f7a';
+          ctx.fillText(text, f.x, f.y - dy);
+          break;
+        }
+        case 'blockMark': {        // 막힌 피격 — 숫자 대신 사선이 그어진 고리
+          // 형태로 말한다: 고리(피격은 있었다) + 사선(들어가지 않았다). 색은 장갑형 표식과
+          // 같은 회청(#9AA7B4)이라 "무엇이 막았는가"가 적 유형 표식과 이어진다.
+          ctx.globalAlpha = Math.min(1, k / 0.4);
+          ctx.strokeStyle = '#9AA7B4'; ctx.lineWidth = 2.5;
+          const r = 7;
+          ctx.beginPath(); ctx.arc(f.x, f.y, r, 0, Math.PI * 2); ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(f.x - r * 0.7, f.y + r * 0.7);
+          ctx.lineTo(f.x + r * 0.7, f.y - r * 0.7);
+          ctx.stroke();
           break;
         }
         case 'coin': {             // 골드 획득 — 위로 떠오르며 사라지는 "+10G"

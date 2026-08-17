@@ -75,7 +75,15 @@ export function applyAttack(
   const killed: typeof state.enemies = [];
   for (const e of state.enemies) {
     if (!targets.some(t => sameSquare(t, enemySquare(e)))) continue;
-    e.hp -= resolveDamage(e, damage, from);
+    const dealt = resolveDamage(e, damage, from);
+    e.hp -= dealt;
+    // 피해가 0이어도 알린다 — 막혔다는 사실이 화면에 드러나야 플레이어가 유형을 배운다.
+    // `damage > 0 && dealt === 0`이 곧 "유형이 막았다"이고, 원피해가 0인 기물(퀸 등)은
+    // 애초에 이 루프에 오지 않으므로 blocked가 거짓 양성이 되지 않는다.
+    events.push({
+      kind: 'enemyHit', enemyId: e.id, file: e.file, y: e.y,
+      damage: dealt, blocked: dealt === 0 && damage > 0,
+    });
     // ★ 사망 판정에 오라 보너스가 들어간다. hp는 음수로 내려갈 수 있고, 그 적립분은
     //   오라가 죽는 순간 core/aura.ts의 스윕이 성립시킨다.
     if (e.hp + e.auraBonus <= 0) killed.push(e);

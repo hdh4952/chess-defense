@@ -6,6 +6,7 @@ import { createTicker } from './core/ticker';
 import { startWave } from './core/wave';
 import { createAudioController } from './audio';
 import { Effects } from './render/effects';
+import { EnemyFx } from './render/enemyFx';
 import { buildHighlights } from './render/highlights';
 import { createFrameView, render } from './render/renderer';
 import { Banners } from './ui/banners';
@@ -64,7 +65,8 @@ function startGame(root: HTMLDivElement): void {
   layout.startBtn.addEventListener('click', () => { if (!state.paused) startWave(state); });
   const drag = new DragController(state, layout, events, audio);
   const banners = new Banners(layout);
-  const fx = new Effects();   // 속성별 공격 이펙트 + 화면 진동, 렌더 전용 (스펙 8.2, Task 19)
+  const fx = new Effects();        // 속성별 공격 이펙트 + 화면 진동, 렌더 전용 (스펙 8.2, Task 19)
+  const enemyFx = new EnemyFx();   // 적별 표시 상태(피격 플래시·체력바 보간), 렌더 전용 (v1.15)
   wireMuteButton(layout, audio);
   // 자동재생 정책: 사용자 제스처 전에는 AudioContext가 절대 소리를 내지 않는다 — 아무 에러 없이
   // 그냥 조용하다. 이 게임은 드래그 기반이라 pointerdown이 자연스러운 첫 제스처이므로 여기서
@@ -103,7 +105,7 @@ function startGame(root: HTMLDivElement): void {
       last = now;
       tick(realDt, dt => stepGame(state, dt * state.speedMultiplier, events));
 
-      for (const ev of events) { banners.onEvent(ev); fx.onEvent(ev); }
+      for (const ev of events) { banners.onEvent(ev); fx.onEvent(ev); enemyFx.onEvent(ev); }
       // paused는 명시적으로 넘긴다 — stepGame이 일시정지 중 일찍 반환해 attack 이벤트 자체가
       // 생기지 않으므로 사실상 이미 조용하지만, cues.ts가 그 사실에만 기대지 않도록 방어한다.
       // phase는 victory/defeat 전환 감지용(cues.ts CueResolver.resolve 참고).
@@ -112,6 +114,9 @@ function startGame(root: HTMLDivElement): void {
       // 일시정지 중에는 이펙트도 멈춘다 — 그렇지 않으면 게임 상태는 얼어있는데 광선·코인 페이드와
       // 화면 진동만 벽시계 기준으로 계속 진행돼 버린다 (banners.bossFlash의 Task 17 리뷰 수정과 동일한 사유).
       fx.update(state.paused ? 0 : realDt);
+      // 적별 표시 상태(피격 플래시·체력바 보간)도 같은 규칙을 탄다 — 일시정지 중에는 멈춘다.
+      // state를 함께 넘기는 이유는 죽은 적의 항목을 매 프레임 정리해야 하기 때문이다.
+      enemyFx.update(state.paused ? 0 : realDt, state);
 
       const view = createFrameView();   // EMPTY_VIEW와 참조를 공유하지 않는 신규 인스턴스 (스펙 무관 — Task 17 리뷰 수정)
       const hl = buildHighlights(state, drag.interaction);   // 사거리/이동/퀸 라인 미리보기 (스펙 7.7, Task 18)
@@ -124,7 +129,7 @@ function startGame(root: HTMLDivElement): void {
         }
       }
       view.shake = fx.shakeOffset();   // 룩/나이트 공격의 화면 진동을 렌더러에 전달 (스펙 8.2)
-      render(ctx, state, view);
+      render(ctx, state, view, enemyFx);
       // render()가 이미 view.shake만큼 translate했다가 자신의 save()/restore() 안에서 복구했으므로,
       // 그 바깥에서 fx.draw()를 그대로 부르면 보드는 흔들리는데 이펙트만 고정된 것처럼 보인다.
       // 동일한 오프셋으로 다시 translate한 뒤 이펙트를 그려 보드와 함께 흔들리게 하고,
