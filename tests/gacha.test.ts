@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CONFIG, pickGachaType, pickGrantType } from '../src/config';
+import { CONFIG, drawCost, pickGachaType, pickGrantType } from '../src/config';
 import { canDraw, drawPiece, emptySquares } from '../src/core/economy';
 import { squareKey } from '../src/core/grid';
 import { createInitialState } from '../src/core/state';
@@ -67,7 +67,7 @@ describe('시작 배치 — 폰 3개', () => {
     // 밸런스 값이지만 "시작하자마자 아무것도 못 한다"와 "몇 번이나 돌린다"를 가르는 경계라
     // 기록해 둔다. 조정하면 이 줄이 먼저 깨져 의도한 변경임을 확인하게 된다.
     const s = createInitialState();
-    expect(Math.floor(s.gold / CONFIG.gacha.cost)).toBe(1);
+    expect(Math.floor(s.gold / drawCost(0))).toBe(1);
     expect(canDraw(s)).toBe(true);
   });
 });
@@ -124,6 +124,82 @@ describe('뽑기 확률 — 사용자가 정한 표', () => {
     let grantQueens = 0;
     for (let i = 0; i < 10000; i++) if (pickGrantType((i + 0.5) / 10000) === 'queen') grantQueens++;
     expect(grantQueens).toBe(0);
+  });
+});
+
+describe('누진 뽑기 비용 (v1.18) — 자원 압박', () => {
+  it('★ 첫 뽑기는 정액 그대로다 — 초반 게이트를 건드리지 않는 것이 이 설계의 전부다', () => {
+    // 수입을 줄이는 대신 가격을 올리기로 한 이유가 여기 있다. 실측상 잉여는 후반에 몰려
+    // 있고(총 24,902G의 70%가 w11~20), 초반은 클리어 보너스 곡선으로 **일부러 열어 둔**
+    // 구간이다. 처치 보상 배수를 낮추면 그 초반이 먼저 죽어 N3(w5 게이트)가 깨진다.
+    expect(drawCost(0)).toBe(CONFIG.gacha.cost);
+    const s = createInitialState();
+    expect(s.gold).toBeGreaterThanOrEqual(drawCost(0));
+    expect(canDraw(s)).toBe(true);
+  });
+
+  it('★ 가격은 뽑은 **횟수**에만 의존한다 — 시간에 의존하면 안 뽑고 기다리는 게 최적이 된다', () => {
+    // 웨이브·경과 시간 기준으로 두면 "멈춰 있는 것"이 전략이 된다. 횟수 기준이면 총 뽑기 수가
+    // 총 골드로 상한 지어지고, 언제 뽑든 그 상한은 같다 — 순서만 플레이어가 고른다.
+    for (let n = 0; n <= 40; n++) {
+      expect(drawCost(n)).toBe(CONFIG.gacha.cost + CONFIG.gacha.costStep * n);
+    }
+    // 같은 draws면 웨이브가 달라도 같은 값이다.
+    const a = cleanState(); a.draws = 7; a.wave = 2;
+    const b = cleanState(); b.draws = 7; b.wave = 19;
+    expect(drawCost(a.draws)).toBe(drawCost(b.draws));
+  });
+
+  it('★ 깎은 뒤에 올린다 — 순서가 뒤집히면 첫 뽑기가 시작 골드로 불가능해진다', () => {
+    // 첫 뽑기 값이 320G가 되면 시작 골드 300G로 아무것도 못 한다. 초반을 건드리지 않는 것이
+    // 누진을 고른 이유이므로 그 순서를 직접 못박는다.
+    const s = cleanState();
+    s.gold = drawCost(0);
+    expect(drawPiece(s, [], gachaRng('pawn'))).not.toBeNull();
+    expect(s.gold).toBe(0);
+    expect(s.draws).toBe(1);
+  });
+
+  it('draws는 웨이브가 넘어가도 리셋되지 않는다 — 리셋하면 총량 상한이 사라진다', () => {
+    // "웨이브마다 싼 뽑기를 몇 번씩"이 되면 누진이 아무 압박도 못 한다. 리셋 지점이 없다는
+    // 것을 상태 필드의 성질로 고정한다(createInitialState에서만 0이다).
+    const s = cleanState();
+    s.gold = 100000;
+    for (let i = 0; i < 5; i++) drawPiece(s, [], gachaRng('pawn'));
+    expect(s.draws).toBe(5);
+    s.wave = 10;                       // 웨이브만 넘겨 본다
+    expect(drawCost(s.draws)).toBe(drawCost(5));
+  });
+
+  it('★ 총 뽑기 횟수가 정액 시절의 절반 이하로 준다 — 압박의 실제 크기', () => {
+    // 이 값이 v1.18이 만든 압박의 크기다. costStep을 조정할 때 볼 수이고, 0으로 되돌리면
+    // 정액 시절로 정확히 돌아간다.
+    const TOTAL = 24902;               // N1a의 이론 상한
+    const countWith = (step: number): number => {
+      let g = TOTAL, n = 0;
+      for (;;) {
+        const price = CONFIG.gacha.cost + step * n;
+        if (g < price) return n;
+        g -= price; n++;
+      }
+    };
+    expect(countWith(0)).toBe(83);                        // 정액 시절
+    expect(countWith(CONFIG.gacha.costStep)).toBe(37);    // 현재
+    expect(countWith(CONFIG.gacha.costStep)).toBeLessThan(countWith(0) / 2);
+    // 보드가 56칸이므로 정액 83회는 애초에 칸을 넘겼다 — 누진은 그 초과분부터 깎는다.
+    expect(countWith(0)).toBeGreaterThan(CONFIG.board.files * (CONFIG.board.ranks - 1));
+    expect(countWith(CONFIG.gacha.costStep))
+      .toBeLessThan(CONFIG.board.files * (CONFIG.board.ranks - 1));
+  });
+
+  it('canDraw가 누진 가격을 본다 — 정액을 보면 돈이 없는데 버튼이 켜진다', () => {
+    const s = cleanState();
+    s.draws = 10;
+    s.gold = CONFIG.gacha.cost;              // 정액만큼은 있다
+    expect(drawCost(s.draws)).toBeGreaterThan(CONFIG.gacha.cost);
+    expect(canDraw(s)).toBe(false);
+    s.gold = drawCost(s.draws);
+    expect(canDraw(s)).toBe(true);
   });
 });
 
@@ -192,7 +268,7 @@ describe('drawPiece — 뽑기 실행', () => {
     // 기대 비용으로 보면 퀸은 30,000G(= 300 / 0.01)이고 한 판 총 골드가 약 24,900G라
     // **사실상 한 판에 한 번 볼 수 있는 기물**이다. 그 사실이 이 한 줄에서 나온다.
     const s = cleanState();
-    s.gold = CONFIG.gacha.cost;
+    s.gold = drawCost(s.draws);
     const q = drawPiece(s, [], gachaRng('queen'))!;
     expect(q.type).toBe('queen');
     expect(s.gold).toBe(0);

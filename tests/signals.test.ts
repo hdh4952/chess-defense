@@ -111,6 +111,47 @@ describe('N1b — 실측 구매력 ★ (감시: 무작위 지급 · 지급 기�
     expect(r.goldAtWaveStart[4]).toBe(2788);
   });
 
+  it('★ 뽑기 누진이 실측 구매력을 실제로 조인다 (v1.18)', () => {
+    // N1b가 감시하도록 설계된 축이 바로 이것이다 — "플레이어가 손에 쥔 구매력". 누진은
+    // 골드를 줄이지 않고 **그 골드로 살 수 있는 기물 수**를 줄이므로, 골드만 보는 신호로는
+    // 아무 변화가 안 보인다. 여기서 횟수로 잰다.
+    const TOTAL = 24902;                      // N1a의 이론 상한
+    const drawsFor = (step: number): number => {
+      let g = TOTAL, n = 0;
+      for (;;) {
+        const price = CONFIG.gacha.cost + step * n;
+        if (g < price) return n;
+        g -= price; n++;
+      }
+    };
+    const flat = drawsFor(0);
+    const now = drawsFor(CONFIG.gacha.costStep);
+    expect(flat).toBe(83);
+    expect(now).toBe(37);
+
+    // ★ 압박이 **후반에만** 걸린다. 초반 다섯 번의 총액은 거의 그대로여야 한다 —
+    // 초반을 건드리지 않는 것이 누진을 고른 이유이고, N3(w5 게이트)가 그 전제 위에 있다.
+    const firstFive = (step: number): number => {
+      let g = 0;
+      for (let i = 0; i < 5; i++) g += CONFIG.gacha.cost + step * i;
+      return g;
+    };
+    expect(firstFive(0)).toBe(1500);
+    expect(firstFive(CONFIG.gacha.costStep)).toBe(1700);
+    expect(firstFive(CONFIG.gacha.costStep) / firstFive(0)).toBeLessThan(1.2);
+    // 반면 마지막 다섯 번은 배로 뛴다 — 잉여가 있는 곳만 겨눈다는 증거다.
+    const lastFive = (step: number, n: number): number => {
+      let g = 0;
+      for (let i = n - 5; i < n; i++) g += CONFIG.gacha.cost + step * i;
+      return g;
+    };
+    expect(lastFive(CONFIG.gacha.costStep, now) / firstFive(CONFIG.gacha.costStep))
+      .toBeGreaterThan(2.5);
+
+    // costStep을 0으로 두면 정액 시절로 정확히 되돌아간다 — 롤백 경로를 못박는다.
+    expect(drawsFor(0)).toBe(flat);
+  });
+
   it('★ 지급 종류가 구매력을 바꾼다 — 비숍이 압도적이다 (v1.12가 만든 축)', () => {
     // 예전에는 지급 기물이 트레이에 앉아 있어 **종류와 무관하게** 원가만큼만 구매력이었다.
     // 이제 보드에서 곧바로 일하므로 "무엇을 받았는가"가 판 전체 수입을 좌우한다.

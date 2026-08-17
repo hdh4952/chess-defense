@@ -7,7 +7,7 @@ import { ALLY_SPRITE_URL } from '../src/render/sprites';
 import { CREDIT_HTML, createLayout, PIECE_NAME } from '../src/ui/layout';
 import { updateHud } from '../src/ui/hud';
 import { updateShop, wireShop } from '../src/ui/shop';
-import { boardPiece, cleanState } from './helpers';
+import { boardPiece, cleanState, totalDrawCost } from './helpers';
 import type { UiAudio } from '../src/audio';
 import type { UiCueKind } from '../src/audio/cues';
 import type { GameEvent, GameState, PieceType } from '../src/types';
@@ -248,7 +248,8 @@ describe('wireShop (Task 14) — 실제 클릭 배선 검증', () => {
     const state = cleanState();
     const events: GameEvent[] = [];
     const n = 12;
-    state.gold = CONFIG.gacha.cost * n;
+    // ★ v1.18: 가격이 누진이므로 누진 총액을 준다(정액 × n이면 중간에 돈이 마른다).
+    state.gold = totalDrawCost(n);
     wireShop(layout, state, events, makeAudioSpy());
 
     const pawnBtn = layout.drawBtn;

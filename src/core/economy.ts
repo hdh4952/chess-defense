@@ -1,4 +1,4 @@
-import { CONFIG, pickGachaType, tierMultiplier } from '../config';
+import { CONFIG, drawCost, pickGachaType, tierMultiplier } from '../config';
 import type { GameEvent, GameState, Piece, PieceType, Square } from '../types';
 import { recalcQueenBuffs } from './buff';
 import { squareKey } from './grid';
@@ -54,7 +54,7 @@ export function randomEmptySquare(state: GameState, rng: () => number): Square |
 export function canDraw(state: GameState): boolean {
   return !state.paused
     && (state.phase === 'prepare' || state.phase === 'wave')
-    && state.gold >= CONFIG.gacha.cost
+    && state.gold >= drawCost(state.draws)
     // 보드에 빈 칸이 없으면 뽑을 수 없다 (v1.12 사용자 결정을 그대로 물려받는다).
     && emptySquares(state).length > 0;
 }
@@ -79,7 +79,10 @@ export function drawPiece(
   const type = pickGachaType(rng());
   const square = randomEmptySquare(state, rng);
   if (square === null) return null;
-  state.gold -= CONFIG.gacha.cost;
+  state.gold -= drawCost(state.draws);
+  // ★ 가격을 **깎은 뒤에** 올린다. 순서가 뒤집히면 첫 뽑기가 320G가 되어 시작 골드 300G로
+  //   아무것도 못 한다 — 초반 게이트를 건드리지 않는 것이 누진을 고른 이유 전부다.
+  state.draws++;
   const piece: Piece = {
     id: `p-${pieceSeq++}`, type, square, cooldown: 0, queenBuffCount: 0, tier: 1,
   };

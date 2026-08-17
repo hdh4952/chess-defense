@@ -1,4 +1,4 @@
-import { CONFIG, enemyCount, enemyHp, enemyTraits, tierMultiplier } from '../src/config';
+import { CONFIG, drawCost, enemyCount, enemyHp, enemyTraits, tierMultiplier } from '../src/config';
 import { createEnemy } from '../src/core/enemy';
 import { stepGame } from '../src/core/step';
 import { recalcQueenBuffs } from '../src/core/buff';
@@ -161,6 +161,18 @@ export function minWinBuild(): Piece[] {
 
 export function buildCost(pieces: Piece[]): number {
   return pieces.reduce((sum, p) => sum + CONFIG.pieces[p.type].cost * tierMultiplier(p.tier), 0);
+}
+
+/**
+ * 뽑기 n회의 **총 비용** (v1.18). 가격이 횟수에 선형으로 오르므로 등차수열의 합이다.
+ *
+ * 테스트가 `gacha.cost * n`을 주면 누진 때문에 중간에 돈이 마른다 — 그 실패는 "겹치지
+ * 않는다"를 재려던 테스트가 조용히 절반만 도는 형태로 나타나므로 유도 함수로 둔다.
+ */
+export function totalDrawCost(n: number): number {
+  let g = 0;
+  for (let i = 0; i < n; i++) g += drawCost(i);
+  return g;
 }
 
 /**

@@ -7,7 +7,7 @@ import {
 } from '../src/core/economy';
 import { squareKey } from '../src/core/grid';
 import type { GameEvent, GameState, PieceType, Square } from '../src/types';
-import { boardPiece, countingRng, cleanState, gachaRng } from './helpers';
+import { boardPiece, countingRng, cleanState, gachaRng, totalDrawCost } from './helpers';
 
 /**
  * v1.12에서 기물 보관함(트레이)이 사라졌다 — 구매·지급은 **보드의 빈 칸에 무작위 스폰**이고,
@@ -176,7 +176,8 @@ describe('구매 (스펙 6/7.2/7.4)', () => {
 
   it('★ 56기를 연달아 사도 두 기물이 같은 칸에 겹치지 않는다', () => {
     const s = cleanState();
-    s.gold = CONFIG.gacha.cost * LANDABLE;
+    // ★ v1.18: 가격이 누진이므로 정액 × 56이 아니라 누진 총액이 필요하다.
+    s.gold = totalDrawCost(LANDABLE);
     const ev: GameEvent[] = [];
     // 위치 롤을 결정론적으로 흩뜨린다 (Math.random 금지). 첫 칸만 반복해 고르면 "겹치지
     // 않는다"가 우연히 성립한다 — 어차피 앞칸부터 채워지기 때문이다.

@@ -105,6 +105,14 @@ export interface GameState {
   /** 이번 웨이브에서 처치한 적 수. 클리어 보너스의 처치율 연동에 쓴다 — stats.totalKills는
    *  게임 전체 누적이라 웨이브별로는 쓸 수 없고, 웨이브별 누수 카운터도 따로 없다. */
   killedThisWave: number;
+  /**
+   * 이 판에서 뽑기를 돌린 횟수 (v1.18). 뽑기 가격이 이 값에 선형으로 오른다(drawCost).
+   *
+   * ★ 게임 상태다 — 가격을 결정하므로 연출용 파생값이 아니다. 판 안에서 **되돌아가지 않고**
+   * 웨이브가 넘어가도 리셋되지 않는다: 리셋하면 "웨이브마다 싼 뽑기를 몇 번씩" 하게 되어
+   * 총량 상한이 사라진다.
+   */
+  draws: number;
   speedMultiplier: 1 | 2;
   paused: boolean;
   pieces: Piece[];

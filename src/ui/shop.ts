@@ -1,3 +1,4 @@
+import { CONFIG, drawCost } from '../config';
 import { canDraw, drawPiece } from '../core/economy';
 import type { UiAudio } from '../audio';
 import type { GameEvent, GameState } from '../types';
@@ -25,7 +26,18 @@ export function wireShop(
   });
 }
 
-/** 매 프레임: 골드 부족 / 보드 만석 / 일시정지 → 비활성화 (스펙 7.4) */
+/**
+ * 매 프레임: 가격 갱신 + 골드 부족 / 보드 만석 / 일시정지 → 비활성화 (스펙 7.4).
+ *
+ * ★ **가격을 매 프레임 다시 쓴다** (v1.18). 뽑기 값이 뽑은 횟수에 따라 오르므로 버튼에
+ * 고정 문구를 두면 실제로 깎이는 금액과 화면이 어긋난다 — 가챠에서 그 어긋남은 곧
+ * "속았다"로 읽힌다. 증가분도 함께 적어 **왜 비싸지는지**를 화면이 스스로 설명하게 한다.
+ */
 export function updateShop(layout: Layout, state: GameState): void {
+  const price = drawCost(state.draws);
+  const html = `기물 뽑기<br><small>${price}G`
+    + (CONFIG.gacha.costStep > 0 ? ` · 다음 ${price + CONFIG.gacha.costStep}G` : '')
+    + '</small>';
+  if (layout.drawBtn.innerHTML !== html) layout.drawBtn.innerHTML = html;
   layout.drawBtn.disabled = !canDraw(state);
 }

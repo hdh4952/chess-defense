@@ -36,6 +36,7 @@ export function createInitialState(): GameState {
     spawnTimer: 0,
     spawnedCount: 0,
     killedThisWave: 0,
+    draws: 0,
     speedMultiplier: 1,
     paused: false,
     pieces: startingPawns(),
