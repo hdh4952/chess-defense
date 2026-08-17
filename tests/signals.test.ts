@@ -3,11 +3,9 @@ import {
   CONFIG, clearBonus, enemyCount, enemyHp, pickGrantType, tierMultiplier,
 } from '../src/config';
 import { emptySquares, sellPrice } from '../src/core/economy';
-import { createInitialState } from '../src/core/state';
 import {
   boardPiece, bossTransit, buildCost, chaseWave5Boss, countingRng, cycleRng,
-  fullRun, minWinBuild, rooksTwoPerFile, splitKillGoldFor, totalSplitBorn, transitDamage,
-} from './helpers';
+  fullRun, minWinBuild, rooksTwoPerFile, splitKillGoldFor, totalSplitBorn, transitDamage, cleanState } from './helpers';
 import type { EnemyTrait } from '../src/types';
 
 /**
@@ -361,7 +359,7 @@ describe('N5 — 지급 폐기 횟수 ★ (감시: 자리 압박이 실재하는
     // 위 테스트만 있으면 환급·배너·grantDiscarded 이벤트가 "도달 불가"로 보인다. 도달
     // 가능하다는 것을 같은 신호 안에서 보여야, 나중에 그 경로를 지우자는 판단이 나올 때
     // 근거가 함께 읽힌다. 폰 스팸 빌드에서는 실제로 일어나는 상황이다.
-    const s = createInitialState();
+    const s = cleanState();
     const full = emptySquares(s).map(q => boardPiece('pawn', q.file, q.rank));
     expect(full).toHaveLength(CONFIG.board.files * (CONFIG.board.ranks - 1));
 
@@ -375,7 +373,7 @@ describe('N5 — 지급 폐기 횟수 ★ (감시: 자리 압박이 실재하는
   it('추첨 횟수는 폐기 여부와 무관하다 — 조건부로 뽑으면 재현성이 사라진다', () => {
     // grant.test.ts가 같은 것을 draw 수로 재고, 여기서는 **결과 수**로 교차 확인한다:
     // 받았든 폐기됐든 둘의 합은 언제나 추첨 횟수와 같아야 한다.
-    const s = createInitialState();
+    const s = cleanState();
     const full = emptySquares(s).map(q => boardPiece('pawn', q.file, q.rank));
     for (const build of [rooksTwoPerFile(), full]) {
       const r = fullRun(build, cycleRng(), GRANT_PAWN);
@@ -717,7 +715,7 @@ describe('N5 — 지급 폐기 횟수 ★ (감시: 자리 압박이 실재하는
     // 위 테스트만 있으면 환급·배너·grantDiscarded 이벤트가 "도달 불가"로 보인다. 도달
     // 가능하다는 것을 같은 신호 안에서 보여야, 나중에 그 경로를 지우자는 판단이 나올 때
     // 근거가 함께 읽힌다. 폰 스팸 빌드에서는 실제로 일어나는 상황이다.
-    const s = createInitialState();
+    const s = cleanState();
     const full = emptySquares(s).map(q => boardPiece('pawn', q.file, q.rank));
     expect(full).toHaveLength(CONFIG.board.files * (CONFIG.board.ranks - 1));
 
@@ -731,7 +729,7 @@ describe('N5 — 지급 폐기 횟수 ★ (감시: 자리 압박이 실재하는
   it('추첨 횟수는 폐기 여부와 무관하다 — 조건부로 뽑으면 재현성이 사라진다', () => {
     // grant.test.ts가 같은 것을 draw 수로 재고, 여기서는 **결과 수**로 교차 확인한다:
     // 받았든 폐기됐든 둘의 합은 언제나 추첨 횟수와 같아야 한다.
-    const s = createInitialState();
+    const s = cleanState();
     const full = emptySquares(s).map(q => boardPiece('pawn', q.file, q.rank));
     for (const build of [rooksTwoPerFile(), full]) {
       const r = fullRun(build, cycleRng(), GRANT_PAWN);

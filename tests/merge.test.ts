@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CONFIG, slowMultiplier, slowPercent, tierMultiplier } from '../src/config';
 import { pieceDamage, pieceGold, updateCombat } from '../src/core/combat';
 import { recalcQueenBuffs } from '../src/core/buff';
-import { buyPiece, canBuy, emptySquares, sellPiece, sellPrice } from '../src/core/economy';
+import { canDraw, drawPiece, emptySquares, sellPiece, sellPrice } from '../src/core/economy';
 import { moveOnBoard, pieceAt, resolveLanding, canLandAt } from '../src/core/pieces';
 import { NO_SLOW, slowCoverage, slowFactorAt, updateSlowAura } from '../src/core/slow';
 import { buildHighlights, HIGHLIGHT_COLORS } from '../src/render/highlights';
@@ -10,7 +10,7 @@ import { TIER_COLORS, tierRingColor } from '../src/render/tiers';
 import { render, createFrameView } from '../src/render/renderer';
 import type { GameEvent, Interaction, PieceType } from '../src/types';
 import { makeStubCtx } from './canvasStub';
-import { boardPiece, enemyAt, waveState } from './helpers';
+import { boardPiece, enemyAt, waveState, gachaRng } from './helpers';
 
 /**
  * 동일 기물 합성. 이 스위트가 고정하는 규칙은 세 층이다:
@@ -232,20 +232,20 @@ describe('합성 커밋 — 생존자·쿨다운·이벤트', () => {
     for (const sq of emptySquares(s)) s.pieces.push(boardPiece('pawn', sq.file, sq.rank));
     expect(s.pieces).toHaveLength(CONFIG.board.files * (CONFIG.board.ranks - 1));  // 8랭크는 제외
     expect(emptySquares(s)).toHaveLength(0);
-    expect(canBuy(s, 'pawn')).toBe(false);        // 자리가 없으면 구매 자체가 막힌다
+    expect(canDraw(s)).toBe(false);               // 자리가 없으면 뽑기 자체가 막힌다
 
     const mover = pieceAt(s, 0, 1)!;
     const survivor = pieceAt(s, 0, 2)!;
     expect(moveOnBoard(s, mover.id, 0, 2, [], true)).toBe(true);
     expect(survivor.tier).toBe(2);
     expect(emptySquares(s)).toEqual([{ file: 0, rank: 1 }]);   // 흡수된 쪽의 칸이 정확히 돌아온다
-    expect(canBuy(s, 'pawn')).toBe(true);
+    expect(canDraw(s)).toBe(true);
 
     // 그리고 새 기물은 **그 빈 칸**에 떨어진다. 스폰 위치를 플레이어가 고르지 않으므로
     // pieceSpawned의 square가 실제 기물 위치와 같다는 것이 유일한 안내다 — 둘이 갈라지면
     // 화면은 엉뚱한 칸을 가리키고 플레이어는 56칸에서 새 기물을 직접 찾아야 한다.
     const events: GameEvent[] = [];
-    const bought = buyPiece(s, 'pawn', events, () => 0)!;
+    const bought = drawPiece(s, events, gachaRng('pawn'))!;
     expect(bought.square).toEqual({ file: 0, rank: 1 });
     expect(events).toContainEqual({
       kind: 'pieceSpawned', square: bought.square, pieceType: 'pawn', bought: true,

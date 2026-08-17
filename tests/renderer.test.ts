@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { cleanState } from './helpers';
 import { CONFIG } from '../src/config';
 import { BOARD_H, BOARD_W, fileCenterX, rankToTopY } from '../src/core/grid';
-import { createInitialState } from '../src/core/state';
 import { createFrameView, EMPTY_VIEW, render, SPAWN_BORDER_PX } from '../src/render/renderer';
 import type { Enemy, Piece } from '../src/types';
 import { makeStubCtx, type Call } from './canvasStub';
@@ -26,7 +26,7 @@ function makePiece(overrides: Partial<Piece>): Piece {
 describe('render() (Task 7 — 캔버스 렌더러)', () => {
   it('예외 없이 렌더되고, 보드 64칸을 모두 그린다 (8×8)', () => {
     const { ctx, records } = makeStubCtx();
-    const state = createInitialState();
+    const state = cleanState();
     expect(() => render(ctx as unknown as CanvasRenderingContext2D, state)).not.toThrow();
     const squareFills = records.filter(
       r => r.method === 'fillRect' && r.args[2] === SQ && r.args[3] === SQ,
@@ -41,7 +41,7 @@ describe('render() (Task 7 — 캔버스 렌더러)', () => {
     // 두 개의 fillRect로 이중 표식한다 — 이 테스트는 그 두 개가 모두 있는지, 정확한 색상인지,
     // 경계선이 7랭크를 침범하지 않고 8랭크 칸 안쪽에서 정확히 그 경계에 맞닿는지까지 고정한다.
     const { ctx, records } = makeStubCtx();
-    render(ctx as unknown as CanvasRenderingContext2D, createInitialState());
+    render(ctx as unknown as CanvasRenderingContext2D, cleanState());
     expect(rankToTopY(8)).toBe(0); // 8랭크가 최상단 행
 
     // 보드 폭(BOARD_W) 전체를 가로지르는 fillRect는 이 두 표식뿐이다(개별 64칸은 SQ×SQ,
@@ -71,7 +71,7 @@ describe('render() (Task 7 — 캔버스 렌더러)', () => {
 
   it('적마다 체력바(배경+체력, fillRect 2회)가 그려지고 아군 기물에는 체력바가 없다', () => {
     const { ctx, records } = makeStubCtx();
-    const state = createInitialState();
+    const state = cleanState();
     const normal = makeEnemy({ id: 'n1', file: 2, y: 200 });
     const boss = makeEnemy({ id: 'b1', file: 5, y: 100, isBoss: true, hp: 300, maxHp: 300 });
     state.enemies.push(normal, boss);
@@ -86,7 +86,7 @@ describe('render() (Task 7 — 캔버스 렌더러)', () => {
 
   it('적은 y 오름차순으로 그려진다 (1랭크/방어선에 가까운 적이 마지막에 그려짐)', () => {
     const { ctx, records } = makeStubCtx();
-    const state = createInitialState();
+    const state = cleanState();
     const near = makeEnemy({ id: 'near', file: 1, y: 500 }); // 방어선(1랭크)에 가까움
     const far = makeEnemy({ id: 'far', file: 1, y: 40 });    // 스폰(8랭크)에 가까움
     state.enemies.push(near, far); // 입력 순서를 뒤집어 정렬이 실제로 적용되는지 검증
@@ -101,7 +101,7 @@ describe('render() (Task 7 — 캔버스 렌더러)', () => {
 
   it('jitterX는 그려지는 x 좌표만 이동시킨다 (동일 file, 다른 jitterX → 다른 x)', () => {
     const { ctx, records } = makeStubCtx();
-    const state = createInitialState();
+    const state = cleanState();
     const e1 = makeEnemy({ id: 'j1', file: 4, y: 150, jitterX: 0 });
     const e2 = makeEnemy({ id: 'j2', file: 4, y: 150, jitterX: 6 });
     state.enemies.push(e1, e2);
@@ -125,7 +125,7 @@ describe('render() (Task 7 — 캔버스 렌더러)', () => {
 
     it('보스가 3랭크(트리거 이전)에 있으면 비네트를 그리지 않는다', () => {
       const { ctx, records, gradientStub } = makeStubCtx();
-      const state = createInitialState();
+      const state = cleanState();
       state.enemies.push(makeEnemy({ id: 'boss', file: 0, y: rankToTopY(3), isBoss: true }));
 
       render(ctx as unknown as CanvasRenderingContext2D, state);
@@ -136,7 +136,7 @@ describe('render() (Task 7 — 캔버스 렌더러)', () => {
 
     it('보스가 2랭크 이하로 진입하면 비네트를 그린다', () => {
       const { ctx, records, gradientStub } = makeStubCtx();
-      const state = createInitialState();
+      const state = cleanState();
       state.enemies.push(makeEnemy({ id: 'boss', file: 0, y: rankToTopY(2), isBoss: true }));
 
       render(ctx as unknown as CanvasRenderingContext2D, state);
@@ -147,7 +147,7 @@ describe('render() (Task 7 — 캔버스 렌더러)', () => {
 
     it('보스가 아닌 적이 1랭크에 있어도 비네트를 그리지 않는다', () => {
       const { ctx, records, gradientStub } = makeStubCtx();
-      const state = createInitialState();
+      const state = cleanState();
       state.enemies.push(makeEnemy({ id: 'grunt', file: 0, y: rankToTopY(1), isBoss: false }));
 
       render(ctx as unknown as CanvasRenderingContext2D, state);
@@ -189,7 +189,7 @@ describe('render() (Task 7 — 캔버스 렌더러)', () => {
 
     it('freeze 이후에도 render(ctx, state) 기본 인자 경로(view 생략)는 정상 동작한다', () => {
       const { ctx } = makeStubCtx();
-      const state = createInitialState();
+      const state = cleanState();
       expect(() => render(ctx as unknown as CanvasRenderingContext2D, state)).not.toThrow();
     });
   });
@@ -202,7 +202,7 @@ describe('render() (Task 7 — 캔버스 렌더러)', () => {
     // 유도해, 보드 반전이나 랭크 off-by-one 같은 회귀를 실제로 잡아낼 수 있게 한다.
     it('하이라이트 fillRect는 file*squarePx와 rankToTopY(rank)로 그려진다', () => {
       const { ctx, records } = makeStubCtx();
-      const state = createInitialState();
+      const state = cleanState();
       // file=5, rank=3은 일부러 피한다: file+rank === CONFIG.board.ranks(8)인 칸은
       // file*SQ === rankToTopY(rank)가 우연히 성립해(둘 다 같은 값), fillRect(x, y, …)의 x/y가
       // 뒤바뀌어도(transpose 버그) 이 단언을 그대로 통과시킨다 — 즉 그런 회귀를 절대 못 잡는
@@ -222,7 +222,7 @@ describe('render() (Task 7 — 캔버스 렌더러)', () => {
 
     it('라인 moveTo/lineTo는 fileCenterX(file)와 rankToTopY(rank)+squarePx/2로 그려진다', () => {
       const { ctx, records } = makeStubCtx();
-      const state = createInitialState();
+      const state = cleanState();
       const from = { file: 1, rank: 2 };
       const to = { file: 6, rank: 7 };
       const color = '#abcdef';
@@ -241,7 +241,7 @@ describe('render() (Task 7 — 캔버스 렌더러)', () => {
 
     it('shake가 {0,0}이 아니면 그 값 그대로 translate가 호출된다', () => {
       const { ctx, records } = makeStubCtx();
-      const state = createInitialState();
+      const state = cleanState();
       const view = createFrameView();
       view.shake = { x: 4.5, y: -2.25 };
 
@@ -256,7 +256,7 @@ describe('render() (Task 7 — 캔버스 렌더러)', () => {
   describe('퀸 버프 뱃지 (스펙 7.7)', () => {
     it('queenBuffCount에 따라 ×N 텍스트가 그려지고, 0이면 뱃지가 없다', () => {
       const { ctx, records } = makeStubCtx();
-      const state = createInitialState();
+      const state = cleanState();
       state.pieces.push(makePiece({ id: 'q0', type: 'queen', square: { file: 0, rank: 1 }, queenBuffCount: 0 }));
       state.pieces.push(makePiece({ id: 'q1', type: 'queen', square: { file: 1, rank: 1 }, queenBuffCount: 1 }));
       state.pieces.push(makePiece({ id: 'q2', type: 'queen', square: { file: 2, rank: 1 }, queenBuffCount: 2 }));

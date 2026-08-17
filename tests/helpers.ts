@@ -26,9 +26,26 @@ export function boardPiece(type: PieceType, file: number, rank: number, tier = 1
   };
 }
 
+/**
+ * 빌드를 통제하는 측정용 상태 — **시작 폰을 치운다.**
+ *
+ * ★ v1.16부터 createInitialState가 보드에 폰 3기를 놓는다(가챠만으로는 빈손으로 w1을 넘길
+ * 수 없기 때문이다). 그건 실제 게임에 맞지만 **측정에는 오염**이다: 이 하네스들은 "이 빌드가
+ * 얼마나 잘하는가"를 재는데, 통제하지 않은 폰 3기가 섞이면 그 답이 빌드의 답이 아니게 된다.
+ *
+ * 실제 시작 상태(폰 3기가 어디에 있는가)는 state.test.ts가 따로 단언한다 — 여기서 치우는
+ * 것이 그 사실을 숨기지 않도록.
+ */
 export function waveState(): GameState {
-  const s = createInitialState();
+  const s = cleanState();
   s.phase = 'wave';
+  return s;
+}
+
+/** 측정용 초기 상태(prepare 유지) — waveState와 같은 이유로 시작 폰을 치운다. */
+export function cleanState(): GameState {
+  const s = createInitialState();
+  s.pieces.length = 0;
   return s;
 }
 
@@ -147,6 +164,32 @@ export function buildCost(pieces: Piece[]): number {
 }
 
 /**
+ * 원하는 기물이 나오는 뽑기 난수 (v1.16).
+ *
+ * `drawPiece`는 rng를 **두 번** 뽑는다(종류 → 위치). 테스트가 특정 기물을 얻으려면 종류
+ * 구간에 맞는 첫 값과 위치용 둘째 값을 순서대로 줘야 하는데, 그 계산을 테스트마다 손으로
+ * 적으면 가중치를 바꿀 때 전부 틀린다. 여기서 **누적합을 실제 CONFIG에서 유도**한다.
+ *
+ * ⚠️ 반환값은 **한 번 쓰고 버리는** 클로저다(호출 순서에 상태가 있다). 한 rng로 두 번
+ * 뽑으려 하면 두 번째 뽑기가 위치 값을 종류로 읽는다.
+ */
+export function gachaRng(want: PieceType, positionRoll = 0): () => number {
+  const entries = Object.entries(CONFIG.gacha.weights) as [PieceType, number][];
+  const total = entries.reduce((sum, [, w]) => sum + w, 0);
+  let acc = 0;
+  let lo = 0, hi = 0;
+  for (const [type, w] of entries) {
+    if (type === want) { lo = acc; hi = acc + w; break; }
+    acc += w;
+  }
+  if (hi <= lo) throw new Error(`가중치가 0인 기물은 뽑을 수 없다: ${want}`);
+  // 구간의 중앙을 고른다 — 경계값을 쓰면 부동소수 잔차로 옆 기물이 나올 수 있다.
+  const rolls = [((lo + hi) / 2) / total, positionRoll];
+  let i = 0;
+  return () => rolls[Math.min(i++, rolls.length - 1)];
+}
+
+/**
  * 한 판에 태어나는 분열체 총수 (v1.14). 처치 수·골드 기준선을 하드코딩하지 않으려고 유도한다 —
  * splitCount를 바꿨을 때 신호가 조용히 따라 움직이면 아무것도 지키지 못한다.
  * 보스 웨이브는 분열형이 금지돼 있어(bossForbidden) 제외한다.
@@ -221,7 +264,7 @@ export interface RunReport {
 export function fullRun(
   pieces: Piece[], rng: () => number, grantRng: () => number = Math.random,
 ): RunReport {
-  const s = createInitialState();
+  const s = cleanState();
   // 체력을 무한대로 둔다 — 여기서 보려는 것은 "이 빌드가 이기는가"가 아니라 20웨이브가 끝까지
   // 정상 진행되는가(엔진 무결성)이고, 누수는 체력이 아니라 이벤트로 직접 센다.
   s.hp = Number.MAX_SAFE_INTEGER;
@@ -281,7 +324,7 @@ export function bossHpFor(wave: number): number {
 export function chaseWave5Boss(
   chasePieces: Piece[], staticPieces: Piece[] = [],
 ): { dealt: number; killed: boolean; hp: number; wave: number; bossHp: number; bossSpawnT: number; bossKillT: number } {
-  const s = createInitialState();
+  const s = cleanState();
   s.wave = 5;
   const bossFile = 3;
   s.pieces.push(...chasePieces, ...staticPieces);

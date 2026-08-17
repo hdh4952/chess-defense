@@ -1,4 +1,4 @@
-import { CONFIG, TRAITS } from '../config';
+import { CONFIG } from '../config';
 import { BOARD_H, BOARD_W } from '../core/grid';
 import { ALLY_SPRITE_URL } from '../render/sprites';
 import type { PieceType } from '../types';
@@ -10,16 +10,27 @@ export interface Layout {
     timer: HTMLElement; bossIcon: HTMLElement;
     pauseBtn: HTMLButtonElement; speedBtn: HTMLButtonElement; muteBtn: HTMLButtonElement;
   };
-  shopButtons: Map<PieceType, HTMLButtonElement>;
+  /**
+   * 뽑기 버튼 하나 (v1.16). 예전에는 기물별 구매 버튼 5개였는데, 무엇이 나올지 고를 수
+   * 없으므로 버튼도 하나가 됐다.
+   */
+  drawBtn: HTMLButtonElement;
   sellSlot: HTMLElement;
   startBtn: HTMLButtonElement;
   bannerRoot: HTMLElement;
 }
 
-/** 상점 노출 순서. 목록을 손으로 유지하지 않고 TRAITS에서 유도한다 — 융합물처럼 구매할 수
- *  없는 기물이 늘어도 상점이 저절로 맞는다. */
-const SHOP_ORDER: PieceType[] = (Object.keys(TRAITS) as PieceType[])
-  .filter(t => TRAITS[t].purchasable);
+/**
+ * 뽑기 확률 표시 순서 — 가중치가 큰 것부터 (v1.16).
+ *
+ * 목록을 손으로 유지하지 않고 CONFIG.gacha.weights에서 유도한다: 가중치가 0인 것(융합물)은
+ * 빼고, 나머지를 확률 내림차순으로 정렬한다. 확률을 바꾸면 표시 순서가 저절로 따라온다.
+ */
+function gachaOdds(): [PieceType, number][] {
+  return (Object.entries(CONFIG.gacha.weights) as [PieceType, number][])
+    .filter(([, w]) => w > 0)
+    .sort((a, b) => b[1] - a[1]);
+}
 export const PIECE_NAME: Record<PieceType, string> = {
   pawn: '폰', knight: '나이트', bishop: '비숍', rook: '룩', queen: '퀸',
   archbishop: '아치비숍', chancellor: '챈슬러', amazon: '아마존',
@@ -82,18 +93,19 @@ ${CREDIT_HTML}
     <div id="banner-root"></div>
   `;
 
+  // ★ 뽑기 UI (v1.16). 확률을 **화면에 항상 적어 둔다** — 가챠에서 확률을 숨기면 플레이어가
+  // 자기 판단의 근거를 가질 수 없고, 특히 퀸 1%처럼 극단적인 값은 알려주지 않으면 "왜 안
+  // 나오지"가 버그로 읽힌다. 수치는 CONFIG에서 유도하므로 확률을 바꾸면 문구가 따라온다.
   const shop = app.querySelector<HTMLElement>('#shop')!;
-  const shopButtons = new Map<PieceType, HTMLButtonElement>();
-  for (const type of SHOP_ORDER) {
-    const btn = document.createElement('button');
-    btn.className = 'shop-btn';
-    btn.dataset.pieceType = type;
-    // alt=""(장식용): 아이콘 바로 옆에 PIECE_NAME 텍스트가 보이므로 alt에 같은 이름을 또
-    // 넣으면 스크린 리더가 두 번 읽는다(재검토 Item 7).
-    btn.innerHTML = `<img class="piece-icon shop-icon" src="${ALLY_SPRITE_URL[type]}" alt="" draggable="false"> ${PIECE_NAME[type]}<br><small>${CONFIG.pieces[type].cost}G</small>`;
-    shop.appendChild(btn);
-    shopButtons.set(type, btn);
-  }
+  const odds = gachaOdds()
+    .map(([t, w]) => `<li><img class="piece-icon odds-icon" src="${ALLY_SPRITE_URL[t]}" alt="" draggable="false">`
+      + `<span>${PIECE_NAME[t]}</span><b>${Math.round(w * 1000) / 10}%</b></li>`)
+    .join('');
+  shop.innerHTML = `
+    <button id="draw-btn">
+      기물 뽑기<br><small>${CONFIG.gacha.cost}G</small>
+    </button>
+    <ul id="odds">${odds}</ul>`;
 
   const q = <T extends HTMLElement>(sel: string) => app.querySelector<T>(sel)!;
   return {
@@ -104,7 +116,7 @@ ${CREDIT_HTML}
       pauseBtn: q<HTMLButtonElement>('#hud-pause'), speedBtn: q<HTMLButtonElement>('#hud-speed'),
       muteBtn: q<HTMLButtonElement>('#hud-mute'),
     },
-    shopButtons,
+    drawBtn: q<HTMLButtonElement>('#draw-btn'),
     sellSlot: q('#sell-slot'),
     startBtn: q<HTMLButtonElement>('#start-wave'),
     bannerRoot: q('#banner-root'),

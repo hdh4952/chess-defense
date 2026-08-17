@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG, TRAITS, enemyHp } from '../src/config';
 import { applyAttack, pieceDamage, updateCombat } from '../src/core/combat';
-import { buyPiece, emptySquares } from '../src/core/economy';
+import { drawPiece, emptySquares } from '../src/core/economy';
 import { enemySquare, sameSquare } from '../src/core/grid';
 import { attackTargets, queenLines } from '../src/core/patterns';
 import type { GameEvent } from '../src/types';
-import { boardPiece, enemyAt, waveState } from './helpers';
+import { boardPiece, enemyAt, waveState, gachaRng } from './helpers';
 
 describe('pieceDamage (스펙 5.6)', () => {
   it('기본 × (1 + 퀸 수): 룩 5 → 버프 1개면 10', () => {
@@ -257,7 +257,7 @@ describe('보관함 폐지 이후의 전투 (v1.12)', () => {
     const s = waveState();
     const ev: GameEvent[] = [];
     // 스폰 칸을 테스트가 알 수 있도록 난수를 고정한다 (Math.random 금지).
-    const p = buyPiece(s, 'pawn', ev, () => 0);
+    const p = drawPiece(s, ev, gachaRng('pawn'));
     expect(p).not.toBeNull();
     const sq = p!.square;
     // 이벤트의 square가 실제 위치와 어긋나면 무음 실패다 — 위치를 플레이어가 고르지 않으므로
@@ -301,8 +301,8 @@ describe('보관함 폐지 이후의 전투 (v1.12)', () => {
     expect(queenLines(q.square).some(t => sameSquare(t, first))).toBe(true);
 
     // recalcQueenBuffs를 여기서 부르지 않는 것이 요점이다 — 트레이 시절에는 "배치"라는 별도
-    // 시점이 그 정산을 맡았지만, 이제 스폰 자체가 배치라 buyPiece가 그 책임을 진다.
-    const p = buyPiece(s, 'pawn', [], () => 0)!;
+    // 시점이 그 정산을 맡았지만, 이제 스폰 자체가 배치라 drawPiece가 그 책임을 진다.
+    const p = drawPiece(s, [], gachaRng('pawn'))!;
     expect(p.square).toEqual(first);
     expect(p.queenBuffCount).toBe(TRAITS.queen.buffFactor);
 

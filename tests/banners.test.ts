@@ -2,8 +2,8 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { cleanState } from './helpers';
 import { CONFIG } from '../src/config';
-import { createInitialState } from '../src/core/state';
 import { createLayout } from '../src/ui/layout';
 import { Banners } from '../src/ui/banners';
 import type { GameEvent, GameState } from '../src/types';
@@ -49,7 +49,7 @@ function bossFlashHighlights(bossFlash: { file: number; t: number } | null): { s
 
 function setup(): { layout: ReturnType<typeof createLayout>; state: GameState; banners: Banners } {
   const layout = createLayout(makeApp());
-  const state = createInitialState();
+  const state = cleanState();
   const banners = new Banners(layout);
   return { layout, state, banners };
 }

@@ -3,11 +3,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { CONFIG } from '../src/config';
 import { createEnemy } from '../src/core/enemy';
 import { stepGame } from '../src/core/step';
-import { createInitialState } from '../src/core/state';
 import { createLayout } from '../src/ui/layout';
 import { wireControls, wireMuteButton, type MuteControllable } from '../src/ui/controls';
 import type { GameEvent, GameState } from '../src/types';
-import { boardPiece } from './helpers';
+import { boardPiece, cleanState } from './helpers';
 
 function makeApp(): HTMLElement {
   const app = document.createElement('div');
@@ -28,7 +27,7 @@ afterEach(() => {
 describe('wireControls — 일시정지 버튼 (Task 16, 스펙 7.7)', () => {
   it('클릭하면 state.paused가 토글되고, 다시 클릭하면 되돌아온다', () => {
     const layout = createLayout(makeApp());
-    const state = createInitialState();
+    const state = cleanState();
     wireControls(layout, state);
 
     layout.hud.pauseBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -40,7 +39,7 @@ describe('wireControls — 일시정지 버튼 (Task 16, 스펙 7.7)', () => {
 
   it('phase가 victory/defeat이면 클릭해도 토글되지 않는다 (재개할 것이 없으므로)', () => {
     const layout = createLayout(makeApp());
-    const state = createInitialState();
+    const state = cleanState();
     wireControls(layout, state);
 
     state.phase = 'victory';
@@ -56,7 +55,7 @@ describe('wireControls — 일시정지 버튼 (Task 16, 스펙 7.7)', () => {
 describe('wireControls — 배속 버튼 (Task 16, 스펙 7.7)', () => {
   it('클릭할 때마다 speedMultiplier가 1 → 2 → 1로 순환한다', () => {
     const layout = createLayout(makeApp());
-    const state = createInitialState();
+    const state = cleanState();
     wireControls(layout, state);
 
     expect(state.speedMultiplier).toBe(1);
@@ -70,7 +69,7 @@ describe('wireControls — 배속 버튼 (Task 16, 스펙 7.7)', () => {
 describe('wireControls — 탭 이탈 자동 일시정지 (Task 16, 스펙 7.7)', () => {
   function setupHiddenPhase(phase: GameState['phase']): GameState {
     const layout = createLayout(makeApp());
-    const state = createInitialState();
+    const state = cleanState();
     state.phase = phase;
     wireControls(layout, state);
     return state;
@@ -155,8 +154,8 @@ describe('speedMultiplier 배속 균일성 (스펙 7.7 — main.ts의 유일한 
     const frames = 120; // 1배속 2초, 2배속 4초 — 둘 다 prepareSeconds(10s) 미만
     const events: GameEvent[] = [];
 
-    const s1 = createInitialState();
-    const s2 = createInitialState();
+    const s1 = cleanState();
+    const s2 = cleanState();
     s2.speedMultiplier = 2;
 
     for (let i = 0; i < frames; i++) {
@@ -183,7 +182,7 @@ describe('speedMultiplier 배속 균일성 (스펙 7.7 — main.ts의 유일한 
     const frames = 120;
     const events: GameEvent[] = [];
 
-    const s1 = createInitialState();
+    const s1 = cleanState();
     s1.phase = 'wave';
     const p1 = boardPiece('rook', 0, 1);
     p1.cooldown = 10;
@@ -191,7 +190,7 @@ describe('speedMultiplier 배속 균일성 (스펙 7.7 — main.ts의 유일한 
     const e1 = createEnemy(1, 0, false, 'e1');
     s1.enemies.push(e1);
 
-    const s2 = createInitialState();
+    const s2 = cleanState();
     s2.phase = 'wave';
     s2.speedMultiplier = 2;
     const p2 = boardPiece('rook', 0, 1);

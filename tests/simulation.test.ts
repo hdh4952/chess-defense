@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG, clearBonus, enemyCount, enemyHp } from '../src/config';
-import { createInitialState } from '../src/core/state';
 import { stepGame } from '../src/core/step';
 import { BOARD_H } from '../src/core/grid';
 import type { GameEvent, GameState, Phase } from '../src/types';
 import {
-  boardPiece, bossHpFor, chaseWave5Boss, totalSplitBorn, totalSplitKillGold,
-} from './helpers';
+  boardPiece, bossHpFor, chaseWave5Boss, totalSplitBorn, totalSplitKillGold, cleanState } from './helpers';
 
 const DT = 1 / 60;
 const cycleRng = () => { let i = 0; return () => (i++ % 8) / 8; };   // a~h 순환 스폰
@@ -36,7 +34,7 @@ function run(s: GameState, seconds: number, rng: () => number, onTick?: () => vo
 
 describe('전 게임 시뮬레이션', () => {
   it('웨이브 1: 폰 4개(b4/c4/f4/g4)가 8파일 전부 커버 — 무누수 클리어 (스펙 9.3)', () => {
-    const s = createInitialState();
+    const s = cleanState();
     // 폰 (f,r)은 (f±1, r+1) 공격 → b,c,f,g 배치로 a~h 전 파일 커버
     for (const file of [1, 2, 5, 6]) s.pieces.push(boardPiece('pawn', file, 4));
     // 브리핑 원안은 run(s, 60, ...)으로 60초 고정 실행이었으나, 실측 결과 웨이브1은 ~30초에
@@ -56,7 +54,7 @@ describe('전 게임 시뮬레이션', () => {
   });
 
   it('풀런: 파일당 룩 2개면 일반 웨이브 전멸·보스 4회 누수로 승리 (엔진 무결성)', () => {
-    const s = createInitialState();
+    const s = cleanState();
     for (let f = 0; f < 8; f++) {
       s.pieces.push(boardPiece('rook', f, 1), boardPiece('rook', f, 2));
     }
@@ -110,7 +108,7 @@ describe('전 게임 시뮬레이션', () => {
     const bossHp = bossHpFor(20);
     const bossSpeed = (CONFIG.board.squarePx / CONFIG.enemy.secondsPerSquare) * CONFIG.enemy.bossSpeedMultiplier;
     for (const [hp, expected] of [[6, 'victory'], [5, 'defeat']] as const) {
-      const s = createInitialState();
+      const s = cleanState();
       s.wave = 20;
       s.hp = hp;
       s.phase = 'wave';
@@ -309,7 +307,7 @@ describe('밸런스 확장 측정 — 후반 웨이브 & 보스 게이트 (Task 
     // 진짜 고립된 룩 1개(다른 룩과 랭크를 절대 공유하지 않음) vs 웨이브19 최대 체력 적 —
     // "파일당 룩 1개면 충분한가"에 대한 순수 대조군. 파일 0에만 적을 스폰시켜 다른 파일 간섭을 배제한다.
     {
-      const s = createInitialState();
+      const s = cleanState();
       s.wave = 19; s.phase = 'wave'; s.spawnedCount = 0; s.spawnTimer = 0;
       s.pieces.push(boardPiece('rook', 0, 1));
       const ev: GameEvent[] = [];
@@ -342,7 +340,7 @@ describe('밸런스 확장 측정 — 후반 웨이브 & 보스 게이트 (Task 
 
       const trials: { cost: number; leaks: number; defeated: boolean }[] = [];
       for (const perFile of [1, 2]) {
-        const s = createInitialState();
+        const s = cleanState();
         s.wave = w;
         s.phase = 'wave';
         s.spawnedCount = 0;

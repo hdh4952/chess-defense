@@ -1,14 +1,13 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CONFIG, TRAITS } from '../src/config';
+import { CONFIG } from '../src/config';
 import { emptySquares } from '../src/core/economy';
 import { squareKey } from '../src/core/grid';
-import { createInitialState } from '../src/core/state';
 import { ALLY_SPRITE_URL } from '../src/render/sprites';
 import { CREDIT_HTML, createLayout, PIECE_NAME } from '../src/ui/layout';
 import { updateHud } from '../src/ui/hud';
 import { updateShop, wireShop } from '../src/ui/shop';
-import { boardPiece } from './helpers';
+import { boardPiece, cleanState } from './helpers';
 import type { UiAudio } from '../src/audio';
 import type { UiCueKind } from '../src/audio/cues';
 import type { GameEvent, GameState, PieceType } from '../src/types';
@@ -49,20 +48,35 @@ describe('createLayout (Task 14 — UI 셸)', () => {
   //    있고, 그 공간이 차면 더 못 산다" — 는 아래 updateShop의 "빈 칸 없으면 전부 비활성"이
   //    이어받았다. 공간의 정의만 트레이 16칸 → 보드 빈 칸(emptySquares)으로 바뀌었다.
 
-  it('상점 버튼은 구매 가능한 기물당 1개, 각각 CONFIG의 가격이 라벨에 표시된다', () => {
-    // 융합물이 생기면서 "기물 종류 수 = 상점 버튼 수"가 더 이상 성립하지 않는다.
-    // 상점은 구매 가능한 것만 보여준다.
+  it('★ 상점은 뽑기 버튼 하나다 — 무엇이 나올지 고를 수 없으므로 고를 UI도 없다 (v1.16)', () => {
+    // ⚠️ v1.16 이전에는 기물별 구매 버튼 5개였다(각각 정가 라벨). 사용자 결정으로 기물을
+    //   얻는 유일한 구매 경로가 뽑기가 되면서 버튼도 하나가 됐다.
     const layout = createLayout(makeApp());
-    const purchasable = PIECE_TYPES.filter(t => TRAITS[t].purchasable);
-    expect(layout.shopButtons.size).toBe(purchasable.length);
-    expect(purchasable).toHaveLength(5);
-    for (const type of purchasable) {
-      const btn = layout.shopButtons.get(type);
-      expect(btn).toBeInstanceOf(HTMLButtonElement);
-      expect(btn!.textContent).toContain(String(CONFIG.pieces[type].cost));
-      expect(btn!.textContent).toContain('G');
-      expect(btn!.dataset.pieceType).toBe(type);
+    expect(layout.drawBtn).toBeInstanceOf(HTMLButtonElement);
+    expect(layout.drawBtn.textContent).toContain(String(CONFIG.gacha.cost));
+    expect(layout.drawBtn.textContent).toContain('G');
+    // 기물을 고르는 UI가 남아 있지 않은지 — data-piece-type이 붙은 버튼이 하나도 없어야 한다.
+    expect(makeApp().querySelectorAll('button[data-piece-type]')).toHaveLength(0);
+  });
+
+  it('★ 뽑기 확률이 화면에 항상 적혀 있다 — 가챠에서 확률을 숨기면 판단 근거가 없다', () => {
+    // 특히 퀸 1%처럼 극단적인 값은 알려주지 않으면 "왜 안 나오지"가 버그로 읽힌다.
+    // 수치는 CONFIG에서 유도되므로 확률을 바꾸면 문구가 따라온다.
+    const app = makeApp();
+    createLayout(app);
+    const odds = app.querySelector('#odds');
+    expect(odds).not.toBeNull();
+    const text = odds!.textContent ?? '';
+    for (const [type, w] of Object.entries(CONFIG.gacha.weights) as [PieceType, number][]) {
+      if (w === 0) {
+        expect(text, type).not.toContain(PIECE_NAME[type]);   // 융합물은 표에 없다
+        continue;
+      }
+      expect(text, type).toContain(PIECE_NAME[type]);
+      expect(text, type).toContain(`${Math.round(w * 1000) / 10}%`);
     }
+    // 가중치가 큰 것부터 — 표시 순서도 유도된다.
+    expect(text.indexOf(PIECE_NAME.pawn)).toBeLessThan(text.indexOf(PIECE_NAME.queen));
   });
 
   it('Layout의 모든 필드가 실제 요소로 해석된다 (null/undefined 없음)', () => {
@@ -78,8 +92,7 @@ describe('createLayout (Task 14 — UI 셸)', () => {
     expect(layout.hud.pauseBtn).toBeInstanceOf(HTMLButtonElement);
     expect(layout.hud.speedBtn).toBeInstanceOf(HTMLButtonElement);
     expect(layout.hud.muteBtn).toBeInstanceOf(HTMLButtonElement);
-    expect(layout.shopButtons).toBeInstanceOf(Map);
-    expect(layout.shopButtons.size).toBeGreaterThan(0);
+    expect(layout.drawBtn).toBeInstanceOf(HTMLButtonElement);
     expect(layout.sellSlot).toBeInstanceOf(HTMLElement);
     expect(layout.startBtn).toBeInstanceOf(HTMLButtonElement);
     expect(layout.bannerRoot).toBeInstanceOf(HTMLElement);
@@ -95,7 +108,7 @@ describe('createLayout (Task 14 — UI 셸)', () => {
 describe('updateHud (Task 14)', () => {
   function setup(): { layout: ReturnType<typeof createLayout>; state: GameState } {
     const layout = createLayout(makeApp());
-    const state = createInitialState();
+    const state = cleanState();
     return { layout, state };
   }
 
@@ -151,24 +164,21 @@ describe('updateHud (Task 14)', () => {
 describe('updateShop (Task 14) — canBuy 기반 비활성화', () => {
   it('300골드면 폰은 활성, 퀸은 비활성', () => {
     const layout = createLayout(makeApp());
-    const state = createInitialState();
+    const state = cleanState();
     state.gold = 300;
     expect(CONFIG.pieces.pawn.cost).toBeLessThanOrEqual(300);
     expect(CONFIG.pieces.queen.cost).toBeGreaterThan(300);
     updateShop(layout, state);
-    expect(layout.shopButtons.get('pawn')!.disabled).toBe(false);
-    expect(layout.shopButtons.get('queen')!.disabled).toBe(true);
+    expect(layout.drawBtn.disabled).toBe(false);
   });
 
   it('일시정지 중에는 5종 모두 비활성', () => {
     const layout = createLayout(makeApp());
-    const state = createInitialState();
+    const state = cleanState();
     state.gold = 999999;
     state.paused = true;
     updateShop(layout, state);
-    for (const btn of layout.shopButtons.values()) {
-      expect(btn.disabled).toBe(true);
-    }
+    expect(layout.drawBtn.disabled).toBe(true);
   });
 
   it('★ 보드에 빈 칸이 없으면 5종 모두 비활성 (v1.12 — 예전 "트레이 만석" 게이트의 후신)', () => {
@@ -176,20 +186,18 @@ describe('updateShop (Task 14) — canBuy 기반 비활성화', () => {
     // 사용자 결정은 "빈칸 없으면 구매 불가"이고, 그 결정이 실제로 화면에 드러나는 유일한 곳이
     // 이 비활성화다 — 실패를 알리는 별도 문구가 없기 때문이다.
     const layout = createLayout(makeApp());
-    const state = createInitialState();
+    const state = cleanState();
     state.gold = 999999;
     fillBoard(state);
     updateShop(layout, state);
-    for (const btn of layout.shopButtons.values()) {
-      expect(btn.disabled).toBe(true);
-    }
+    expect(layout.drawBtn.disabled).toBe(true);
 
     // 한 칸만 비면 곧바로 되살아나야 한다 — 게이트가 "빈 칸 수"가 아니라 다른 것(예: 기물 총수)에
     // 걸려 있으면 이 대조에서 드러난다.
     state.pieces.pop();
     expect(emptySquares(state)).toHaveLength(1);
     updateShop(layout, state);
-    expect(layout.shopButtons.get('pawn')!.disabled).toBe(false);
+    expect(layout.drawBtn.disabled).toBe(false);
   });
 });
 
@@ -206,42 +214,44 @@ describe('wireShop (Task 14) — 실제 클릭 배선 검증', () => {
     vi.spyOn(Math, 'random').mockImplementation(() => seq[i++ % seq.length]);
   }
 
-  it('폰 버튼 클릭 시 보드의 빈 칸에 폰이 스폰되고 골드가 비용만큼 감소한다', () => {
+  it('뽑기 버튼 클릭 시 보드의 빈 칸에 기물이 스폰되고 골드가 뽑기 비용만큼 감소한다', () => {
     stubRandom();
     const layout = createLayout(makeApp());
-    const state = createInitialState();
+    const state = cleanState();
     const events: GameEvent[] = [];
     const startGold = state.gold;
     wireShop(layout, state, events, makeAudioSpy());
 
-    const pawnBtn = layout.shopButtons.get('pawn')!;
+    const pawnBtn = layout.drawBtn;
     pawnBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
-    const pawns = state.pieces.filter(p => p.type === 'pawn');
-    expect(pawns).toHaveLength(1);
-    expect(state.gold).toBe(startGold - CONFIG.pieces.pawn.cost);
+    // ★ v1.16: 무엇이 나올지 모른다. 종류를 단언할 수 없으므로 **한 기가 생겼다**와
+    //   **뽑기 비용만큼 줄었다**만 잰다 — 종류 분포는 economy.test.ts가 따로 잰다.
+    expect(state.pieces).toHaveLength(1);
+    const drawn = state.pieces[0];
+    expect(state.gold).toBe(startGold - CONFIG.gacha.cost);
     // 8랭크는 적 스폰 구역이라 배치 대상이 아니다. 여기 떨어지면 적과 같은 칸에서 게임이 시작된다.
-    expect(pawns[0].square.rank).toBeGreaterThanOrEqual(1);
-    expect(pawns[0].square.rank).toBeLessThanOrEqual(CONFIG.board.ranks - 1);
+    expect(drawn.square.rank).toBeGreaterThanOrEqual(1);
+    expect(drawn.square.rank).toBeLessThanOrEqual(CONFIG.board.ranks - 1);
     // ★ 이벤트의 square가 실제 기물 위치와 어긋나면 화면이 엉뚱한 칸을 가리킨다 — 스폰 위치를
     //   플레이어가 고르지 않으므로, 어디에 생겼는지 알려 주는 통로가 이 이벤트뿐이다.
     expect(events).toEqual([
-      { kind: 'pieceSpawned', square: pawns[0].square, pieceType: 'pawn', bought: true },
+      { kind: 'pieceSpawned', square: drawn.square, pieceType: drawn.type, bought: true },
     ]);
   });
 
-  it('★ 연속 구매해도 스폰 칸이 서로 겹치지 않는다', () => {
+  it('★ 연속 뽑기해도 스폰 칸이 서로 겹치지 않는다', () => {
     // 무작위 스폰의 유일한 안전 요건이다. 후보를 "전체 칸"에서 뽑으면 기물이 기물 위에 겹쳐
     // 쌓이고, pieceAt/tooltip이 전부 첫 일치만 집으므로 아래 깔린 쪽은 조작조차 불가능해진다.
     stubRandom();
     const layout = createLayout(makeApp());
-    const state = createInitialState();
+    const state = cleanState();
     const events: GameEvent[] = [];
     const n = 12;
-    state.gold = CONFIG.pieces.pawn.cost * n;
+    state.gold = CONFIG.gacha.cost * n;
     wireShop(layout, state, events, makeAudioSpy());
 
-    const pawnBtn = layout.shopButtons.get('pawn')!;
+    const pawnBtn = layout.drawBtn;
     for (let i = 0; i < n; i++) {
       pawnBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     }
@@ -258,7 +268,7 @@ describe('wireShop (Task 14) — 실제 클릭 배선 검증', () => {
   it('★ 보드가 꽉 차 있으면 골드가 남아돌아도 클릭이 아무 일도 하지 않는다', () => {
     stubRandom();
     const layout = createLayout(makeApp());
-    const state = createInitialState();
+    const state = cleanState();
     const events: GameEvent[] = [];
     state.gold = 999999;
     fillBoard(state);
@@ -268,7 +278,7 @@ describe('wireShop (Task 14) — 실제 클릭 배선 검증', () => {
 
     // updateShop이 이미 버튼을 비활성화하지만, 여기서는 그 사전 체크에 기대지 않고 핸들러 자체가
     // 골드를 깎지 않는지를 본다 — 깎고 나서 스폰에 실패하면 조용한 골드 증발이 된다.
-    layout.shopButtons.get('pawn')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    layout.drawBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
     expect(state.pieces).toHaveLength(before);
     expect(state.gold).toBe(999999);
@@ -279,11 +289,11 @@ describe('wireShop (Task 14) — 실제 클릭 배선 검증', () => {
   it('구매 성공 시 uiBuy가 울린다 (스펙 §10.1 v1.3)', () => {
     stubRandom();
     const layout = createLayout(makeApp());
-    const state = createInitialState();
+    const state = cleanState();
     const audio = makeAudioSpy();
     wireShop(layout, state, [], audio);
 
-    layout.shopButtons.get('pawn')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    layout.drawBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
     expect(audio.played).toEqual(['uiBuy']);
   });
@@ -291,7 +301,7 @@ describe('wireShop (Task 14) — 실제 클릭 배선 검증', () => {
   it('구매 실패(골드 부족)는 uiBuy를 울리지 않는다', () => {
     stubRandom();
     const layout = createLayout(makeApp());
-    const state = createInitialState();
+    const state = cleanState();
     state.gold = 0;
     const audio = makeAudioSpy();
     const events: GameEvent[] = [];
@@ -299,7 +309,7 @@ describe('wireShop (Task 14) — 실제 클릭 배선 검증', () => {
 
     // 버튼은 updateShop이 매 프레임 비활성화하지만, wireShop 자체의 클릭 핸들러가 buyPiece의
     // 반환값으로 판정하는지(canBuy 사전 체크에만 기대지 않는지) 여기서 직접 확인한다.
-    layout.shopButtons.get('pawn')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    layout.drawBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
     expect(state.pieces).toHaveLength(0);
     expect(events).toEqual([]);
@@ -309,28 +319,42 @@ describe('wireShop (Task 14) — 실제 클릭 배선 검증', () => {
 
 // 지난 SVG 전환 시도에서 <img>에 draggable="false"를 빠뜨려, 브라우저의 네이티브 HTML5 드래그가
 // 시작되며 pointercancel을 발생시켜 DragController의 드래그를 조용히 끊어버린 회귀가 있었다.
-// v1.12에서 트레이가 사라져 기물 이미지를 DOM으로 내보내는 곳은 상점 버튼(과 drag.ts가 직접
-// 만드는 고스트)뿐이지만, 상점 버튼 위에서 누른 채 움직이면 여전히 같은 pointercancel이 날아와
-// 진행 중이던 제스처(선택·판매 프리뷰)를 지운다. 안전장치는 그대로 필요하다.
+// ⚠️ v1.16: 기물 이미지를 DOM으로 내보내는 곳이 상점 버튼에서 **뽑기 확률 표**로 옮겨졌다
+// (뽑기 버튼 자체에는 이미지가 없다 — 무엇이 나올지 모르므로 그릴 기물도 없다). 확률 표
+// 위에서 누른 채 움직이면 여전히 같은 pointercancel이 날아와 진행 중이던 제스처(선택·판매
+// 프리뷰)를 지우므로 안전장치는 그대로 필요하다.
 describe('기물 이미지 — draggable="false" 안전장치 (지난 시도 회귀 방지)', () => {
-  it('상점 버튼의 모든 기물 이미지는 draggable="false"를 갖는다', () => {
-    const layout = createLayout(makeApp());
-    expect(layout.shopButtons.size).toBeGreaterThan(0);
-    for (const btn of layout.shopButtons.values()) {
-      const img = btn.querySelector('img');
+  it('확률 표의 모든 기물 이미지는 draggable="false"를 갖는다', () => {
+    const app = makeApp();
+    createLayout(app);
+    const items = [...app.querySelectorAll('#odds li')];
+    expect(items.length).toBeGreaterThan(0);        // 공허 방지
+    for (const li of items) {
+      const img = li.querySelector('img');
       expect(img).not.toBeNull();
       expect(img!.getAttribute('draggable')).toBe('false');
     }
   });
 
-  it('상점 버튼의 아이콘은 그 기물 자신의 스프라이트를 가리킨다', () => {
-    // 삭제된 트레이 렌더 테스트가 지키던 "폰 칸에는 반드시 폰 스프라이트"를 여기로 옮겨 살렸다.
-    // 종류와 그림이 어긋나면 잘못 산 것을 되돌릴 방법이 판매(50% 손실)뿐이라 값이 비싸다.
-    const layout = createLayout(makeApp());
-    for (const [type, btn] of layout.shopButtons) {
-      const img = btn.querySelector('img');
-      expect(img, type).not.toBeNull();
-      expect(img!.getAttribute('src'), type).toBe(ALLY_SPRITE_URL[type]);
+  it('확률 표의 아이콘은 그 기물 자신의 스프라이트를 가리킨다 (v1.16)', () => {
+    // 삭제된 트레이 렌더 테스트가 지키던 "폰 칸에는 반드시 폰 스프라이트"를 여기로 옮겨
+    // 살렸다. 이제 무대는 상점 버튼이 아니라 뽑기 확률 표다 — 그림과 확률이 어긋나면
+    // 플레이어가 완전히 잘못된 기대를 갖고 300G를 쓴다.
+    const app = makeApp();
+    createLayout(app);
+    const items = [...app.querySelectorAll('#odds li')];
+    const shown = (Object.entries(CONFIG.gacha.weights) as [PieceType, number][])
+      .filter(([, w]) => w > 0);
+    expect(items).toHaveLength(shown.length);
+    for (const li of items) {
+      const img = li.querySelector('img');
+      expect(img).not.toBeNull();
+      // 같은 li 안의 이름과 아이콘이 같은 기물을 가리키는지 — 둘이 갈라지는 것이 이 테스트가
+      // 막는 유일한 결함이다(이름만 맞고 그림이 옆 기물이면 아무도 못 알아챈다).
+      const name = li.querySelector('span')!.textContent!;
+      const type = (Object.keys(PIECE_NAME) as PieceType[]).find(t => PIECE_NAME[t] === name)!;
+      expect(type, name).toBeDefined();
+      expect(img!.getAttribute('src'), name).toBe(ALLY_SPRITE_URL[type]);
     }
   });
 });

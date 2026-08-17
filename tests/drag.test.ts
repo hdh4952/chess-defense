@@ -1,13 +1,12 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { dropAction, DragController, pickDropTarget, type DropZones } from '../src/ui/drag';
-import { createInitialState } from '../src/core/state';
 import { sellPrice } from '../src/core/economy';
 import { createLayout } from '../src/ui/layout';
 import type { UiAudio } from '../src/audio';
 import type { UiCueKind } from '../src/audio/cues';
 import type { GameEvent, GameState } from '../src/types';
-import { boardPiece, waveState } from './helpers';
+import { boardPiece, waveState, cleanState } from './helpers';
 import { buildHighlights } from '../src/render/highlights';
 import { CONFIG } from '../src/config';
 
@@ -146,7 +145,7 @@ function setup(phase: GameState['phase'] = 'wave'): Rig {
   overrideRect(layout.canvas, { left: BOARD_LEFT, top: 0, width: 640, height: 640 });
   overrideRect(layout.sellSlot, SELL_RECT);
 
-  const state = createInitialState();
+  const state = cleanState();
   state.phase = phase;
   const events: GameEvent[] = [];
   const audio = makeAudioSpy();

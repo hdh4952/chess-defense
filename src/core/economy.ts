@@ -1,4 +1,4 @@
-import { CONFIG, TRAITS, tierMultiplier } from '../config';
+import { CONFIG, pickGachaType, tierMultiplier } from '../config';
 import type { GameEvent, GameState, Piece, PieceType, Square } from '../types';
 import { recalcQueenBuffs } from './buff';
 import { squareKey } from './grid';
@@ -45,46 +45,51 @@ export function randomEmptySquare(state: GameState, rng: () => number): Square |
   return free[Math.min(free.length - 1, Math.floor(rng() * free.length))];
 }
 
-export function canBuy(state: GameState, type: PieceType): boolean {
-  return TRAITS[type].purchasable
-    && !state.paused
+/**
+ * 뽑기를 돌릴 수 있는가 (v1.16). 예전 canBuy의 자리를 그대로 물려받는다.
+ *
+ * ★ 기물 종류를 인자로 받지 않는 것이 이 변경의 전부다 — 무엇이 나올지 고를 수 없으므로
+ * "이 기물을 살 수 있는가"라는 질문 자체가 없어졌다.
+ */
+export function canDraw(state: GameState): boolean {
+  return !state.paused
     && (state.phase === 'prepare' || state.phase === 'wave')
-    && state.gold >= CONFIG.pieces[type].cost
-    // 보드에 빈 칸이 없으면 구매 불가 (사용자 결정). 예전 "트레이 만석" 게이트를 그대로
-    // 물려받은 자리이고 실패 표현도 같다 — 상점 버튼이 비활성화된다.
+    && state.gold >= CONFIG.gacha.cost
+    // 보드에 빈 칸이 없으면 뽑을 수 없다 (v1.12 사용자 결정을 그대로 물려받는다).
     && emptySquares(state).length > 0;
 }
 
 /**
- * 구매 — 골드를 내고 **보드의 빈 칸 중 하나에 무작위로** 스폰한다 (v1.12, 사용자 결정).
+ * 기물 뽑기 — 골드를 내고 **무엇이 나올지 모르는 기물 하나**를 빈 칸에 스폰한다
+ * (v1.16, 사용자 결정: "기물 구매는 랜덤 뽑기만 가능하게").
  *
- * rng에 기본값을 두지 않은 것은 의도적이다: 호출부가 어느 난수원을 쓰는지 매번 명시하게 해서,
- * 적 스폰 난수를 실수로 끌어다 쓰는 일을 눈에 보이게 만든다.
+ * ★ rng를 **두 번** 뽑는다: 종류 하나, 위치 하나. 순서가 규칙이다 — 종류를 먼저 뽑아야
+ * 같은 난수열에서 같은 기물이 나오고, 뒤집으면 위치 표의 길이(빈 칸 수)가 종류에 영향을 준다.
+ *
+ * rng에 기본값을 두지 않은 것은 buyPiece 때와 같은 이유다: 호출부가 어느 난수원을 쓰는지
+ * 매번 명시하게 해서 적 스폰 난수를 실수로 끌어다 쓰는 일을 눈에 보이게 만든다.
+ *
+ * ⚠️ 실패는 null이고 **골드를 건드리지 않는다.** canDraw가 이미 걸렀지만, 그 사실에 기대지
+ * 않는다 — 골드를 먼저 깎고 스폰에 실패하면 조용히 증발한다.
  */
-export function buyPiece(
-  state: GameState, type: PieceType, events: GameEvent[], rng: () => number,
+export function drawPiece(
+  state: GameState, events: GameEvent[], rng: () => number,
 ): Piece | null {
-  if (!canBuy(state, type)) return null;
+  if (!canDraw(state)) return null;
+  const type = pickGachaType(rng());
   const square = randomEmptySquare(state, rng);
-  if (square === null) return null;      // canBuy가 이미 걸렀다 — 타입을 좁히려고 남긴다
-  state.gold -= CONFIG.pieces[type].cost;
+  if (square === null) return null;
+  state.gold -= CONFIG.gacha.cost;
   const piece: Piece = {
     id: `p-${pieceSeq++}`, type, square, cooldown: 0, queenBuffCount: 0, tier: 1,
   };
   state.pieces.push(piece);
-  // 새 기물이 퀸 라인 위에 떨어졌을 수도, 그 자신이 퀸일 수도 있다. 예전에는 트레이에
-  // 들어갔다가 배치될 때 재계산됐지만, 이제 스폰이 곧 배치다.
+  // 새 기물이 퀸 라인 위에 떨어졌을 수도, 그 자신이 퀸일 수도 있다.
   recalcQueenBuffs(state);
   events.push({ kind: 'pieceSpawned', square: { ...square }, pieceType: type, bought: true });
   return piece;
 }
 
-/**
- * 판매가 = 원가 × 강화 단계 × 판매 비율. tier를 곱하지 않으면 합성이 보이지 않는 골드 소각이
- * 된다(룩 2기 1,000G를 합쳐서 팔면 250G만 회수) — 게다가 sellPrice는 type만 받으므로 그 손실이
- * 어떤 테스트에도 걸리지 않는다. tier를 곱하면 "합성 후 판매액 = 합성 전 각각의 판매액 합"이
- * 성립해 sellRatio 0.5 경제가 그대로 유지된다.
- */
 /**
  * 기물 **지급** — 골드를 받지 않고 빈 칸에 T1을 무작위 스폰한다. 구매와 공유하는 것은
  * pieceSeq와 randomEmptySquare뿐이고, canBuy의 게이트(페이즈·골드·구매 가능 여부)는 전혀

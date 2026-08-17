@@ -3,7 +3,14 @@ import type { EnemyTrait, PieceType } from './types';
 export const CONFIG = {
   board: { files: 8, ranks: 8, squarePx: 80 },
 
-  player: { startHp: 10, startGold: 300, hpLossNormal: 1, hpLossBoss: 5 },
+  /**
+   * startPawns — 판을 시작할 때 보드에 놓여 있는 폰의 수 (v1.16, 사용자 결정).
+   *
+   * 가챠만으로 기물을 얻게 되면서 **빈손으로 시작할 수 없게 됐다.** 예전에는 startGold로
+   * 원하는 기물을 골라 살 수 있었지만, 이제 첫 뽑기가 무엇이 나올지 모르므로 최소한의
+   * 방어선이 미리 있어야 w1을 넘길 수 있다.
+   */
+  player: { startHp: 10, startGold: 300, startPawns: 3, hpLossNormal: 1, hpLossBoss: 5 },
 
   wave: {
     total: 20,
@@ -256,6 +263,35 @@ export const CONFIG = {
   bossForbidden: ['swift', 'splitter', 'aura', 'shielded'] as readonly EnemyTrait[],
 
   /**
+   * 기물 뽑기 — **기물을 얻는 유일한 구매 경로** (v1.16, 사용자 결정).
+   *
+   * 정가제(원하는 기물을 골라 사는 것)를 없앤 이유는 사용자가 적은 그대로다: 최적 빌드가
+   * 정해져 있으면 매 판이 같아진다. 밸런스 감사도 같은 결론을 냈다 — 최적 빌드는 룩+퀸이고
+   * 다른 구성은 전부 열세다(docs/balance-audit.md §7).
+   *
+   * ★ **확률은 사용자가 정한 값이다** (폰 40 / 나이트 25 / 비숍 25 / 룩 9 / 퀸 1). 합이 정확히
+   * 1이어야 하고, 그 사실을 테스트가 단언한다 — 합이 1이 아니면 pickByWeight가 조용히
+   * 마지막 항목으로 치우친다.
+   *
+   * ★ 기대 비용으로 본 각 기물의 실질 가격이 정가와 크게 다르다. 뽑기 1회 300G 기준:
+   *   폰 750G(정가 100) · 나이트 1,200G(300) · 비숍 1,200G(200) · 룩 3,333G(500) ·
+   *   퀸 **30,000G**(900). 즉 퀸은 사실상 한 판에 한 번 볼 수 있는 기물이 됐다
+   *   (한 판 총 골드 약 24,900G < 30,000G).
+   *   ⚠️ 밸런스는 사용자 지시로 나중에 잡는다 — 이 값들은 기능 구현용 초기값이다.
+   *
+   * `pieces[].cost`는 **여전히 살아 있다** — 판매가(sellPrice)와 지급 가치 계산이 그 값을
+   * 쓴다. 사라진 것은 "그 값을 내고 그 기물을 산다"는 경로뿐이다.
+   */
+  gacha: {
+    cost: 300,
+    weights: {
+      pawn: 0.40, knight: 0.25, bishop: 0.25, rook: 0.09, queen: 0.01,
+      // 융합물은 뽑기에도 나오지 않는다 — 융합으로만 얻는다(TRAITS[·].purchasable = false).
+      archbishop: 0, chancellor: 0, amazon: 0,
+    } as Record<PieceType, number>,
+  },
+
+  /**
    * 무작위 기물 지급 — 짝수 웨이브를 클리어할 때마다 T1 기물 하나를 **보드의 빈 칸**에 준다
    * (v1.12 — 예전에는 트레이였다).
    *
@@ -506,8 +542,8 @@ export function clearBonus(wave: number, killRatio = 1): number {
  * 누적합으로 roll ∈ [0,1)을 기물 종류에 매핑한다. **rng를 여기서 부르지 않는다** —
  * 난수는 호출부가 주입해야 테스트가 결정론적으로 전 구간을 훑을 수 있다.
  */
-export function pickGrantType(roll: number): PieceType {
-  const entries = Object.entries(CONFIG.grant.weights) as [PieceType, number][];
+function pickByWeight(weights: Record<PieceType, number>, roll: number): PieceType {
+  const entries = Object.entries(weights) as [PieceType, number][];
   const total = entries.reduce((sum, [, w]) => sum + w, 0);
   let acc = 0;
   const target = Math.min(Math.max(roll, 0), 1 - Number.EPSILON) * total;
@@ -517,4 +553,19 @@ export function pickGrantType(roll: number): PieceType {
   }
   // 부동소수 잔차로 여기 도달할 수 있다. 가중치가 0이 아닌 마지막 종류로 떨어뜨린다.
   return entries.filter(([, w]) => w > 0).map(([t]) => t).pop()!;
+}
+
+export function pickGrantType(roll: number): PieceType {
+  return pickByWeight(CONFIG.grant.weights, roll);
+}
+
+/**
+ * 뽑기 결과 (v1.16). 지급과 **같은 누적합 로직**을 쓰고 표만 다르다.
+ *
+ * ★ 로직을 공유하는 것이 중요하다. 두 곳에 같은 누적합을 적으면 경계 처리(roll이 정확히 1,
+ * 부동소수 잔차)가 한쪽에서만 고쳐진다 — 그 결함은 수만 번에 한 번 나오는 잘못된 기물이라
+ * 아무도 재현하지 못한다.
+ */
+export function pickGachaType(roll: number): PieceType {
+  return pickByWeight(CONFIG.gacha.weights, roll);
 }

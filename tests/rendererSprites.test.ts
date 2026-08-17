@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { cleanState } from './helpers';
 import { CONFIG } from '../src/config';
 import { fileCenterX, rankToTopY } from '../src/core/grid';
-import { createInitialState } from '../src/core/state';
 import { render } from '../src/render/renderer';
 import { ALLY_SPRITE_PX, setSpriteForTest, type Drawable } from '../src/render/sprites';
 import type { Enemy, Piece, PieceType } from '../src/types';
@@ -65,7 +65,7 @@ describe('render() — 이미지 경로 (스프라이트 준비 완료, sprites.
 
   it('아군 기물은 자신의 타입에 맞는 스프라이트로 drawImage되며, 칸 중심에 ALLY_SPRITE_PX 크기로 그려진다', () => {
     const { ctx, records } = makeStubCtx();
-    const state = createInitialState();
+    const state = cleanState();
     state.pieces.push(makePiece({ id: 'r1', type: 'rook', square: { file: 2, rank: 3 } }));
     state.pieces.push(makePiece({ id: 'b1', type: 'bishop', square: { file: 5, rank: 6 } }));
 
@@ -92,7 +92,7 @@ describe('render() — 이미지 경로 (스프라이트 준비 완료, sprites.
 
   it('아군 경로는 체력바를 그리지 않는다 (체력바는 적 전용, 스펙 4.1)', () => {
     const { ctx, records } = makeStubCtx();
-    const state = createInitialState();
+    const state = cleanState();
     state.pieces.push(makePiece({ id: 'q1', type: 'queen', square: { file: 0, rank: 1 } }));
 
     render(ctx as unknown as CanvasRenderingContext2D, state);
@@ -103,7 +103,7 @@ describe('render() — 이미지 경로 (스프라이트 준비 완료, sprites.
 
   it('일반 적은 폰 스프라이트로, 보스는 킹 스프라이트로 drawImage되며 크기는 CONFIG.enemy.spritePx다', () => {
     const { ctx, records } = makeStubCtx();
-    const state = createInitialState();
+    const state = cleanState();
     const size = CONFIG.enemy.spritePx;
     const normal = makeEnemy({ id: 'n1', file: 3, y: 200, isBoss: false });
     const boss = makeEnemy({ id: 'b1', file: 6, y: 400, isBoss: true, hp: 300, maxHp: 300 });
@@ -127,7 +127,7 @@ describe('render() — 이미지 경로 (스프라이트 준비 완료, sprites.
 
   it('이미지 경로에서도 적 체력바(배경+체력, fillRect 2회)는 그대로 그려진다 (스펙 4.1/7.8 — 스프라이트 유무와 무관)', () => {
     const { ctx, records } = makeStubCtx();
-    const state = createInitialState();
+    const state = cleanState();
     const e = makeEnemy({ id: 'e1', file: 4, y: 300, hp: 5, maxHp: 10 });
     state.enemies.push(e);
 
@@ -148,7 +148,7 @@ describe('render() — 이미지 경로 (스프라이트 준비 완료, sprites.
   it('일부 타입만 준비된 상태에서는 준비된 타입만 이미지로, 나머지는 여전히 글리프로 그려진다', () => {
     setSpriteForTest('ally', 'pawn', null);        // 폰만 다시 "로딩 전" 상태로 되돌린다
     const { ctx, records } = makeStubCtx();
-    const state = createInitialState();
+    const state = cleanState();
     state.pieces.push(makePiece({ id: 'p1', type: 'pawn', square: { file: 1, rank: 1 } }));
     state.pieces.push(makePiece({ id: 'r1', type: 'rook', square: { file: 2, rank: 1 } }));
 

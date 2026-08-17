@@ -18,8 +18,21 @@ body {
 .piece-icon {
   -webkit-user-drag: none;
 }
-#shop { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
-.shop-btn { padding: 6px 2px; font-size: 13px; }
+/* 뽑기 UI (v1.16). 버튼 하나 + 확률 표 — 확률을 화면에 항상 적어 두는 것이 요점이다.
+   가챠에서 확률을 숨기면 플레이어가 자기 판단의 근거를 가질 수 없다. */
+#shop { display: flex; flex-direction: column; gap: 8px; }
+#draw-btn {
+  padding: 10px 4px; font-size: 15px; font-weight: 700; line-height: 1.35;
+  cursor: pointer;
+}
+#draw-btn:disabled { cursor: default; }
+#odds {
+  list-style: none; margin: 0; padding: 6px 8px; display: flex; flex-direction: column; gap: 3px;
+  background: #35332f; border-radius: 4px; font-size: 12px;
+}
+#odds li { display: flex; align-items: center; gap: 6px; }
+#odds b { margin-left: auto; font-variant-numeric: tabular-nums; }
+.odds-icon { width: 16px; height: 16px; object-fit: contain; }
 .shop-icon { width: 22px; height: 22px; object-fit: contain; vertical-align: middle; }
 .shop-btn:disabled { opacity: 0.4; }
 #board-wrap { position: relative; }   /* 툴팁/고스트 기준점 */

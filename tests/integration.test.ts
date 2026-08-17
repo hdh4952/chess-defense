@@ -2,14 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { CONFIG, clearBonus, enemyCount } from '../src/config';
 import { createEnemy } from '../src/core/enemy';
 import { BOARD_H } from '../src/core/grid';
-import { createInitialState } from '../src/core/state';
 import { stepGame } from '../src/core/step';
 import type { GameEvent } from '../src/types';
-import { boardPiece, waveState } from './helpers';
+import { boardPiece, waveState, cleanState } from './helpers';
 
 describe('웨이브 1 엔드투엔드 (스펙 4.5 대조)', () => {
   it('a파일 룩 1개로 웨이브 1 전멸 — 무피해, 종료 시 700G', () => {
-    const s = createInitialState();
+    const s = cleanState();
     s.gold = 0;                              // 골드 흐름만 따로 검증
     s.pieces.push(boardPiece('rook', 0, 1));
     const events: GameEvent[] = [];
@@ -27,7 +26,7 @@ describe('웨이브 1 엔드투엔드 (스펙 4.5 대조)', () => {
   });
 
   it('방어가 없으면 같은 조건에서 10마리 전부 누수한 채 웨이브 2 진입', () => {
-    const s = createInitialState();
+    const s = cleanState();
     // 검증 대상은 "방어가 없으면 웨이브1 10마리가 전부 통과한다"는 것 하나다. startHp가 누수
     // 10회보다 적으면 도중에 defeat로 끊겨 그 사실 자체를 볼 수 없으므로, 체력만 넉넉히 올려
     // 밸런스 재조정과 무관하게 통과 횟수를 세도록 한다.

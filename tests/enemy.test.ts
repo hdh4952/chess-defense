@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
+import { cleanState } from './helpers';
 import { CONFIG } from '../src/config';
 import { createEnemy, moveEnemies, processLeaks } from '../src/core/enemy';
 import { BOARD_H } from '../src/core/grid';
-import { createInitialState } from '../src/core/state';
 import type { GameEvent } from '../src/types';
 
 describe('createInitialState (스펙 3)', () => {
   it('골드 300, 체력 = startHp, 기물 0개, 웨이브 1 준비 10초', () => {
-    const s = createInitialState();
+    const s = cleanState();
     expect(s.hp).toBe(CONFIG.player.startHp);
     expect(s.gold).toBe(300);
     expect(s.wave).toBe(1);
@@ -45,7 +45,7 @@ describe('createEnemy (스펙 4.1/4.2)', () => {
 
 describe('이동과 1랭크 통과 (스펙 3/9.1)', () => {
   function waveState() {
-    const s = createInitialState();
+    const s = cleanState();
     s.phase = 'wave';
     return s;
   }

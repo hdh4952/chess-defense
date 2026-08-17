@@ -4,7 +4,6 @@ import type { PieceTraits } from '../src/config';
 import { updateCombat } from '../src/core/combat';
 import { attackTargets, slowSquares, slowTargets } from '../src/core/patterns';
 import { FUSION_RECIPES } from '../src/core/fusion';
-import { buyPiece, canBuy } from '../src/core/economy';
 import { squareKey } from '../src/core/grid';
 import { resolveLanding } from '../src/core/pieces';
 import type { GameEvent, PieceType, Square } from '../src/types';
@@ -138,21 +137,34 @@ describe('TRAITS — 전수성과 일관성', () => {
     expect(TRAITS.amazon.buffFactor).toBe(TRAITS.queen.buffFactor / 2);
   });
 
-  it('★ 구매 불가 기물은 canBuy를 통과하지 못한다 — 융합물이 상점에 새지 않는다', () => {
+  it('★ 구매 불가 기물은 뽑기에서 나오지 않는다 — 융합물이 상점에 새지 않는다 (v1.16)', () => {
+    // ⚠️ v1.16에서 정가 구매(canBuy/buyPiece)가 사라져 이 단언의 형태가 바뀌었다. 지키는
+    //   불변식은 그대로다 — 융합물은 **융합으로만** 얻는다.
+    //
+    // ★ `purchasable`은 이제 코드가 직접 읽지 않는다(가챠·지급 가중치 표가 그 역할을 한다).
+    //   그래서 이 테스트가 그 필드를 **살아 있게 만드는 유일한 장치**다: 선언(purchasable)과
+    //   실제 표(weights)가 어긋나면 여기서 걸린다. 어느 쪽 하나만 고치는 실수를 막는다.
     const nonPurchasable = ALL.filter(t => !TRAITS[t].purchasable);
     expect(nonPurchasable.length).toBeGreaterThan(0);
     for (const type of nonPurchasable) {
-      const s = waveState();
-      s.gold = 999999;
-      expect(canBuy(s, type), type).toBe(false);
-      // v1.12에서 buyPiece가 보드에 직접 스폰하게 되면서 실패의 흔적이 늘었다 — null만 봐서는
-      // 기물이 이미 판에 떨어진 뒤 null을 돌려주는 구현도 통과한다. rng는 `() => 0`으로 고정해
-      // 스폰이 일어났다면 a1에 남도록 만들어 두고, 보드와 이벤트가 둘 다 그대로인지 묻는다.
-      const ev: GameEvent[] = [];
-      expect(buyPiece(s, type, ev, () => 0), type).toBeNull();
-      expect(s.pieces, type).toEqual([]);
-      expect(ev, type).toEqual([]);
+      expect(CONFIG.gacha.weights[type], type).toBe(0);
+      expect(CONFIG.grant.weights[type], type).toBe(0);
     }
+    // 반대 방향도 막는다 — 가중치가 0이 아닌 기물은 반드시 purchasable이어야 한다.
+    for (const type of ALL) {
+      if (CONFIG.gacha.weights[type] > 0) expect(TRAITS[type].purchasable, type).toBe(true);
+    }
+  });
+
+  it('★ 뽑기 가중치 합이 정확히 1이다 — 아니면 확률이 조용히 통째로 달라진다', () => {
+    // pickByWeight는 합으로 정규화하므로 합이 1이 아니어도 "동작"한다. 그래서 오타(0.09 →
+    // 0.9)가 통과하고 확률만 달라진다 — 사용자가 정한 표를 지키는 유일한 단언이다.
+    const w = Object.values(CONFIG.gacha.weights) as number[];
+    expect(w.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 10);
+    // 사용자가 정한 값을 바깥에서 한 번 못박는다(유도하면 계수 오변경을 못 잡는다).
+    expect(CONFIG.gacha.weights).toMatchObject({
+      pawn: 0.40, knight: 0.25, bishop: 0.25, rook: 0.09, queen: 0.01,
+    });
   });
 });
 

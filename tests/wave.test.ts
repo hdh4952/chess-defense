@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { cleanState } from './helpers';
 import { CONFIG, clearBonus, enemyCount } from '../src/config';
-import { createInitialState } from '../src/core/state';
 import {
   checkWaveEnd, remainingEnemies, startWave, updatePrepare, updateSpawning,
 } from '../src/core/wave';
@@ -10,7 +10,7 @@ const rngFile = (file: number) => () => file / 8; // floor(rng*8) === file
 
 describe('준비 시간 (스펙 3/4.4)', () => {
   it('10초 경과 시 자동으로 웨이브 시작', () => {
-    const s = createInitialState();
+    const s = cleanState();
     updatePrepare(s, 9.99);
     expect(s.phase).toBe('prepare');
     updatePrepare(s, 0.02);
@@ -18,7 +18,7 @@ describe('준비 시간 (스펙 3/4.4)', () => {
     expect(s.spawnedCount).toBe(0);
   });
   it('수동 시작 가능, prepare가 아닐 때는 무시', () => {
-    const s = createInitialState();
+    const s = cleanState();
     startWave(s);
     expect(s.phase).toBe('wave');
     startWave(s); // 이미 wave — 상태 불변
@@ -28,7 +28,7 @@ describe('준비 시간 (스펙 3/4.4)', () => {
 
 describe('스폰 (스펙 4.1/4.4)', () => {
   it('시작 즉시 1마리, 이후 1.0초 간격', () => {
-    const s = createInitialState();
+    const s = cleanState();
     startWave(s);
     updateSpawning(s, 0.1, [], rngFile(3));
     expect(s.enemies).toHaveLength(1);
@@ -39,14 +39,14 @@ describe('스폰 (스펙 4.1/4.4)', () => {
     expect(s.enemies).toHaveLength(2);
   });
   it('웨이브 1은 총 10마리에서 멈춘다', () => {
-    const s = createInitialState();
+    const s = cleanState();
     startWave(s);
     updateSpawning(s, 60, [], rngFile(0));
     expect(s.spawnedCount).toBe(10);
     expect(s.enemies).toHaveLength(10);
   });
   it('보스 웨이브(5)는 보스 1마리 + bossSpawned 이벤트', () => {
-    const s = createInitialState();
+    const s = cleanState();
     s.wave = 5;
     startWave(s);
     const ev: GameEvent[] = [];
@@ -60,7 +60,7 @@ describe('스폰 (스펙 4.1/4.4)', () => {
 
 describe('웨이브 종료 (스펙 3/4.4)', () => {
   function clearedWave(wave: number) {
-    const s = createInitialState();
+    const s = cleanState();
     s.wave = wave;
     startWave(s);
     updateSpawning(s, 60, [], rngFile(0));
@@ -72,7 +72,7 @@ describe('웨이브 종료 (스펙 3/4.4)', () => {
   }
 
   it('스폰이 남았거나 생존자가 있으면 종료되지 않는다', () => {
-    const s = createInitialState();
+    const s = cleanState();
     startWave(s);
     updateSpawning(s, 0.1, [], rngFile(0)); // 1/10 스폰
     checkWaveEnd(s, []);
@@ -128,14 +128,14 @@ describe('웨이브 종료 (스펙 3/4.4)', () => {
 
 describe('remainingEnemies (HUD)', () => {
   it('wave 중: 미스폰 + 생존', () => {
-    const s = createInitialState();
+    const s = cleanState();
     startWave(s);
     updateSpawning(s, 2.5, [], rngFile(0)); // 3마리 스폰
     s.enemies.pop();                        // 1마리 처치됨
     expect(remainingEnemies(s)).toBe(10 - 3 + 2);
   });
   it('prepare 중: 다음 웨이브 총원', () => {
-    const s = createInitialState();
+    const s = cleanState();
     expect(remainingEnemies(s)).toBe(10);
   });
 });

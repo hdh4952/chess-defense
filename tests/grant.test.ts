@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG, TRAITS, clearBonus, enemyCount, pickGrantType } from '../src/config';
 import { emptySquares, sellPrice } from '../src/core/economy';
-import { createInitialState } from '../src/core/state';
 import { checkWaveEnd, startWave, updateSpawning } from '../src/core/wave';
 import type { GameEvent, GameState, PieceType } from '../src/types';
 import {
-  countingRng, cycleRng, fullRun, minWinBuild, rooksTwoPerFile, totalSplitBorn,
-} from './helpers';
+  countingRng, cycleRng, fullRun, minWinBuild, rooksTwoPerFile, totalSplitBorn, cleanState } from './helpers';
 
 /**
  * 무작위 지급 — 짝수 웨이브 클리어마다 T1 기물 하나.
@@ -24,7 +22,7 @@ const BOARD_CAPACITY = CONFIG.board.files * (CONFIG.board.ranks - 1);
 
 /** 적을 전부 처치한 상태로 웨이브를 끝낸 상태 */
 function clearedWave(wave: number) {
-  const s = createInitialState();
+  const s = cleanState();
   s.wave = wave;
   startWave(s);
   updateSpawning(s, 60, [], rngFile(0));

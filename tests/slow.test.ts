@@ -5,11 +5,10 @@ import { squareKey } from '../src/core/grid';
 import { slowSquares, slowTargets } from '../src/core/patterns';
 import { canPlaceAt } from '../src/core/pieces';
 import { NO_SLOW, slowCoverage, slowFactorAt, slowFieldSquares, updateSlowAura } from '../src/core/slow';
-import { createInitialState } from '../src/core/state';
 import { stepGame } from '../src/core/step';
 import { HIGHLIGHT_COLORS, buildHighlights } from '../src/render/highlights';
 import type { GameEvent, PieceType, Square } from '../src/types';
-import { boardPiece, enemyAt, waveState } from './helpers';
+import { boardPiece, enemyAt, waveState, cleanState } from './helpers';
 
 /**
  * 감속 오라 (v1.13) — 나이트 계열이 L자 8칸의 적을 늦추고, 그 세기가 티어에 따라 커진다.
@@ -430,7 +429,7 @@ describe('8랭크(스폰 구역)에서의 실제 효과', () => {
 
 describe('페이즈 게이트', () => {
   it('prepare에서는 적이 아예 움직이지 않으므로 감속도 무의미하다', () => {
-    const s = createInitialState();                 // phase 'prepare'
+    const s = cleanState();                 // phase 'prepare'
     s.pieces.push(boardPiece('knight', 0, 3));
     const e = enemyAt(1, 2, 4);
     s.enemies.push(e);
