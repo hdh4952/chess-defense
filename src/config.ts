@@ -151,41 +151,109 @@ export const CONFIG = {
   },
 
   /**
-   * 적 유형 — 웨이브가 진행되며 섞여 들어오는 세 가지 정체성.
+   * 적 유형 — 웨이브가 진행되며 섞여 들어오는 다섯 가지 정체성 (v1.14에서 3종 → 5종 재정의).
    *
    * **이것은 난이도 노브가 아니다.** 헤드리스 실측으로 룩 2기/파일 이상에서는 감산을 0.5까지
    * 내려도 w16~w19 누수가 전부 0이었다(포화). 난이도는 보스가 담당하고(bossDamageMultiplier),
-   * 유형이 하는 일은 **구성 편중을 깨는 것**이다 — 정가제의 실제 최적해는 폰 스팸이었는데
-   * (자동 플레이어 실측: 폰 222.9기 / 룩 0기) T1 폰은 2딜이라 감산에 정면으로 취약하다.
-   * traitRatio를 올려 난이도를 잡으려는 시도는 위 포화 실측 때문에 듣지 않는다.
+   * 유형이 하는 일은 **구성 편중을 깨는 것**이다 — 각 유형이 "무엇을 강제하는가"로 설계됐다.
    *
-   * ★ 감산이 **비율**인 이유: 고정 감산(−2)은 티어마다 다른 비율로 깎아 합성의 골드 중립성을
-   * 무너뜨린다(실측: 룩 +33% / 나이트 +100% / 비숍 −50%). 비율이면 모든 티어에 같은 배수가
-   * 걸려 정확히 보존되고, "최소 피해 1 보장" 같은 바닥도 필요 없어진다.
-   * 값은 **이진 정확값만** 쓴다 — 3 × 0.6 = 1.7999999999999998이라 정수 단언이 밸런스와
-   * 무관하게 깨진다. 0.5 / 0.625 / 0.75는 전부 정확하다.
+   * ★ **v1.14에서 세 유형이 이름을 유지한 채 규칙이 바뀌었다**(사용자 결정). 이름만 보고
+   * 예전 규칙을 가정하면 안 된다:
+   *
+   * | 유형 | v1.9~v1.13 | ★ v1.14 | 강제하는 것 |
+   * |---|---|---|---|
+   * | armored  | 받는 피해 ×0.625 | **공격력이 문턱 미만이면 피해 0** | 폰 도배 무력화 → 버프·합성 강제 |
+   * | swift    | 속도 ×1.5 (2.0초/칸) | **속도 ×2.0 (1.5초/칸)** | 룩의 8회 타격이 4회로 → 반응 재배치 |
+   * | shielded | 흡수 풀 maxHp의 15% | **전방(낮은 랭크) 피해 무시** | 폰의 전방 대각이 안 먹힘 → 뒤에서 쏘기 |
+   * | splitter | — | **사망 시 인접 파일로 2마리** | 관통형(비숍) 가치 급등 |
+   * | aura     | — | **주변 적의 유효 체력 +N** | 우선 처치 판단 |
+   *
+   * ★ **왜 장갑형이 고정 감산(−2)이 아니라 문턱인가** (사용자 결정). 고정 감산은 티어마다 다른
+   * 비율로 깎아 합성의 골드 중립성을 무너뜨린다(실측: 룩 +33% / 나이트 +100% / 비숍 −50%).
+   * 회귀 신호 N4가 그 중립성을 감시하므로 −2를 넣으면 그 자리에서 깨진다. 문턱은 같은 의도
+   * (약한 기물만 골라 무력화)를 달성하면서 **문턱을 넘은 뒤에는 피해가 그대로 통과**하므로
+   * 중립성이 티어별로 이산적으로만 갈린다.
+   *
+   * ★ **문턱이 3인 근거는 퀸 버프다.** T1 폰은 2딜이라 혼자서는 0이지만, 퀸 라인 위에서는
+   * 2 × (1+1) = 4로 문턱을 넘는다. 즉 "폰 도배는 죽지만 버프받은 폰은 산다" — 사용자가 적은
+   * "룩/퀸 버프 강제"가 이 한 숫자에서 나온다. 판정은 **감산 전 원피해**(pieceDamage의 결과,
+   * 즉 티어·버프가 이미 곱해진 값)로 한다.
+   *
+   * ★ **보스에게는 문턱이 아니라 비율을 쓴다.** 보스 HP는 420~1,770이라 어떤 실전 빌드도
+   * 문턱 3을 넘으므로 문턱은 보스에게 완전한 no-op이 된다. 그런데 이 값(0.875)은 **일반
+   * 웨이브를 건드리지 않고 보스 난이도만 조절할 수 있는 유일한 노브**이고 S2에서 5안을 재서
+   * 고른 값이다 — 유형을 재정의하면서 잃으면 안 된다.
    */
   traitDefs: {
-    armored:  { damageMultiplier: 0.625, bossDamageMultiplier: 0.875 },
-    swift:    { speedMultiplier: 1.5 },
-    shielded: { absorbPool: 0.15 },
+    armored:  { damageThreshold: 3, bossDamageMultiplier: 0.875 },
+    swift:    { speedMultiplier: 2.0 },
+    shielded: { ignoreFrontal: true },
+    splitter: { splitCount: 2, splitHpRatio: 0.5 },
+    aura:     { auraBonusHp: 12, auraRadius: 2 },
   } as Record<EnemyTrait, {
-    damageMultiplier?: number; bossDamageMultiplier?: number;
-    speedMultiplier?: number; absorbPool?: number;
+    /** 이 값 **미만**의 원피해는 0이 된다(장갑형). 이상이면 감산 없이 그대로 통과한다. */
+    damageThreshold?: number;
+    /** 보스 전용 피해 배수. 문턱은 보스에게 무의미하므로 보스 난이도 노브는 이쪽이다. */
+    bossDamageMultiplier?: number;
+    speedMultiplier?: number;
+    /** 적보다 **낮은 랭크**에서 온 피해를 무시한다(실드형). 적은 위에서 아래로 내려오므로
+     *  낮은 랭크가 곧 그 적의 진행 방향 = 전방이다. */
+    ignoreFrontal?: boolean;
+    /** 사망 시 생성할 분열체 수. */
+    splitCount?: number;
+    /** 분열체가 물려받는 체력 비율. 1이면 총 체력이 3배가 되므로 1 미만이어야 한다. */
+    splitHpRatio?: number;
+    /** 주변 적에게 더해 주는 유효 체력. */
+    auraBonusHp?: number;
+    /** 오라가 닿는 반경(칸). 체비쇼프 거리로 잰다. */
+    auraRadius?: number;
   }>,
 
-  /** 각 유형이 처음 등장하는 웨이브 */
-  traitSchedule: { armored: 6, swift: 9, shielded: 12 } as Record<EnemyTrait, number>,
+  /**
+   * 각 유형이 처음 등장하는 웨이브. 다섯 종이 되면서 간격을 좁혔지만 **하한이 있다.**
+   *
+   * ⚠️ **armored를 6보다 앞으로 당기면 안 된다.** w5가 첫 보스이고, 보스는 해금된 유형을
+   * 곧바로 받으므로(enemyTraits) armored: 4로 두면 첫 보스가 0.875 배수를 달고 나온다 —
+   * 실제로 그렇게 해 봤더니 N3(w5 게이트 최소성)가 그 자리에서 깨졌다. 이 게임은 w5를
+   * 900G짜리 최소 빌드로 넘을 수 있어야 하고, 그 전제가 "첫 보스는 맨몸"이다.
+   *
+   * 그래서 v1.9의 armored: 6을 그대로 두고 뒤쪽만 촘촘히 했다. aura가 가장 늦은 16인데
+   * 일반 적이 있는 마지막 웨이브가 19라 w16~19 네 웨이브에 등장한다 — 얇지만, 앞으로 당기면
+   * 유형 다섯이 한꺼번에 쏟아지는 구간이 생긴다.
+   */
+  traitSchedule: {
+    armored: 6, swift: 8, shielded: 11, splitter: 14, aura: 16,
+  } as Record<EnemyTrait, number>,
   /** 일반 적 중 유형을 갖는 비율 (결정론적 쿼터) */
   traitRatio: 0.3,
   /** 유형별 쿼터 위상. 겹치면 같은 적에게 몰려 분포가 무너지므로 서로 어긋나게 둔다. */
-  traitPhase: { armored: 0, swift: 3, shielded: 7 } as Record<EnemyTrait, number>,
+  traitPhase: {
+    armored: 0, swift: 3, shielded: 7, splitter: 11, aura: 5,
+  } as Record<EnemyTrait, number>,
   /** 일반 적이 동시에 가질 수 있는 유형 수 */
   maxTraitsNormal: 1,
   /** 보스가 유형 둘을 겸하기 시작하는 웨이브 */
   bossTraitCountFromWave: 15,
-  /** 보스에게 붙지 않는 유형. 보스는 "딜을 넣을 시간을 주는" 설계라 가속이 그 전제를 깬다. */
-  bossForbidden: ['swift'] as readonly EnemyTrait[],
+  /**
+   * 보스에게 붙지 않는 유형. **넷이 금지되고 armored만 남는다.**
+   *  - swift: 보스는 "딜을 넣을 시간을 주는" 설계라 가속이 그 전제를 깬다.
+   *  - splitter: 보스가 분열하면 보스가 여러 마리가 된다 — 누수 −5가 배로 늘어 즉사한다.
+   *  - aura: 보스는 단독 스폰이라 주변에 버프할 적이 없다(완전한 no-op이므로 붙일 이유가 없다).
+   *  - shielded: ★ **실측으로 게임이 클리어 불가능해져서 금지했다.** swift와 정확히 같은 논리다 —
+   *    전방 무시는 딜 창을 절반 이하로 줄여 "딜을 넣을 시간을 준다"는 보스의 전제를 깬다.
+   *    실측: 최소 승리 빌드(18,800G)의 w15 보스가 8/8 → **0/8**(평균딜 891/1,170)이 되고,
+   *    같은 골드를 높은 랭크(r5~r7)로 전부 올려도 6/8이 최선이며 w20은 그래도 0/8이다.
+   *    보스 처치가 3/4 → 2/4로 떨어지면 보스 누수 2회 = −10 = 시작 체력 전부다.
+   *
+   * ⚠️ 그 결과 **`bossTraitCountFromWave`가 휴면 상태가 됐다** — 보스가 가질 수 있는 유형이
+   * armored 하나뿐이라 "둘을 겸한다"가 성립하지 않는다. 값을 남겨 둔 이유는 보스에 붙일 수
+   * 있는 유형이 다시 둘 이상이 되면 즉시 살아나기 때문이다(traitPhase와 같은 성격).
+   *
+   * ⚠️ 그리고 이것은 **보스를 v1.13보다 쉽게 만든다.** 예전 shielded(흡수 풀 15%)는 보스에게
+   * 붙어서 w15의 난이도 단계를 만들고 있었다. 지금 w15·w20 보스는 armored만 단다.
+   * 밸런스를 다시 잡을 때 이 자리가 첫 후보다(docs/balance-audit.md 참고).
+   */
+  bossForbidden: ['swift', 'splitter', 'aura', 'shielded'] as readonly EnemyTrait[],
 
   /**
    * 무작위 기물 지급 — 짝수 웨이브를 클리어할 때마다 T1 기물 하나를 **보드의 빈 칸**에 준다
@@ -369,16 +437,47 @@ export function enemyTraits(wave: number, spawnIndex: number, isBoss: boolean): 
   return [unlocked[nth % unlocked.length]].slice(0, CONFIG.maxTraitsNormal);
 }
 
-/** 이 적이 받는 피해 배수 (장갑). 보스는 별도 값을 쓴다 — 일반 웨이브를 건드리지 않고
- *  난이도를 조절할 수 있는 유일한 노브이기 때문이다. */
+/**
+ * 보스가 받는 피해 배수. **일반 적에게는 항상 1이다** — 일반 적의 장갑은 배수가 아니라
+ * 문턱(damageThresholdFor)으로 동작하기 때문이다(v1.14).
+ *
+ * 이 값이 남아 있는 이유는 그것이 **일반 웨이브를 건드리지 않고 보스 난이도만 조절할 수 있는
+ * 유일한 노브**이고, S2에서 5안을 실측해 고른 값이기 때문이다. 문턱은 보스에게 완전한
+ * no-op이므로(보스 HP 420~1,770 앞에서 어떤 실전 빌드도 문턱 3을 넘는다) 유형을 재정의하면서
+ * 이 노브를 잃으면 보스 축의 난이도가 조용히 내려간다.
+ */
 export function armorMultiplier(traits: readonly EnemyTrait[], isBoss: boolean): number {
+  if (!isBoss) return 1;
   let m = 1;
   for (const t of traits) {
-    const def = CONFIG.traitDefs[t];
-    const v = isBoss ? def.bossDamageMultiplier ?? def.damageMultiplier : def.damageMultiplier;
+    const v = CONFIG.traitDefs[t].bossDamageMultiplier;
     if (v !== undefined) m *= v;
   }
   return m;
+}
+
+/**
+ * 이 적을 때리려면 넘어야 하는 **최소 원피해**. 없으면 0.
+ *
+ * ★ 문턱 **미만이면 0, 이상이면 감산 없이 전량 통과**다. 그래서 합성의 골드 중립성이
+ * 티어별로 이산적으로만 갈린다 — 고정 감산(−2)이 모든 티어를 서로 다른 비율로 깎아
+ * 중립성을 연속적으로 무너뜨리는 것과 다르다(N4가 그 차이를 감시한다).
+ *
+ * 보스에게는 적용하지 않는다 — 위 armorMultiplier 주석 참조.
+ */
+export function damageThresholdFor(traits: readonly EnemyTrait[], isBoss: boolean): number {
+  if (isBoss) return 0;
+  let th = 0;
+  for (const t of traits) {
+    const v = CONFIG.traitDefs[t].damageThreshold;
+    if (v !== undefined) th = Math.max(th, v);
+  }
+  return th;
+}
+
+/** 이 적이 **전방**(자기보다 낮은 랭크)에서 온 피해를 무시하는가 (실드형, v1.14). */
+export function ignoresFrontalDamage(traits: readonly EnemyTrait[]): boolean {
+  return traits.some(t => CONFIG.traitDefs[t].ignoreFrontal === true);
 }
 
 

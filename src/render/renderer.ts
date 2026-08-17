@@ -17,7 +17,9 @@ export const SPAWN_BORDER_PX = 4;
 const TRAIT_COLOR: Record<EnemyTrait, string> = {
   armored: '#9AA7B4',    // 회청 — 금속
   swift: '#4FD1C5',      // 청록 — 속도
-  shielded: '#B98CFF',   // 연보라 — 보호막
+  shielded: '#B98CFF',   // 연보라 — 전면 방패
+  splitter: '#7BD16B',   // 연녹 — 분열(증식). 아군 티어 2단계 초록(#4CAF50)보다 밝게 띄웠다
+  aura: '#FFB454',       // 주황 — 오라. 골드 텍스트(#ffd34d)와 겹치지 않도록 채도를 올렸다
 };
 
 export interface ViewState {
@@ -360,17 +362,16 @@ function drawTraitMarks(ctx: CanvasRenderingContext2D, e: Enemy, x: number, top:
     ctx.stroke();
     cx -= 9;
   }
-  // 보호막은 "얼마나 남았는가"가 보여야 한다 — 남은 풀에 비례하는 아크로 그린다.
-  if (e.shieldPool > 0) {
-    const full = Math.round(e.maxHp * (CONFIG.traitDefs.shielded.absorbPool ?? 0));
-    if (full > 0) {
-      ctx.beginPath();
-      ctx.arc(x, e.y, CONFIG.enemy.spritePx / 2 + 3, -Math.PI / 2,
-        -Math.PI / 2 + (Math.PI * 2 * Math.min(1, e.shieldPool / full)));
-      ctx.lineWidth = 2.5;
-      ctx.strokeStyle = TRAIT_COLOR.shielded;
-      ctx.stroke();
-    }
+  // ★ 실드형은 **방향**을 보여야 한다(v1.14). 예전의 흡수 풀은 "얼마나 남았는가"라 아크
+  //   게이지가 맞았지만, 지금은 남는 값이 없고 "어느 쪽에서 때려야 먹히는가"가 전부다.
+  //   적 아래쪽(진행 방향 = 막히는 쪽)에 호를 그려 그 반쪽이 잠겨 있음을 보인다.
+  if (e.traits.includes('shielded')) {
+    ctx.beginPath();
+    // 캔버스 y는 아래로 증가하므로 0 ~ π가 스프라이트 **아래쪽** 반원이다.
+    ctx.arc(x, e.y, CONFIG.enemy.spritePx / 2 + 3, 0, Math.PI);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = TRAIT_COLOR.shielded;
+    ctx.stroke();
   }
   ctx.restore();
 }

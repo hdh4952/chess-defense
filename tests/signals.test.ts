@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { CONFIG, clearBonus, enemyCount, enemyHp, pickGrantType } from '../src/config';
+import {
+  CONFIG, clearBonus, enemyCount, enemyHp, pickGrantType, tierMultiplier,
+} from '../src/config';
 import { emptySquares, sellPrice } from '../src/core/economy';
 import { createInitialState } from '../src/core/state';
 import {
@@ -125,7 +127,10 @@ describe('N1b — 실측 구매력 ★ (감시: 무작위 지급 · 지급 기�
     }
 
     // ★ 비숍만 **보유 골드 자체**를 부풀린다(goldPerAttack). 나머지 셋은 원가만 더한다.
-    expect(by.bishop.peakGold - by.pawn.peakGold).toBe(9320);
+    // v1.14에서 9,320 → 9,170으로 내려갔다: 장갑형이 문턱 방식이 되면서 비숍(1딜)의 피해가
+    // 장갑 적에게 통째로 0이 됐고, 그만큼 처치 골드가 줄었다. 발사 자체는 막히지 않으므로
+    // goldPerAttack 수입은 그대로다 — 그래서 감소폭이 150G에 그친다.
+    expect(by.bishop.peakGold - by.pawn.peakGold).toBe(9170);
     expect(by.knight.peakGold).toBe(by.pawn.peakGold);   // 나이트는 공격력 0이라 수입에 무관
 
     // 룩은 이미 전멸하는 웨이브라 처치를 늘리지 못한다 — 원가만큼만 구매력이 는다.
@@ -133,7 +138,7 @@ describe('N1b — 실측 구매력 ★ (감시: 무작위 지급 · 지급 기�
 
     // 실측 구매력 기준선. 가장 낮은 폰과 가장 높은 비숍의 폭이 곧 지급의 분산이다.
     expect(by.pawn.peakGold + by.pawn.grantedValue).toBe(21432);
-    expect(by.bishop.peakGold + by.bishop.grantedValue).toBe(31752);
+    expect(by.bishop.peakGold + by.bishop.grantedValue).toBe(31602);
     expect(by.bishop.peakGold + by.bishop.grantedValue)
       .toBeGreaterThan((by.pawn.peakGold + by.pawn.grantedValue) * 1.4);
   });
@@ -168,9 +173,43 @@ describe('N2 — 단일 적 종주 총피해 (감시: 적 유형·융합 단계)
     // 이 신호가 안 움직이면 유형이 스폰 경로에만 있고 피해 계산에는 닿지 않은 것이다.
     const rook = () => [boardPiece('rook', 2, 1)];
     expect(transitDamage(19, rook(), 2)).toBe(40);
-    expect(transitDamage(19, rook(), 2, ['armored'])).toBe(25);
-    expect(transitDamage(19, rook(), 2, ['shielded'])).toBe(32);
-    expect(transitDamage(19, rook(), 2, ['swift'])).toBe(30);   // 종주가 짧아져 발사 기회가 준다
+    // ★ v1.14: armored는 이제 **문턱**이라 룩(5딜 > 문턱 3)에게는 아무 일도 하지 않는다.
+    //   비율 감산 시절과 달리 "장갑이 붙으면 룩 피해가 줄어든다"는 더 이상 참이 아니다.
+    expect(transitDamage(19, rook(), 2, ['armored'])).toBe(40);
+    expect(transitDamage(19, rook(), 2, ['shielded'])).toBe(5);    // 뒤에서 못 쏘면 거의 통째로 막힌다
+    expect(transitDamage(19, rook(), 2, ['swift'])).toBe(20);      // 종주가 절반이라 발사 기회도 절반
+  });
+
+  it('★ 장갑형이 실제로 무언가 막는다는 증거 — 문턱 아래 기물로 재야 보인다 (v1.14)', () => {
+    // 위 테스트에서 룩은 문턱을 넘으므로 armored가 no-op이다. 그래서 **문턱 아래 기물**로
+    // 따로 재지 않으면 "장갑이 붙어도 아무 일도 안 일어난다"는 상태와 구분되지 않는다.
+    // 폰(2딜)과 비숍(1딜)이 문턱 3 아래에 있어 이 역할을 한다.
+    const th = CONFIG.traitDefs.armored.damageThreshold!;
+    expect(CONFIG.pieces.pawn.damage).toBeLessThan(th);
+    const pawns = () => [boardPiece('pawn', 1, 4), boardPiece('pawn', 3, 4)];
+    expect(transitDamage(19, pawns(), 2)).toBe(24);
+    expect(transitDamage(19, pawns(), 2, ['armored'])).toBe(0);     // ★ 완전 봉쇄
+    expect(transitDamage(19, [boardPiece('bishop', 3, 4)], 3, ['armored'])).toBe(0);
+    // 그런데 합성하면 넘는다 — 문턱을 여는 두 경로 중 하나(다른 하나는 퀸 버프, N4가 잰다).
+    const t2 = [boardPiece('pawn', 1, 4, 2), boardPiece('pawn', 3, 4, 2)];
+    expect(transitDamage(19, t2, 2, ['armored'])).toBeGreaterThan(0);
+  });
+
+  it('★ 실드형은 랭크에 민감하다 — "룩이 뒤에서 쏴야 함"이 수치로 드러난다 (v1.14)', () => {
+    // 적은 위에서 아래로 내려오므로 낮은 랭크가 그 적의 전방이다. 룩을 위로 올릴수록
+    // 적의 뒤에서 쏘는 시간이 길어져 피해가 단조 증가한다 — 이 단조성이 방향 규칙이
+    // 실제로 걸려 있다는 증거이고, 부호가 뒤집히면(위로 갈수록 줄면) 방향이 반대로 구현된 것이다.
+    const at = (rank: number): number =>
+      transitDamage(19, [boardPiece('rook', 2, rank)], 2, ['shielded']);
+    expect(at(1)).toBe(5);
+    expect(at(4)).toBe(20);
+    expect(at(7)).toBe(35);
+    for (let r = 2; r <= CONFIG.board.ranks - 1; r++) {
+      expect(at(r), `r${r}`).toBeGreaterThan(at(r - 1));
+    }
+    // 유형이 없으면 랭크가 결과를 바꾸지 않는다 — 위 단조성이 실드형 때문임을 격리한다.
+    const plain = (rank: number): number => transitDamage(19, [boardPiece('rook', 2, rank)], 2);
+    expect(plain(7)).toBe(plain(1));
   });
 
   it('폰 2기 = 24 · 비숍 1기 = 1 (웨이브 무관 — 화력이 적 체력에 의존하지 않는다)', () => {
@@ -226,11 +265,10 @@ describe('N4 — 합성 골드 중립성 (감시: 적 유형·융합 단계)', (
   // ★ 불변식의 형태가 중요하다. "티어 k 피해 ÷ 2^(k−1)이 일정"은 **곱셈 효과에만** 성립하고
   // 보호막처럼 총량에서 한 번 빼는 효과에는 성립하지 않는다(풀은 기물 수와 무관하게 한 번만
   // 소모되므로). 실제로 지켜야 할 것은 "**같은 골드**에서 T1 둘과 T2 하나가 같은 결과"다.
-  const TRAIT_CASES: EnemyTrait[][] = [
-    [], ['armored'], ['shielded'], ['swift'], ['armored', 'shielded'],
-  ];
+  // ★ v1.14에서 실드형이 이 목록에서 빠졌다. 아래 전용 테스트가 그 이유를 다룬다.
+  const TRAIT_CASES: EnemyTrait[][] = [[], ['armored'], ['swift'], ['splitter'], ['aura']];
 
-  it('T1 둘 = T2 하나 — 모든 적 유형 조합에서', () => {
+  it('T1 둘 = T2 하나 — 방향 무관 유형 전부에서', () => {
     for (const traits of TRAIT_CASES) {
       const spread = transitDamage(20, [boardPiece('rook', 2, 1), boardPiece('rook', 2, 2)], 2, traits);
       const merged = transitDamage(20, [boardPiece('rook', 2, 1, 2)], 2, traits);
@@ -238,15 +276,56 @@ describe('N4 — 합성 골드 중립성 (감시: 적 유형·융합 단계)', (
     }
   });
 
-  it('장갑은 비율이라 티어에 같은 배수가 걸린다', () => {
-    // 고정 감산(−2)이면 여기가 깨진다 — 티어마다 다른 비율로 깎이기 때문이다.
-    // 이 단언 하나가 "장갑은 비율 감산" 결정을 영구히 강제한다.
-    const armor = CONFIG.traitDefs.armored.damageMultiplier!;
+  it('★ 실드형은 중립성을 깬다 — 티어 때문이 아니라 **칸 수** 때문이다 (v1.14)', () => {
+    // 숨기지 않고 못박는다. 실드형은 "때린 위치"로 피해 성립을 가르므로, 두 칸을 쓰는 분산이
+    // 한 칸을 쓰는 합성보다 유효 사격 시간이 길다(랭크 1·2 대 랭크 1). 즉 깨지는 축이 티어가
+    // 아니라 **점유 칸 수**이고, 이것은 방향 규칙이라면 어떤 형태로든 피할 수 없다.
+    //
+    // 이 게임의 합성은 원래 "증폭이 아니라 압축"이었다 — 다른 것은 방어선이 차지하는 칸뿐이다.
+    // 실드형은 그 유일한 차이에 처음으로 값을 매긴 유형이고, 그래서 **실드형이 나오는
+    // 웨이브에서는 합성이 손해**가 된다. 의도된 성질로 두고 크기를 기록한다.
+    const spread = transitDamage(20, [boardPiece('rook', 2, 1), boardPiece('rook', 2, 2)], 2, ['shielded']);
+    const merged = transitDamage(20, [boardPiece('rook', 2, 1, 2)], 2, ['shielded']);
+    expect(spread).toBe(15);
+    expect(merged).toBe(10);
+    expect(spread).toBeGreaterThan(merged);
+
+    // ★ 그리고 그 손해는 **오직 방향 때문**이다 — 같은 두 빌드가 유형 없이는 정확히 같다.
+    const plainSpread = transitDamage(20, [boardPiece('rook', 2, 1), boardPiece('rook', 2, 2)], 2);
+    const plainMerged = transitDamage(20, [boardPiece('rook', 2, 1, 2)], 2);
+    expect(plainMerged).toBe(plainSpread);
+  });
+
+  it('★ 장갑은 문턱이다 — 넘기 전에는 0, 넘은 뒤에는 배수가 정확히 보존된다 (v1.14)', () => {
+    // ⚠️ v1.13까지 이 자리는 "장갑은 비율이라 티어에 같은 배수가 걸린다"였다. 사용자가 장갑을
+    //   **문턱 방식**으로 정하면서(고정 감산 −2는 중립성을 무너뜨려 기각) 불변식의 형태가
+    //   바뀌었다 — 이제 지켜야 할 것은 "모든 티어에 같은 배수"가 아니라 다음 둘이다:
+    //     ① 문턱 미만이면 정확히 0 (부분 피해가 없다 — 그것이 고정 감산과 다른 점이다)
+    //     ② 문턱을 넘은 뒤에는 **감산이 전혀 없다** → 티어 배수가 그대로 보존된다
+    //   ②가 골드 중립성을 지키는 지점이다. 감산이 있으면 티어마다 비율이 갈린다.
+    const th = CONFIG.traitDefs.armored.damageThreshold!;
+    let below = 0, above = 0;
     for (let k = 1; k <= CONFIG.merge.maxTier.bishop; k++) {
+      const raw = CONFIG.pieces.bishop.damage * tierMultiplier(k);
       const plain = transitDamage(20, [boardPiece('bishop', 3, 4, k)], 3);
       const armored = transitDamage(20, [boardPiece('bishop', 3, 4, k)], 3, ['armored']);
-      expect(armored).toBe(plain * armor);
+      if (raw < th) { expect(armored, `T${k} raw ${raw}`).toBe(0); below++; }
+      else { expect(armored, `T${k} raw ${raw}`).toBe(plain); above++; }
     }
+    // ★ 공허 방지 — 문턱의 양쪽이 실제로 관측돼야 이 테스트가 무언가를 지킨다.
+    expect(below).toBeGreaterThan(0);
+    expect(above).toBeGreaterThan(0);
+  });
+
+  it('★ 문턱은 퀸 버프와 합성 둘 다로 넘을 수 있다 — 사용자가 정한 설계 의도', () => {
+    // "폰 도배(공격력 2)가 무력화 → 룩/퀸 버프 강제"가 이 유형의 존재 이유다. 문턱 3이라는
+    // 숫자가 그 의도를 정확히 실현하는지 여기서 고정한다 — 문턱을 4로 올리면 버프받은 폰도
+    // 막혀 "버프 강제"가 "폰 폐기"가 되고, 2로 내리면 단독 폰이 통과해 의도가 사라진다.
+    const th = CONFIG.traitDefs.armored.damageThreshold!;
+    const base = CONFIG.pieces.pawn.damage;
+    expect(base).toBeLessThan(th);                       // 단독 T1 폰은 막힌다
+    expect(base * 2).toBeGreaterThanOrEqual(th);         // 퀸 버프 1개(×2)면 넘는다
+    expect(base * tierMultiplier(2)).toBeGreaterThanOrEqual(th);   // 합성 T2(×2)도 넘는다
   });
 });
 
@@ -382,11 +461,16 @@ describe('N6 — 엔진 무결성 풀런 (감시: 전 단계)', () => {
     // 폰 지급은 공식과 정확히 일치한다 — 지급이 수입에 관여하지 않는 유일한 경우다.
     expect(pawns.earned).toBe(earnedFor(w => w % CONFIG.wave.bossEvery !== 0));
 
-    // 크기를 못박는다. 지급 10회 전부가 비숍일 때의 실측 증가분이다 — 기준 수입 20,132G의
-    // **+46%**이고, 비숍 1기당 932G다(CONFIG.pieces 주석의 "한 판 1,120~1,850G"보다 낮은 것은
-    // 지급이 짝수 웨이브마다 늦게 도착해 버는 시간이 짧기 때문이다).
-    // 이 값이 v1.12가 플레이어에게 준 실질 이득의 크기이고, 밸런스를 되돌려야 할 때 볼 수다.
-    expect(bishops.earned - pawns.earned).toBe(9320);
+    // 크기를 못박는다. 지급 10회 전부가 비숍일 때의 실측 증가분이다 — 비숍 1기당 917G다
+    // (CONFIG.pieces 주석의 "한 판 1,120~1,850G"보다 낮은 것은 지급이 짝수 웨이브마다 늦게
+    // 도착해 버는 시간이 짧기 때문이다).
+    //
+    // ⚠️ 이 수치를 "v1.12가 플레이어에게 준 이득"으로 읽지 말 것 — 밸런스 감사에서 밝혀졌듯
+    // 이것은 **룩16이라는 패배 빌드 전용 값**이고, 실제 승리 빌드에서는 +2,180G(+9.6%)다
+    // (docs/balance-audit.md §5). v1.14에서 9,320 → 9,170으로 내려간 것은 장갑형이 문턱
+    // 방식이 되면서 비숍(1딜)의 피해가 장갑 적에게 0이 됐기 때문이다 — 발사는 막히지 않으므로
+    // goldPerAttack 수입은 그대로고, 줄어든 것은 처치 골드뿐이라 감소폭이 150G에 그친다.
+    expect(bishops.earned - pawns.earned).toBe(9170);
     expect((bishops.earned - pawns.earned) / pawns.earned).toBeGreaterThan(0.4);
   });
 });

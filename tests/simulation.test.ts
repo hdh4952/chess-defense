@@ -45,7 +45,7 @@ describe('전 게임 시뮬레이션', () => {
     const rng = cycleRng();
     const ev: GameEvent[] = [];
     for (let t = 0; t < 90 && s.wave === 1; t += DT) {
-      stepGame(s, DT, ev, rng);
+      stepGame(s, DT, ev, rng, GRANT_PAWN);
       ev.length = 0;
     }
     expect(s.wave).toBe(2);
@@ -112,7 +112,7 @@ describe('전 게임 시뮬레이션', () => {
       s.spawnedCount = 1;                                // 보스 이미 스폰됨
       const boss = {
         id: 'b', file: 3, y: BOARD_H - 0.1, hp: bossHp, maxHp: bossHp, isBoss: true,
-        speed: bossSpeed, jitterX: 0, traits: [], shieldPool: 0, slowTier: 0,
+        speed: bossSpeed, jitterX: 0, traits: [], slowTier: 0,
       };
       s.enemies.push(boss);
       run(s, 2, () => 0);
@@ -349,7 +349,7 @@ describe('밸런스 확장 측정 — 후반 웨이브 & 보스 게이트 (Task 
         const ev: GameEvent[] = [];
         const hpBefore = s.hp;
         for (let t = 0; t < 150 && s.wave === w && (s.phase as Phase) !== 'defeat'; t += DT) {
-          stepGame(s, DT, ev, rng);
+          stepGame(s, DT, ev, rng, GRANT_PAWN);
           ev.length = 0;
         }
         const defeated = (s.phase as Phase) === 'defeat';
@@ -382,13 +382,23 @@ describe('밸런스 확장 측정 — 후반 웨이브 & 보스 게이트 (Task 
       // 핵심 실측 단언: "룩 1개/파일이면 후반 웨이브도 무누수"라는 이 측정의 결론 자체를 고정한다.
       // 위 대조군(완전 고립)은 새지만, 8파일 동시배치에서는 공유 랭크 시너지가 여유 있게 메운다
       // (리뷰에서 확인된 사실). 엔진이 이 시너지를 잃으면(회귀) 여기서 실패해야 한다.
-      // 적 유형(v1.9) 도입 전에는 룩 1기/파일이 전 웨이브에서 무누수였다. 지금은 w17부터 샌다 —
-      // 유형이 "구성 편중을 깬다"는 목적을 실제로 달성하고 있다는 증거이므로 회귀가 아니다.
-      // 실측값을 그대로 못박아 이후 변경이 이 구간을 다시 흔들면 드러나게 한다.
-      const ONE_EACH_LEAKS: Record<number, number> = { 16: 0, 17: 4, 18: 4, 19: 5 };
+      // 적 유형(v1.9) 도입 전에는 룩 1기/파일이 전 웨이브에서 무누수였다. v1.9에서 w17부터
+      // 샜고, ★ v1.14에서 **w16부터** 샌다 — 유형 재정의가 편중 깨기를 더 세게 하고 있다는
+      // 증거이므로 회귀가 아니다. 실측값을 못박아 이후 변경이 이 구간을 흔들면 드러나게 한다.
+      //
+      // ★ v1.14에서 값이 오른 주범은 **실드형**이다. 이 배치는 룩을 랭크 1(과 2)에 두는데,
+      // 전방 무시는 "적보다 낮은 랭크에서 온 피해"를 0으로 만들므로 낮은 랭크 방어선이
+      // 실드형 적에게 거의 아무것도 하지 못한다(단일 룩 종주 피해 실측: r1 5 · r7 35).
+      // 사용자가 적은 "룩이 뒤에서 쏴야 함"이 이 숫자로 드러난 것이다.
+      const ONE_EACH_LEAKS: Record<number, number> = { 16: 5, 17: 6, 18: 6, 19: 6 };
       expect(oneEach.leaks).toBe(ONE_EACH_LEAKS[w]);
-      // 룩 2기/파일은 여전히 무누수다 — 포화 성질은 유형 도입 후에도 그대로이고, 이것이
-      // "적 유형은 난이도 노브가 아니다"라는 판단의 근거다.
+      // 룩 2기/파일은 여전히 무누수다.
+      //
+      // ⚠️ 다만 이 사실을 "적 유형은 난이도 노브가 아니다"의 근거로 계속 쓸 수는 없다 —
+      // 실드형은 **위치**에 값을 매기는 첫 유형이라 같은 골드를 어느 랭크에 두느냐로 결과가
+      // 갈린다(위 룩1/파일이 그 증거다). 포화가 유지되는 것은 룩 2기가 랭크 1·2를 함께
+      // 덮어 적이 그중 하나 아래로 내려오는 구간이 생기기 때문이고, 랭크를 더 낮게 몰 수
+      // 없는 구조적 하한 덕이다. 포화 자체가 유형에 면역이라는 뜻은 아니다.
       expect(twoEach.leaks).toBe(0);
       // 구조적 불변식: 같은 배치를 더 늘렸는데 누수가 늘어날 수는 없다 (안전한 단언)
       expect(twoEach.leaks).toBeLessThanOrEqual(oneEach.leaks);

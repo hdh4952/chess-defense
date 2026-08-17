@@ -1,4 +1,6 @@
-import { CONFIG, TRAITS, armorMultiplier, tierMultiplier } from '../config';
+import {
+  CONFIG, TRAITS, armorMultiplier, damageThresholdFor, ignoresFrontalDamage, tierMultiplier,
+} from '../config';
 import type { Enemy, GameEvent, GameState, Piece, Square } from '../types';
 import { enemySquare, sameSquare } from './grid';
 import { attackTargets } from './patterns';
@@ -33,37 +35,46 @@ function anyEnemyIn(state: GameState, targets: Square[]): boolean {
 }
 
 /**
- * 원피해 → 이 적이 실제로 받는 피해. **순서가 규칙이다: 장갑을 먼저 걸고 그 뒤 보호막 풀에서
- * 뺀다.** 반대로 하면 장갑 적이 풀을 더 오래 유지해 두 유형이 곱셈으로 겹친다.
+ * 원피해 → 이 적이 실제로 받는 피해. **게이트 순서가 규칙이다**(v1.14로 전면 교체).
  *
- * 장갑이 비율이라 결과가 0 이하로 내려가지 않으므로 "최소 피해 1" 같은 바닥이 필요 없다.
- * 보호막은 남은 **피해량**을 깎는다(횟수가 아니다) — 횟수면 합성이 피격 수를 절반으로 줄여
- * 골드 중립성이 깨진다.
+ *   ① 실드형 — 전방(적보다 낮은 랭크)에서 온 피해는 통째로 0이다.
+ *   ② 장갑형 — 원피해가 문턱 미만이면 0, 이상이면 감산 없이 전량 통과한다.
+ *   ③ 보스 배수 — 보스에게만 걸리는 비율(일반 적에게는 항상 1).
+ *
+ * `from`이 **선택 인자인 것이 의도적이다.** 방향을 모르는 호출부(테스트·미래의 광역 효과)는
+ * 전방 판정을 건너뛰고 나머지 게이트만 탄다 — 방향을 모르는 피해를 "전방"으로 단정해 0으로
+ * 만들면 그 침묵이 어디에서도 드러나지 않기 때문이다. 실전 경로(updateCombat)는 항상 넘긴다.
+ *
+ * ⚠️ v1.13까지는 ①이 흡수 풀이고 ②가 비율 곱셈이었다. 순서의 이유도 달랐다("장갑을 먼저 걸고
+ * 그 뒤 풀에서 뺀다 — 반대로 하면 두 유형이 곱셈으로 겹친다"). 지금은 세 게이트가 전부
+ * **곱셈이 아니라 관문**이라 그 상호작용 자체가 없다.
  */
-export function resolveDamage(e: Enemy, raw: number): number {
-  let d = raw * armorMultiplier(e.traits, e.isBoss);
-  if (e.shieldPool > 0) {
-    const absorbed = Math.min(e.shieldPool, d);
-    e.shieldPool -= absorbed;
-    d -= absorbed;
-  }
-  return d;
+export function resolveDamage(e: Enemy, raw: number, from?: Square): number {
+  // ★ 적은 위에서 아래로 내려온다. 따라서 "적보다 낮은 랭크" = 그 적의 진행 방향 = 전방이다.
+  //   폰은 rank+1을 때리므로(자기보다 위) 폰의 피해는 항상 전방에서 온다 — 실드형에게 0이다.
+  //   룩이 같은 파일에서 때릴 때는 자기 랭크가 적보다 높아야(= 적의 뒤에서) 피해가 들어간다.
+  if (from && ignoresFrontalDamage(e.traits) && from.rank < enemySquare(e).rank) return 0;
+  const threshold = damageThresholdFor(e.traits, e.isBoss);
+  if (threshold > 0 && raw < threshold) return 0;
+  return raw * armorMultiplier(e.traits, e.isBoss);
 }
 
 /**
  * 대상 칸들의 모든 적에게 피해. 처치 시 골드 = maxHp (스펙 4.1/5.1/6)
  *
- * ⚠️ `damage` 인자의 의미가 **'감산 전 원피해'**다. 적마다 장갑·보호막이 다르므로 실제 피해는
- * 적별로 갈라진다. v1.10 이전에는 나이트 폭발(pieces.ts)도 이 함수를 공유했으나 그 능력이
+ * ⚠️ `damage` 인자의 의미가 **'감산 전 원피해'**다. 적마다 유형이 다르므로 실제 피해는 적별로
+ * 갈라진다 — 같은 발사가 어떤 적에게는 전량, 어떤 적에게는 0이 된다(문턱·전방 무시).
+ *
+ * `from`은 **공격자의 칸**이다. 실드형의 전방 판정에만 쓰이고, 생략하면 그 판정을 건너뛴다. v1.10 이전에는 나이트 폭발(pieces.ts)도 이 함수를 공유했으나 그 능력이
  * 사라져, 지금 호출부는 아래 updateCombat 하나뿐이다.
  */
 export function applyAttack(
-  state: GameState, targets: Square[], damage: number, events: GameEvent[],
+  state: GameState, targets: Square[], damage: number, events: GameEvent[], from?: Square,
 ): void {
   const killed: typeof state.enemies = [];
   for (const e of state.enemies) {
     if (!targets.some(t => sameSquare(t, enemySquare(e)))) continue;
-    e.hp -= resolveDamage(e, damage);
+    e.hp -= resolveDamage(e, damage, from);
     if (e.hp <= 0) killed.push(e);
   }
   for (const e of killed) {
@@ -100,7 +111,9 @@ export function updateCombat(state: GameState, dt: number, events: GameEvent[]):
     if (p.cooldown > 0) continue;
     const targets = attackTargets(p.type, p.square);
     if (!anyEnemyIn(state, targets)) continue;
-    applyAttack(state, targets, pieceDamage(p), events);
+    // ★ 공격자 칸을 넘긴다 — 실드형의 전방 판정이 이 값 하나에 달려 있다(v1.14).
+    //   빠뜨리면 전방 무시가 조용히 꺼져 실드형이 평범한 적이 된다.
+    applyAttack(state, targets, pieceDamage(p), events, p.square);
     events.push({ kind: 'attack', pieceType: p.type, from: { ...p.square }, targets });
     if (def.goldPerAttack > 0) {
       // pieceGold(p)는 강화 단계는 곱하되 퀸 버프(queenBuffCount)는 곱하지 않는다 — 골드는
