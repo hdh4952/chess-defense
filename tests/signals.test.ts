@@ -438,25 +438,43 @@ describe('N7 — 보스 3/4 처치 가능성 ★ (감시: 적 유형 단계의 �
     // 이웃을 (7+1)%8=0으로 잡으면 버프가 통째로 사라지고 같은 골드로도 7/8에 그친다.
     const focused = (bossFile: number) => {
       const { files, ranks } = CONFIG.board;
+      // ★ 배치 가능한 랭크는 1~7이다. 8랭크는 적 스폰 구역이라 inLandableBounds가 막는다.
+      //
+      // ⚠️ v1.9의 첫 판본은 `r <= ranks`로 8랭크까지 채웠다 — **게임에서는 놓을 수 없는
+      // 칸을 쓰는 대조군**이었다. 결론(같은 골드를 몰면 8/8)은 합법 칸만으로도 그대로
+      // 재현되므로 신호가 거짓을 고정하고 있었던 것은 아니지만, 규칙이 금지한 칸에 기대는
+      // 대조군은 그 자체로 신호를 못 믿게 만든다. 밸런스 측정 중에 발견해 고쳤다.
+      const TOP = ranks - 1;
       const b: ReturnType<typeof minWinBuild> = [];
       const near = bossFile === files - 1 ? bossFile - 1 : bossFile + 1;
       const far = bossFile === files - 1 ? bossFile - 2 : bossFile === 0 ? 2 : bossFile - 1;
       const queens = () => b.filter(p => p.type === 'queen').length;
       // 보스 파일 한 줄은 적이 내려오는 내내 사거리 안에 든다
-      for (let r = 1; r <= ranks; r++) b.push(boardPiece('rook', bossFile, r));
-      for (const f of [near, far]) for (let r = 1; r <= ranks && queens() < 12; r++) {
+      for (let r = 1; r <= TOP; r++) b.push(boardPiece('rook', bossFile, r));
+      for (const f of [near, far]) for (let r = 1; r <= TOP && queens() < 12; r++) {
         b.push(boardPiece('queen', f, r));
       }
-      for (let d = 2, n = 0; d < files && n < 16 - ranks; d++) for (const sgn of [1, -1]) {
+      for (let d = 2, n = 0; d < files && n < 16 - TOP; d++) for (const sgn of [1, -1]) {
         const f = bossFile + d * sgn;
         if (f < 0 || f >= files) continue;
-        for (let r = 1; r <= ranks && n < 16 - ranks; r++) {
+        for (let r = 1; r <= TOP && n < 16 - TOP; r++) {
           if (b.some(p => p.square!.file === f && p.square!.rank === r)) continue;
           b.push(boardPiece('rook', f, r)); n++;
         }
       }
       return b;
     };
+    // ★ 대조군이 **게임에서 실제로 만들 수 있는 배치**인지 먼저 단언한다. 이 세 줄이 없었기
+    // 때문에 첫 판본이 8랭크를 쓰는 것을 아무도 잡지 못했다.
+    for (const f of FILES) {
+      const build = focused(f);
+      for (const p of build) {
+        expect(p.square!.rank, `f${f}`).toBeLessThanOrEqual(CONFIG.board.ranks - 1);
+        expect(p.square!.rank).toBeGreaterThanOrEqual(1);
+      }
+      const keys = build.map(p => `${p.square!.file},${p.square!.rank}`);
+      expect(new Set(keys).size, `f${f} 중복 점유`).toBe(build.length);
+    }
     expect(buildCost(focused(0))).toBe(buildCost(minWinBuild()));   // 한 푼도 더 쓰지 않는다
     expect(FILES.filter(f => bossTransit(20, f, focused(f)).killed).length).toBe(CONFIG.board.files);
   });
