@@ -76,30 +76,42 @@ export function applyAttack(
   for (const e of state.enemies) {
     if (!targets.some(t => sameSquare(t, enemySquare(e)))) continue;
     e.hp -= resolveDamage(e, damage, from);
-    if (e.hp <= 0) killed.push(e);
+    // ★ 사망 판정에 오라 보너스가 들어간다. hp는 음수로 내려갈 수 있고, 그 적립분은
+    //   오라가 죽는 순간 core/aura.ts의 스윕이 성립시킨다.
+    if (e.hp + e.auraBonus <= 0) killed.push(e);
   }
-  for (const e of killed) {
-    state.enemies.splice(state.enemies.indexOf(e), 1);
-    state.gold += e.maxHp;
-    state.stats.totalKills++;
-    state.killedThisWave++;
-    state.stats.totalGoldEarned += e.maxHp;
-    events.push({
-      kind: 'enemyDied', enemyId: e.id, square: enemySquare(e), isBoss: e.isBoss, reward: e.maxHp,
-    });
-    // ★ 분열은 처치가 **전부 정산된 뒤**에 일어난다(골드·통계·이벤트 순서 그대로). 앞으로
-    //   당기면 분열체가 이 루프의 나머지 처치 처리와 섞이고, 무엇보다 부모의 처치 보상이
-    //   분열체 생성 실패 여부에 얽힌다.
-    //
-    //   `killed`를 먼저 모아 두고 여기서 state.enemies에 push하는 것이 안전한 이유는, 이
-    //   루프가 순회하는 배열이 state.enemies가 **아니라** killed이기 때문이다. 위 피해 루프에서
-    //   바로 생성하면 순회 중인 배열에 push하게 되고, 새로 태어난 적이 같은 발사에 다시 맞는다.
-    if (e.traits.includes('splitter')) {
-      const born = splitEnemies(e, state.wave);
-      if (born.length > 0) {
-        state.enemies.push(...born);
-        events.push({ kind: 'enemySplit', square: enemySquare(e), count: born.length });
-      }
+  for (const e of killed) killEnemy(state, e, events);
+}
+
+/**
+ * 적 하나를 처치 정산한다 — 제거·골드·통계·이벤트·분열을 **한곳에서** 한다.
+ *
+ * 함수로 뺀 이유는 v1.14에서 처치가 일어나는 곳이 둘이 됐기 때문이다: 피해를 입어서
+ * (applyAttack) 와, **오라가 죽어서 적립된 피해가 뒤늦게 성립해서**(core/aura.ts)다.
+ * 두 곳이 각자 정산하면 골드·통계·분열 중 하나가 언젠가 한쪽에서만 빠진다.
+ */
+export function killEnemy(state: GameState, e: Enemy, events: GameEvent[]): void {
+  const i = state.enemies.indexOf(e);
+  if (i < 0) return;                     // 같은 틱에 두 경로가 겹쳐도 두 번 정산하지 않는다
+  state.enemies.splice(i, 1);
+  state.gold += e.maxHp;
+  state.stats.totalKills++;
+  state.killedThisWave++;
+  state.stats.totalGoldEarned += e.maxHp;
+  events.push({
+    kind: 'enemyDied', enemyId: e.id, square: enemySquare(e), isBoss: e.isBoss, reward: e.maxHp,
+  });
+  // ★ 분열은 처치가 **전부 정산된 뒤**에 일어난다(골드·통계·이벤트 순서 그대로). 앞으로
+  //   당기면 부모의 처치 보상이 분열체 생성 성공 여부에 얽힌다.
+  //
+  //   applyAttack이 `killed`를 먼저 모아 두고 이 함수를 나중에 부르는 것이 안전한 이유는,
+  //   그 루프가 순회하는 배열이 state.enemies가 **아니라** killed이기 때문이다. 피해 루프에서
+  //   바로 생성하면 순회 중인 배열에 push하게 되고, 새로 태어난 적이 같은 발사에 다시 맞는다.
+  if (e.traits.includes('splitter')) {
+    const born = splitEnemies(e, state.wave);
+    if (born.length > 0) {
+      state.enemies.push(...born);
+      events.push({ kind: 'enemySplit', square: enemySquare(e), count: born.length });
     }
   }
 }

@@ -1,6 +1,7 @@
 import type { GameEvent, GameState, Phase } from '../types';
 import { updateCombat } from './combat';
 import { moveEnemies, processLeaks } from './enemy';
+import { updateAura } from './aura';
 import { updateSlowAura } from './slow';
 import { checkWaveEnd, updatePrepare, updateSpawning } from './wave';
 
@@ -22,6 +23,9 @@ export function stepGame(
   // 이번 틱에 오라로 들어온 적이 감속되지 않은 채 한 틱을 더 걷지 않는다.
   updateSlowAura(state, events);            // 감속 오라 재판정 (진입한 적만 이벤트)
   moveEnemies(state, dt);                   // 적 위치 갱신 (감속이 곱해진 속도로)
+  // ★ 이동 뒤·전투 앞이어야 한다. 뒤에 있으면 이번 틱의 피해가 낡은 보너스로 판정되고,
+  // processLeaks보다 뒤로 가면 적립된 피해가 성립하기 전에 적이 통과한다.
+  updateAura(state, events);                // 오라 보너스 재계산 + 적립분 성립(사망 스윕)
   updateCombat(state, dt, events);          // 기물 쿨다운 → 공격 판정 → 처치/골드
   processLeaks(state, events);              // 1랭크 통과 → 체력 감소
   // 위 첫 줄의 이른 반환(state.phase === 'victory' | 'defeat')으로 TypeScript는 이 지점의

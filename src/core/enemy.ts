@@ -29,6 +29,8 @@ export function createEnemy(
     // 감속은 매 틱 재계산되는 파생 상태다(core/slow.ts). 스폰 시점에는 아직 판정 전이므로
     // NO_SLOW(0)로 시작하고, 첫 updateSlowAura가 곧바로 올바른 값으로 덮는다.
     slowTier: NO_SLOW,
+    // 오라 보너스도 매 틱 재계산되는 파생 상태다(core/aura.ts).
+    auraBonus: 0,
   };
 }
 

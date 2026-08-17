@@ -117,7 +117,7 @@ describe('전 게임 시뮬레이션', () => {
       s.spawnedCount = 1;                                // 보스 이미 스폰됨
       const boss = {
         id: 'b', file: 3, y: BOARD_H - 0.1, hp: bossHp, maxHp: bossHp, isBoss: true,
-        speed: bossSpeed, jitterX: 0, traits: [], slowTier: 0,
+        speed: bossSpeed, jitterX: 0, traits: [], slowTier: 0, auraBonus: 0,
       };
       s.enemies.push(boss);
       run(s, 2, () => 0);
@@ -398,7 +398,10 @@ describe('밸런스 확장 측정 — 후반 웨이브 & 보스 게이트 (Task 
       // ★ v1.14 두 유형이 이 값을 올렸다. 실드형(전방 무시)이 낮은 랭크 방어선을 막고,
       //   분열형이 죽은 자리에서 분열체를 낳아 남은 거리가 짧은 적을 더한다 — w18~19의
       //   6 → 10이 그 분열분이다(분열형 해금이 w14다).
-      const ONE_EACH_LEAKS: Record<number, number> = { 16: 5, 17: 6, 18: 10, 19: 10 };
+      // ★ v1.14 세 유형이 이 값을 올렸다. 실드형(전방 무시)이 낮은 랭크 방어선을 막고,
+      //   분열형이 죽은 자리에서 분열체를 낳아 남은 거리가 짧은 적을 더하고, 오라형이
+      //   유효 체력을 얹어 한 마리를 더 살린다(w16 5 → 6 — 오라 해금이 w16이다).
+      const ONE_EACH_LEAKS: Record<number, number> = { 16: 6, 17: 7, 18: 10, 19: 10 };
       const TWO_EACH_LEAKS: Record<number, number> = { 16: 0, 17: 0, 18: 0, 19: 0 };
       expect(oneEach.leaks).toBe(ONE_EACH_LEAKS[w]);
       // 룩 2기/파일은 여전히 무누수다.

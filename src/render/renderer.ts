@@ -337,9 +337,25 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy): void {
   const top = e.y - size / 2 - 8;
   ctx.fillStyle = COLOR.hpBack;
   ctx.fillRect(x - w / 2, top, w, h);
+  // ★ 오라 보너스가 있으면 분모가 커진다 (v1.14). 그러지 않으면 보너스만큼의 체력이 막대에
+  //   나타나지 않아, 플레이어가 "다 깎았는데 안 죽는다"를 겪으면서 이유를 볼 수 없다.
+  //   hp는 음수로 내려갈 수 있으므로(적립) 분자를 0으로 하한 짓는다.
+  const total = e.maxHp + e.auraBonus;
+  const alive = Math.max(0, e.hp + e.auraBonus);
   ctx.fillStyle = COLOR.hpFill;
-  // 상·하한 둘 다 클램프한다. 하한만 두면 회복 계열이 생겼을 때 막대가 칸 밖으로 넘어간다.
-  ctx.fillRect(x - w / 2, top, w * Math.min(1, Math.max(0, e.hp / e.maxHp)), h);
+  ctx.fillRect(x - w / 2, top, w * Math.min(1, alive / total), h);
+  if (e.auraBonus > 0) {
+    // 보너스 구간을 오라 색으로 덧그린다 — 어디까지가 "오라가 빌려준 체력"인지 보이면
+    // "오라를 먼저 끊으면 이만큼이 사라진다"가 화면에서 읽힌다.
+    const bonusW = w * Math.min(1, e.auraBonus / total);
+    ctx.fillStyle = TRAIT_COLOR.aura;
+    ctx.fillRect(x - w / 2 + (w - bonusW), top, bonusW, h);
+    // 적립된 피해(hp < 0)는 막대 아래 얇은 선으로 — 오라를 끊는 순간 터질 양이다.
+    if (e.hp < 0) {
+      ctx.fillStyle = COLOR.hpFill;
+      ctx.fillRect(x - w / 2, top + h + 1, w * Math.min(1, -e.hp / total), 1.5);
+    }
+  }
   drawTraitMarks(ctx, e, x, top);
 }
 
