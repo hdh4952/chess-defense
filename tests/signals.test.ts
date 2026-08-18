@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CONFIG, clearBonus, enemyCount, enemyHp, pickGrantType, tierMultiplier,
+  CONFIG, clearBonus, enemyCount, enemyHp, pickGrantType, tierMultiplier, waveTotal,
 } from '../src/config';
 import { emptySquares, sellPrice } from '../src/core/economy';
 import {
@@ -49,14 +49,14 @@ describe('N1a — 이론 예산 상한 (감시: 클리어 보너스 단계)', ()
     // 정액 300G 시절: 2,108 / 6,426 / 24,702. 곡선이 초반을 32% 열고 총액은 거의 그대로 둔다.
     expect(ceilingBefore(5)).toBe(2788);
     expect(ceilingBefore(11)).toBe(7526);
-    expect(ceilingBefore(CONFIG.wave.total + 1)).toBe(24902);
+    expect(ceilingBefore(waveTotal() + 1)).toBe(24902);
   });
 
   it('곡선의 모양 — 초반을 열고 후반을 조인다', () => {
     expect(clearBonus(1)).toBe(500);
     expect(clearBonus(10)).toBe(320);
     expect(clearBonus(20)).toBe(120);
-    expect(sumBonus(CONFIG.wave.total)).toBe(6200);   // 정액 시절 6,000과 거의 같다
+    expect(sumBonus(waveTotal())).toBe(6200);   // 정액 시절 6,000과 거의 같다
   });
 
   it('★ 처치율 연동 — 누수 방치에 처음으로 대가가 생긴다', () => {
@@ -161,7 +161,7 @@ describe('N1b — 실측 구매력 ★ (감시: 무작위 지급 · 지급 기�
 
     // 지급 수는 종류와 무관하게 같다 — 달라지는 것은 그 기물이 판에서 하는 일뿐이다.
     for (const t of Object.keys(GRANT) as (keyof typeof GRANT)[]) {
-      expect(by[t].granted, t).toBe(CONFIG.wave.total / CONFIG.grant.everyWaves);
+      expect(by[t].granted, t).toBe(waveTotal() / CONFIG.grant.everyWaves);
       expect(by[t].grantedValue, t).toBe(by[t].granted * CONFIG.pieces[t].cost);
     }
 
@@ -379,7 +379,7 @@ describe('N4 — 합성 골드 중립성 (감시: 적 유형·융합 단계)', (
  */
 describe('N5 — 지급 폐기 횟수 ★ (감시: 자리 압박이 실재하는가)', () => {
   const GRANT_PAWN = (): number => 0;
-  const GRANTS = CONFIG.wave.total / CONFIG.grant.everyWaves;
+  const GRANTS = waveTotal() / CONFIG.grant.everyWaves;
 
   it('★ 정상 빌드에서는 한 번도 폐기되지 않는다 — "자리 압박"은 실재하지 않는다', () => {
     // ★ 계획서 R15가 예측한 그대로다. 판정(갈림길 4번): **원안이 노렸던 압박 목표는 폐기한다.**
@@ -446,14 +446,14 @@ describe('N1a — 이론 예산 상한 (감시: 클리어 보너스 단계)', ()
     // 정액 300G 시절: 2,108 / 6,426 / 24,702. 곡선이 초반을 32% 열고 총액은 거의 그대로 둔다.
     expect(ceilingBefore(5)).toBe(2788);
     expect(ceilingBefore(11)).toBe(7526);
-    expect(ceilingBefore(CONFIG.wave.total + 1)).toBe(24902);
+    expect(ceilingBefore(waveTotal() + 1)).toBe(24902);
   });
 
   it('곡선의 모양 — 초반을 열고 후반을 조인다', () => {
     expect(clearBonus(1)).toBe(500);
     expect(clearBonus(10)).toBe(320);
     expect(clearBonus(20)).toBe(120);
-    expect(sumBonus(CONFIG.wave.total)).toBe(6200);   // 정액 시절 6,000과 거의 같다
+    expect(sumBonus(waveTotal())).toBe(6200);   // 정액 시절 6,000과 거의 같다
   });
 
   it('★ 처치율 연동 — 누수 방치에 처음으로 대가가 생긴다', () => {
@@ -517,7 +517,7 @@ describe('N1b — 실측 구매력 ★ (감시: 무작위 지급 · 지급 기�
 
     // 지급 수는 종류와 무관하게 같다 — 달라지는 것은 그 기물이 판에서 하는 일뿐이다.
     for (const t of Object.keys(GRANT) as (keyof typeof GRANT)[]) {
-      expect(by[t].granted, t).toBe(CONFIG.wave.total / CONFIG.grant.everyWaves);
+      expect(by[t].granted, t).toBe(waveTotal() / CONFIG.grant.everyWaves);
       expect(by[t].grantedValue, t).toBe(by[t].granted * CONFIG.pieces[t].cost);
     }
 
@@ -735,7 +735,7 @@ describe('N4 — 합성 골드 중립성 (감시: 적 유형·융합 단계)', (
  */
 describe('N5 — 지급 폐기 횟수 ★ (감시: 자리 압박이 실재하는가)', () => {
   const GRANT_PAWN = (): number => 0;
-  const GRANTS = CONFIG.wave.total / CONFIG.grant.everyWaves;
+  const GRANTS = waveTotal() / CONFIG.grant.everyWaves;
 
   it('★ 정상 빌드에서는 한 번도 폐기되지 않는다 — "자리 압박"은 실재하지 않는다', () => {
     // ★ 계획서 R15가 예측한 그대로다. 판정(갈림길 4번): **원안이 노렸던 압박 목표는 폐기한다.**
@@ -785,7 +785,7 @@ describe('N6 — 엔진 무결성 풀런 (감시: 전 단계)', () => {
    *  보너스(처치율 연동 포함) 둘 다 계산하므로, 수입 규칙이 바뀌면 여기서 한 번에 드러난다. */
   function earnedFor(cleared: (wave: number) => boolean): number {
     let g = 0;
-    for (let w = 1; w <= CONFIG.wave.total; w++) {
+    for (let w = 1; w <= waveTotal(); w++) {
       const isBoss = w % CONFIG.wave.bossEvery === 0;
       const ratio = cleared(w) ? 1 : 0;
       g += ratio * enemyCount(w) * enemyHp(w) * (isBoss ? CONFIG.enemy.bossHpMultiplier : 1);
@@ -835,7 +835,7 @@ describe('N6 — 엔진 무결성 풀런 (감시: 전 단계)', () => {
     expect(r.bossLeaks).toBe(1);
     expect(r.bossLeaks * CONFIG.player.hpLossBoss).toBeLessThan(CONFIG.player.startHp);
     // w20 보스 하나만 놓친다.
-    expect(r.earned).toBe(earnedFor(w => w !== CONFIG.wave.total));
+    expect(r.earned).toBe(earnedFor(w => w !== waveTotal()));
   });
 
   it('★ 지급 기물이 이제 수입에 직접 기여한다 — 보관함 폐지의 실제 크기 (v1.12)', () => {
@@ -971,7 +971,7 @@ describe('N8 — rng draw 총수 ★ (감시: 무작위 지급 단계)', () => {
     const rng = countingRng(cycleRng());
     fullRun(rooksTwoPerFile(), rng);
     let expected = 0;
-    for (let w = 1; w <= CONFIG.wave.total; w++) expected += enemyCount(w);
+    for (let w = 1; w <= waveTotal(); w++) expected += enemyCount(w);
     expect(rng.count()).toBe(expected);
     expect(rng.count()).toBe(452);
   });

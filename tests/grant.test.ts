@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CONFIG, TRAITS, clearBonus, enemyCount, pickGrantType } from '../src/config';
+import { CONFIG, TRAITS, clearBonus, enemyCount, pickGrantType, waveTotal } from '../src/config';
 import { emptySquares, sellPrice } from '../src/core/economy';
 import { checkWaveEnd, startWave, updateSpawning } from '../src/core/wave';
 import type { GameEvent, GameState, PieceType } from '../src/types';
@@ -118,7 +118,7 @@ describe('지급 시점과 횟수', () => {
     const DRAWS_PER_GRANT = 2;                 // [종류, 위치]
     const grantRng = countingRng(() => 0);
     fullRun(rooksTwoPerFile(), cycleRng(), grantRng);
-    const grants = CONFIG.wave.total / CONFIG.grant.everyWaves;
+    const grants = waveTotal() / CONFIG.grant.everyWaves;
     expect(grants).toBe(10);
     // 룩 16기 + 지급 10기 = 26기라 56칸이 끝까지 남아돈다 → 위치 추첨이 한 번도 생략되지 않는다.
     expect(grantRng.count()).toBe(grants * DRAWS_PER_GRANT);
@@ -133,13 +133,13 @@ describe('지급 시점과 횟수', () => {
     const spawnRng = countingRng(cycleRng());
     fullRun(rooksTwoPerFile(), spawnRng, () => 0);
     let expected = 0;
-    for (let w = 1; w <= CONFIG.wave.total; w++) expected += enemyCount(w);
+    for (let w = 1; w <= waveTotal(); w++) expected += enemyCount(w);
     expect(spawnRng.count()).toBe(expected);
     expect(spawnRng.count()).toBe(452);
   });
 
   it('w20(승리)에도 지급한다 — 추첨 조건에 예외를 두지 않는다', () => {
-    const s = clearedWave(CONFIG.wave.total);
+    const s = clearedWave(waveTotal());
     const ev: GameEvent[] = [];
     checkWaveEnd(s, ev, () => 0);
     expect(s.phase).toBe('victory');
@@ -256,7 +256,7 @@ describe('지급이 게임 전체에 미치는 영향', () => {
     let expected = 0;
     const entries = Object.entries(CONFIG.grant.weights) as [PieceType, number][];
     for (const [type, w] of entries) expected += w * CONFIG.pieces[type].cost;
-    const grants = CONFIG.wave.total / CONFIG.grant.everyWaves;
+    const grants = waveTotal() / CONFIG.grant.everyWaves;
     expect(grants).toBe(10);
     expect(Math.round(expected)).toBe(265);
     expect(Math.round(expected) * grants).toBe(2650);

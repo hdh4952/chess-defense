@@ -1,4 +1,4 @@
-import type { EnemyTrait, PieceType } from './types';
+import type { Difficulty, EnemyTrait, PieceType } from './types';
 
 export const CONFIG = {
   board: { files: 8, ranks: 8, squarePx: 80 },
@@ -13,7 +13,9 @@ export const CONFIG = {
   player: { startHp: 10, startGold: 300, startPawns: 3, hpLossNormal: 1, hpLossBoss: 5 },
 
   wave: {
-    total: 20,
+    // ⚠️ **웨이브 수는 여기 없다** (v1.20). 난이도마다 다르므로 CONFIG.difficulty로 옮겼고,
+    // 읽는 통로는 waveTotal(difficulty) 하나뿐이다 — 여기 `total: 20`을 남겨 두면 "기본값"이라는
+    // 이름으로 두 번째 출처가 생기고, 이지 말고는 전부 틀린 수를 말하게 된다.
     prepareSeconds: 10,
     // 클리어 보너스는 정액이 아니라 **역방향 곡선**이다. 이 게임은 골드의 83%가 후반에
     // 들어오는데 최소 승리 비용은 초반부터 필요해서, 정액 보너스는 초반을 조이고 후반에
@@ -30,6 +32,36 @@ export const CONFIG = {
     countPerWave: 2,        // 10 + 2*(w-1)
     bossEvery: 5,
   },
+
+  /**
+   * 난이도 배수 (v1.20, 사용자 결정: "기본을 easy로 두고 normal은 1.5배, hard는 2배").
+   *
+   * **축은 셋뿐이다** — `waveTotal`(판의 길이)과 `enemyCount`(마릿수)·`enemyHp`(체력). 골드·
+   * 비용·기물 능력치·유형 해금·속도는 건드리지 않는다: 난이도를 더 여러 축에 흩뿌리면 "노멀이
+   * 정확히 무엇이 다른가"를 아무도 말할 수 없게 되고, 밸런스 실측(§9)의 기준선도 난이도마다
+   * 통째로 다시 재야 한다.
+   *
+   * ★ **웨이브 수(20 / 30 / 40)는 배수가 아니라 절대값이다** (v1.20, 사용자 결정). 배수로 두면
+   * 30이 "20 × 1.5"가 되어 마릿수·체력 배수와 같은 값을 공유하는 것처럼 읽히는데, 실제로는
+   * 서로 독립적으로 정해진 수다 — 여기서 40을 45로 바꿔도 다른 두 축은 움직이지 않아야 한다.
+   *
+   * ⚠️ 웨이브가 길어지면 **클리어 보너스는 저절로 0이 된다**(500 − 20×(w−1)이 w26에서 0에
+   * 닿는다). 곡선의 의도가 "초반을 열고 후반은 처치 골드에 맡긴다"이므로 그 연장선이 맞지만,
+   * w26 이후 수입이 전부 처치 보상이라는 뜻이기도 하다 — 방어가 무너지면 회복 경로가 없다.
+   *
+   * ★ **이지 = 배수 1 = 기존 밸런스 그대로.** 새 난이도를 넣으면서 기본 곡선을 손대지 않았다는
+   * 뜻이고, 그래서 기존 헤드리스 측정이 전부 그대로 유효하다(tests/difficulty.test.ts가 이 항등을
+   * 단언한다).
+   *
+   * ⚠️ 처치 보상은 적의 maxHp이므로(§6) 체력 배수는 **수입에도 그대로 곱해진다.** 의도한
+   * 성질이다 — 적이 단단해진 만큼 골드도 들어오지 않으면 난이도가 아니라 그냥 벽이 된다.
+   * 반대로 클리어 보너스는 정액이라 난이도가 오를수록 전체 수입에서 차지하는 비중이 줄어든다.
+   */
+  difficulty: {
+    easy:   { waveTotal: 20, countMultiplier: 1,   hpMultiplier: 1 },
+    normal: { waveTotal: 30, countMultiplier: 1.5, hpMultiplier: 1.5 },
+    hard:   { waveTotal: 40, countMultiplier: 2,   hpMultiplier: 2 },
+  } as Record<Difficulty, { waveTotal: number; countMultiplier: number; hpMultiplier: number }>,
 
   enemy: {
     hpBase: 10,
@@ -417,17 +449,64 @@ export function tierMultiplier(tier: number): number {
   return 2 ** (tier - 1);
 }
 
-export function enemyHp(wave: number): number {
+/**
+ * 난이도 목록 — 화면에 그릴 순서이자 전수 검사의 출처 (v1.20).
+ *
+ * 목록을 UI에 다시 적지 않고 CONFIG에서 유도한다: 난이도를 하나 더 넣으면 시작 화면 드롭다운·
+ * 저장값 검증·테스트가 전부 저절로 따라온다(TAB_ORDER가 TRAITS에서 유도되는 것과 같은 규칙).
+ */
+export const DIFFICULTIES = Object.keys(CONFIG.difficulty) as Difficulty[];
+
+/**
+ * 아무것도 고르지 않았을 때의 난이도. **이지가 기존 밸런스 그대로**라, 이 기본값이 곧 "난이도
+ * 기능이 없던 시절과 같은 판"이다 — 아래 두 함수의 기본 인자가 그 사실을 코드로 못박는다.
+ */
+export const DEFAULT_DIFFICULTY: Difficulty = 'easy';
+
+/**
+ * 이 난이도의 판이 몇 웨이브짜리인가 — 이지 20 · 노멀 30 · 하드 40 (v1.20, 사용자 결정).
+ *
+ * ★ 예전 `CONFIG.wave.total`을 **대체한다**(남겨 두지 않았다). 상수를 그대로 두고 여기서
+ * 덮어쓰는 형태였다면 "20"이 여전히 코드 곳곳에서 읽혔을 것이고, 그중 어느 하나가 노멀·하드
+ * 판에서 조용히 틀린 답을 냈을 것이다 — 승리 판정·HUD·결과 화면·해금 문구가 전부 이 값을
+ * 본다. 상수를 지우면 그 자리를 컴파일러가 전부 짚어 준다(§10.1).
+ *
+ * 마지막 웨이브는 셋 다 5의 배수라 **보스 웨이브로 끝난다**(bossEvery = 5). 우연이 아니라
+ * 그렇게 고른 값이다 — 마지막 판이 일반 웨이브면 판이 흐지부지 끝난다.
+ */
+export function waveTotal(difficulty: Difficulty = DEFAULT_DIFFICULTY): number {
+  return CONFIG.difficulty[difficulty].waveTotal;
+}
+
+/**
+ * 웨이브 w의 적 1마리 체력. 보스는 여기에 bossHpMultiplier를 곱한 값이다(core/enemy.ts).
+ *
+ * 난이도 배수는 **곡선을 계산한 뒤 마지막에** 곱한다. 계수(hpPerWave*)에 미리 곱해 넣으면
+ * 웨이브별로 반올림 오차가 누적돼 "노멀 = 이지의 정확히 1.5배"라는 약속이 깨진다.
+ * 반올림은 처치 보상 골드가 소수가 되지 않게 하려는 것이다(보상 = maxHp).
+ */
+export function enemyHp(wave: number, difficulty: Difficulty = DEFAULT_DIFFICULTY): number {
   const { hpBase, hpPerWaveEarly, hpPerWaveLate, hpScalingBreakpoint } = CONFIG.enemy;
-  return wave <= hpScalingBreakpoint
+  const base = wave <= hpScalingBreakpoint
     ? hpBase + (wave - 1) * hpPerWaveEarly
     : hpBase + (hpScalingBreakpoint - 1) * hpPerWaveEarly
       + (wave - hpScalingBreakpoint) * hpPerWaveLate;
+  return Math.round(base * CONFIG.difficulty[difficulty].hpMultiplier);
 }
 
-export function enemyCount(wave: number): number {
+/**
+ * 웨이브 w에 스폰되는 적의 수.
+ *
+ * ★ **보스 웨이브는 난이도와 무관하게 1마리다.** 마릿수 배수를 여기에도 곱하면 ① 1 × 1.5도
+ * 1 × 2도 반올림하면 2가 되어 노멀과 하드가 보스 웨이브에서 똑같아지고, ② 보스 누수는
+ * hpLossBoss(5)라 두 마리를 놓치면 시작 체력 10이 통째로 날아가 "어려움"이 아니라 즉사가
+ * 된다. 보스 축의 난이도는 체력 배수가 담당한다(보스 체력 = enemyHp × 30이므로 자동으로
+ * 1.5배·2배가 된다).
+ */
+export function enemyCount(wave: number, difficulty: Difficulty = DEFAULT_DIFFICULTY): number {
   if (wave % CONFIG.wave.bossEvery === 0) return 1;   // 보스 단독
-  return CONFIG.wave.countBase + CONFIG.wave.countPerWave * (wave - 1);
+  const base = CONFIG.wave.countBase + CONFIG.wave.countPerWave * (wave - 1);
+  return Math.round(base * CONFIG.difficulty[difficulty].countMultiplier);
 }
 
 

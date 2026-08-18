@@ -1,4 +1,4 @@
-import { FINAL_WAVE_CLEAR_LABEL, hasClearedFinalWave } from '../progress';
+import { hasClearedWaves, waveClearLabel } from '../progress';
 import { readStored, writeStored } from '../storage';
 import type { PieceType } from '../types';
 
@@ -26,10 +26,24 @@ import pawnSkin1Url from '../assets/pieces/pawn-skin-1.png';
  */
 
 /**
- * 해금 조건. 값을 늘릴 때는 `isSkinUnlocked`의 switch가 전수성으로 빠짐을 짚어 준다
+ * 해금 조건. 종류를 늘릴 때는 `isSkinUnlocked`의 switch가 전수성으로 빠짐을 짚어 준다
  * (§10.10의 "술어를 타입 수준에서 닫는다").
+ *
+ * ★ **v1.20에서 `'clearFinalWave'` 문자열이 `clearWaves(n)`으로 바뀌었다** (사용자 결정:
+ * "20웨이브 이상 클리어 시 해금, 모드 상관없이"). 조건이 "그 판의 마지막 웨이브"였을 때는
+ * 인자가 필요 없었지만, 마지막 웨이브가 난이도마다 다른 지금 그 조건은 **하드로 20웨이브를
+ * 넘긴 사람에게 아무것도 주지 않는다.** 조건을 절대 웨이브 수로 바꾸면서 그 수를 타입 안에
+ * 넣었다 — 나중에 "30웨이브 스킨"을 넣을 때 새 union 항목도, 새 판정 분기도 필요 없다.
  */
-export type SkinUnlock = 'always' | 'clearFinalWave';
+export type SkinUnlock =
+  | { kind: 'always' }
+  | { kind: 'clearWaves'; waves: number };
+
+/** 언제나 열려 있는 조건. 표에서 여덟 번 반복되므로 값을 하나만 만들어 공유한다. */
+const ALWAYS: SkinUnlock = { kind: 'always' };
+
+/** `waves` 웨이브 **이상**을 클리어하면 열린다 — 난이도는 묻지 않는다. */
+const clearWaves = (waves: number): SkinUnlock => ({ kind: 'clearWaves', waves });
 
 export interface Skin {
   /** 영속화 키. **파일명이 아니라 이 id가 저장된다** — 에셋 경로를 바꿔도 선택이 살아남는다. */
@@ -52,33 +66,35 @@ export const DEFAULT_SKIN_ID = 'default';
  */
 export const SKINS: Record<PieceType, Skin[]> = {
   pawn: [
-    { id: DEFAULT_SKIN_ID, name: '기본', url: allyPawnUrl, unlock: 'always' },
-    { id: 'heart-princess', name: '하트 프린세스', url: pawnSkin1Url, unlock: 'clearFinalWave' },
+    { id: DEFAULT_SKIN_ID, name: '기본', url: allyPawnUrl, unlock: ALWAYS },
+    // ★ 해금 문턱 20은 **이지의 길이(20웨이브)와 같은 수이지만 같은 값이 아니다.** 난이도와
+    // 무관한 절대 기준이라(사용자 결정) 이지를 25웨이브로 바꿔도 이 조건은 20에 머문다.
+    { id: 'heart-princess', name: '하트 프린세스', url: pawnSkin1Url, unlock: clearWaves(20) },
   ],
-  knight: [{ id: DEFAULT_SKIN_ID, name: '기본', url: allyKnightUrl, unlock: 'always' }],
-  bishop: [{ id: DEFAULT_SKIN_ID, name: '기본', url: allyBishopUrl, unlock: 'always' }],
-  archbishop: [{ id: DEFAULT_SKIN_ID, name: '기본', url: allyArchbishopUrl, unlock: 'always' }],
-  chancellor: [{ id: DEFAULT_SKIN_ID, name: '기본', url: allyChancellorUrl, unlock: 'always' }],
-  amazon: [{ id: DEFAULT_SKIN_ID, name: '기본', url: allyAmazonUrl, unlock: 'always' }],
-  rook: [{ id: DEFAULT_SKIN_ID, name: '기본', url: allyRookUrl, unlock: 'always' }],
-  queen: [{ id: DEFAULT_SKIN_ID, name: '기본', url: allyQueenUrl, unlock: 'always' }],
+  knight: [{ id: DEFAULT_SKIN_ID, name: '기본', url: allyKnightUrl, unlock: ALWAYS }],
+  bishop: [{ id: DEFAULT_SKIN_ID, name: '기본', url: allyBishopUrl, unlock: ALWAYS }],
+  archbishop: [{ id: DEFAULT_SKIN_ID, name: '기본', url: allyArchbishopUrl, unlock: ALWAYS }],
+  chancellor: [{ id: DEFAULT_SKIN_ID, name: '기본', url: allyChancellorUrl, unlock: ALWAYS }],
+  amazon: [{ id: DEFAULT_SKIN_ID, name: '기본', url: allyAmazonUrl, unlock: ALWAYS }],
+  rook: [{ id: DEFAULT_SKIN_ID, name: '기본', url: allyRookUrl, unlock: ALWAYS }],
+  queen: [{ id: DEFAULT_SKIN_ID, name: '기본', url: allyQueenUrl, unlock: ALWAYS }],
 };
 
 /** 지금 이 스킨을 쓸 수 있는가. 기본 스킨은 **언제나** 열려 있다 — 잠글 수 있게 만들면
  *  모든 스킨이 잠긴 상태가 표현 가능해지고, 그때 그릴 그림이 없다. */
 export function isSkinUnlocked(skin: Skin): boolean {
-  switch (skin.unlock) {
+  switch (skin.unlock.kind) {
     case 'always': return true;
-    case 'clearFinalWave': return hasClearedFinalWave();
+    case 'clearWaves': return hasClearedWaves(skin.unlock.waves);
   }
 }
 
 /** 잠긴 스킨의 해금 조건 문구. 열려 있으면 null — 보여줄 조건이 없다. */
 export function unlockLabel(skin: Skin): string | null {
   if (isSkinUnlocked(skin)) return null;
-  switch (skin.unlock) {
+  switch (skin.unlock.kind) {
     case 'always': return null;
-    case 'clearFinalWave': return `${FINAL_WAVE_CLEAR_LABEL} 시 해금`;
+    case 'clearWaves': return `${waveClearLabel(skin.unlock.waves)} 시 해금`;
   }
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CONFIG, armorMultiplier, damageThresholdFor, enemyTraits, ignoresFrontalDamage, tierMultiplier,
+  CONFIG, armorMultiplier, damageThresholdFor, enemyTraits, ignoresFrontalDamage, tierMultiplier, waveTotal,
 } from '../src/config';
 import { pieceDamage, resolveDamage } from '../src/core/combat';
 import { recalcQueenBuffs } from '../src/core/buff';
@@ -40,7 +40,7 @@ describe('유형 표 — 다섯 종의 공통 성질', () => {
     expect(ALL.sort()).toEqual(['armored', 'aura', 'shielded', 'splitter', 'swift']);
     for (const t of ALL) {
       expect(CONFIG.traitSchedule[t], t).toBeGreaterThanOrEqual(1);
-      expect(CONFIG.traitSchedule[t], t).toBeLessThanOrEqual(CONFIG.wave.total);
+      expect(CONFIG.traitSchedule[t], t).toBeLessThanOrEqual(waveTotal());
       expect(CONFIG.traitPhase[t], t).toBeGreaterThanOrEqual(0);
       expect(Object.keys(CONFIG.traitDefs[t]).length, t).toBeGreaterThan(0);
     }
@@ -58,7 +58,7 @@ describe('유형 표 — 다섯 종의 공통 성질', () => {
     // 일반 적이 있는 마지막 웨이브는 19다(w20은 보스 단독). 해금이 19를 넘으면 그 유형은
     // 코드에만 있고 게임에는 없다 — 컴파일러도 다른 테스트도 그것을 잡지 못한다.
     const seen = new Map<EnemyTrait, number>();
-    for (let w = 1; w < CONFIG.wave.total; w++) {
+    for (let w = 1; w < waveTotal(); w++) {
       if (w % CONFIG.wave.bossEvery === 0) continue;
       for (let i = 0; i < 46; i++) {
         for (const t of enemyTraits(w, i, false)) seen.set(t, (seen.get(t) ?? 0) + 1);
@@ -90,7 +90,7 @@ describe('enemyTraits — 결정론적 쿼터', () => {
     // 해금 전 웨이브는 비율이 0이라 제외한다 — 그 사실은 바로 위 테스트가 따로 잰다.
     const first = Math.min(...ALL.map(t => CONFIG.traitSchedule[t]));
     let checked = 0;
-    for (let w = first; w < CONFIG.wave.total; w++) {
+    for (let w = first; w < waveTotal(); w++) {
       if (w % CONFIG.wave.bossEvery === 0) continue;
       const n = 40;
       let with_ = 0;
@@ -102,7 +102,7 @@ describe('enemyTraits — 결정론적 쿼터', () => {
   });
 
   it('일반 적은 유형을 하나만 갖는다', () => {
-    for (let w = 1; w < CONFIG.wave.total; w++) {
+    for (let w = 1; w < waveTotal(); w++) {
       for (let i = 0; i < 40; i++) {
         expect(enemyTraits(w, i, false).length, `w${w}`).toBeLessThanOrEqual(CONFIG.maxTraitsNormal);
       }
@@ -115,7 +115,7 @@ describe('enemyTraits — 결정론적 쿼터', () => {
     //     특히 shielded는 실측으로 게임을 클리어 불가능하게 만들어(w15 8/8 → 0/8) 금지됐다.
     //   splitter — 보스가 분열하면 누수 −5가 배로 늘어 즉사한다.
     //   aura — 보스는 단독 스폰이라 버프할 주변 적이 없다(완전한 no-op).
-    for (let w = CONFIG.wave.bossEvery; w <= CONFIG.wave.total; w += CONFIG.wave.bossEvery) {
+    for (let w = CONFIG.wave.bossEvery; w <= waveTotal(); w += CONFIG.wave.bossEvery) {
       const t = enemyTraits(w, 0, true);
       for (const forbidden of CONFIG.bossForbidden) {
         expect(t, `w${w} ${forbidden}`).not.toContain(forbidden);

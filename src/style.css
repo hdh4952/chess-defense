@@ -165,8 +165,30 @@ canvas { display: block; }
 .range-legend { margin: 6px 0 0; max-width: 216px; font-size: 11px; line-height: 1.5; color: #9d968a; }
 
 #title-foot { text-align: center; }
+/* 난이도 + BATTLE 한 줄 (v1.20). 드롭다운은 BATTLE **왼쪽**에 붙는다(사용자 결정).
+   좁은 화면에서는 wrap으로 줄이 갈라지게 둔다 — 한 줄을 고집하면 셀렉트와 버튼이 함께
+   찌그러져 둘 다 못 읽는다. 최대 폭은 예전 #battle의 420px에 셀렉트 몫을 더한 값이다. */
+#title-start {
+  display: flex; flex-wrap: wrap; justify-content: center; align-items: stretch; gap: 10px;
+  max-width: 600px; margin: 0 auto;
+}
+/* 라벨 + 셀렉트를 세로로 쌓아 BATTLE과 같은 높이를 채운다 — 라벨을 옆에 두면 이 줄이
+   가로로 더 길어져 wrap이 더 빨리 일어난다. */
+#difficulty-pick {
+  display: flex; flex-direction: column; justify-content: center; gap: 3px;
+  text-align: left; flex: 0 1 auto;
+}
+#difficulty-pick label { font-size: 11px; color: #9d968a; letter-spacing: 1px; }
+/* 네이티브 select는 브라우저 기본 배색을 그대로 쓰면 이 화면에서 홀로 밝게 뜬다 —
+   HUD 버튼(#hud-pause 등)과 같은 톤으로 맞춘다. */
+#difficulty {
+  padding: 8px 10px; font-size: 14px; font-family: inherit; cursor: pointer;
+  background: #35332f; color: #cfc9be; border: 1px solid #4a463f; border-radius: 6px;
+}
+#difficulty:hover { background: #403d38; }
+#difficulty:focus-visible { outline: 2px solid #ffd54a; outline-offset: 1px; }
 #battle {
-  width: 100%; max-width: 420px; padding: 16px; font-size: 22px; font-weight: 800;
+  flex: 1 1 260px; padding: 16px; font-size: 22px; font-weight: 800;
   letter-spacing: 4px; cursor: pointer;
   background: #b3452f; color: #fff; border: none; border-radius: 8px;
 }

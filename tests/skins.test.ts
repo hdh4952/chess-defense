@@ -1,8 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { TRAITS } from '../src/config';
-import { CONFIG } from '../src/config';
-import { recordFinalWaveClear, resetProgressForTest } from '../src/progress';
+import { TRAITS, waveTotal } from '../src/config';
+import { recordWaveCleared, resetProgressForTest } from '../src/progress';
 import {
   allySpriteUrl, DEFAULT_SKIN_ID, isSkinUnlocked, onSkinChange, resetSkinsForTest, selectedSkinId,
   setSkin, SKINS, skinsFor, unlockLabel,
@@ -19,10 +18,20 @@ function multiSkinType(): PieceType {
   return found!;
 }
 
+/**
+ * 잠긴 스킨의 조건을 전부 만족시킨다. **필요한 웨이브 수를 스킨 표에서 유도한다** — 여기에
+ * 20을 적어 두면 조건을 바꿨을 때 이 스위트만 옛 수로 통과하거나 실패한다(§10.2).
+ */
+function unlockAllSkins(): void {
+  const need = Object.values(SKINS).flat()
+    .reduce((m, s) => (s.unlock.kind === 'clearWaves' ? Math.max(m, s.unlock.waves) : m), 0);
+  recordWaveCleared(need);
+}
+
 // 해금 조건이 붙은 뒤로, **선택 동작을 보는 스위트들은 해금 상태를 전제로 한다** — 잠긴 채로
 // 두면 "고를 수 없다"는 이유로 전부 실패해 정작 보려던 규칙(선택·격리·영속화)이 가려진다.
 // 잠긴 상태 자체는 아래 전용 describe가 본다.
-beforeEach(() => { resetSkinsForTest(); recordFinalWaveClear(); });
+beforeEach(() => { resetSkinsForTest(); unlockAllSkins(); });
 afterEach(() => { resetSkinsForTest(); resetProgressForTest(); });
 
 describe('스킨 표(SKINS)의 불변식', () => {
@@ -218,11 +227,28 @@ describe('해금 조건', () => {
     expect(isSkinUnlocked(locked())).toBe(false);
   });
 
-  it('해금 문구는 웨이브 수를 CONFIG에서 유도한다', () => {
-    // 리터럴 20을 적어 두면 wave.total을 바꿨을 때 화면만 옛 숫자를 말한다 — 이 저장소가
-    // 시작 화면 전체에 적용해 온 규칙이다(§10.1).
-    expect(unlockLabel(locked())).toContain(String(CONFIG.wave.total));
+  it('★ 해금 문구의 웨이브 수는 스킨 표에서 나온다 (v1.20)', () => {
+    // 조건이 **절대 웨이브 수**가 되면서(사용자 결정: "20웨이브 이상, 모드 상관없이") 문구에
+    // 다시 수가 들어왔다. 다만 그 수의 출처는 난이도가 아니라 스킨 자신이다 — 여기에 리터럴
+    // 20을 적으면 조건을 25로 바꿨을 때 이 테스트만 옛 수로 실패한다(§10.2).
+    const skin = locked();
+    const waves = skin.unlock.kind === 'clearWaves' ? skin.unlock.waves : 0;
+    expect(waves, '잠긴 스킨인데 웨이브 조건이 아니다').toBeGreaterThan(0);
+    expect(unlockLabel(skin)).toContain(String(waves));
+    // ★ "이상"이 빠지면 하드로 40웨이브를 깬 사람에게 "20웨이브 클리어"가 아직 못 한 일처럼
+    // 읽힌다 — 조건은 난이도를 묻지 않는 하한이다.
+    expect(unlockLabel(skin)).toContain('이상');
     expect(unlockLabel(skinsFor(multiSkinType())[0]), '열린 스킨에는 조건 문구가 없다').toBeNull();
+  });
+
+  it('★ 조건은 난이도를 묻지 않는다 — 하드 도중 20웨이브만 넘겨도 열린다', () => {
+    // 예전 규칙("그 판의 마지막 웨이브")이었다면 하드는 40을 다 깨야 했다.
+    resetProgressForTest();
+    const skin = locked();
+    const waves = skin.unlock.kind === 'clearWaves' ? skin.unlock.waves : 0;
+    expect(waves).toBeLessThanOrEqual(waveTotal('hard'));
+    recordWaveCleared(waves);            // 하드 판 도중 w20을 넘긴 상태
+    expect(isSkinUnlocked(skin)).toBe(true);
   });
 
   it('잠긴 스킨은 고를 수 없다', () => {
@@ -234,7 +260,7 @@ describe('해금 조건', () => {
 
   it('클리어를 기록하면 곧바로 고를 수 있다', () => {
     const type = multiSkinType();
-    recordFinalWaveClear();
+    unlockAllSkins();
     expect(isSkinUnlocked(locked())).toBe(true);
     expect(setSkin(type, locked().id)).toBe(true);
     expect(allySpriteUrl(type)).toBe(locked().url);
@@ -244,7 +270,7 @@ describe('해금 조건', () => {
     // 저장 시점에만 판정하면, 저장값을 손으로 고친 사용자에게는 잠긴 그림이 그대로 그려진다.
     // 게다가 판정 지점이 여럿이면 아이콘·보드·고스트 중 일부만 잠긴 그림을 쓰는 어긋남이 난다.
     const type = multiSkinType();
-    recordFinalWaveClear();
+    unlockAllSkins();
     setSkin(type, locked().id);
     expect(allySpriteUrl(type)).toBe(locked().url);
 
@@ -257,12 +283,12 @@ describe('해금 조건', () => {
     // "잠겼으니 기본으로 덮어쓴다"고 구현하면 이 테스트가 실패한다. 사용자가 고른 것을
     // 조용히 지우는 쪽이 훨씬 나쁜 동작이다.
     const type = multiSkinType();
-    recordFinalWaveClear();
+    unlockAllSkins();
     setSkin(type, locked().id);
     resetProgressForTest();
     expect(selectedSkinId(type)).toBe(DEFAULT_SKIN_ID);   // 잠긴 동안에는 기본을 그리지만
 
-    recordFinalWaveClear();
+    unlockAllSkins();
     expect(selectedSkinId(type), '해금 후 옛 선택이 되살아나야 한다').toBe(locked().id);
   });
 });

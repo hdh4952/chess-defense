@@ -5,7 +5,7 @@ import { stepGame } from './core/step';
 import { createTicker } from './core/ticker';
 import { startWave } from './core/wave';
 import { createAudioController } from './audio';
-import { recordFinalWaveClear } from './progress';
+import { recordWaveCleared } from './progress';
 import { BOARD_H, BOARD_W } from './core/grid';
 import { createBoardContext } from './render/dpr';
 import { Effects } from './render/effects';
@@ -20,14 +20,16 @@ import { updateShop, wireShop } from './ui/shop';
 import { updateTooltip } from './ui/tooltip';
 import { createTitleScreen } from './ui/titleScreen';
 import { DragController } from './ui/drag';
-import type { GameEvent } from './types';
+import type { Difficulty, GameEvent } from './types';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 
 // 시작 화면 → BATTLE → 게임 (v1.5). 게임은 startGame이 불리기 전까지 전혀 부팅되지 않는다 —
 // 캔버스도, 프레임 루프도, AudioContext도 그때 비로소 만들어진다. 결과 화면의 "다시 시작"은
 // location.reload()이므로(ui/banners.ts) 별도 배선 없이 자연히 이 시작 화면으로 되돌아온다.
-createTitleScreen(app, () => startGame(app));
+// ★ 난이도는 시작 화면이 넘겨준다 (v1.20). 여기서 다시 읽지 않는 이유는 titleScreen.ts의
+// createTitleScreen 주석에 있다 — 누른 순간의 선택이 그대로 판에 굳어야 한다.
+createTitleScreen(app, difficulty => startGame(app, difficulty));
 
 // frame() 예외 로깅 스로틀 (회귀 5). 매 호출마다 새 Error 인스턴스가 달려 있어 DevTools가
 // 동일 에러로 묶어 접지 못하므로, 결함이 프레임마다(~60Hz) 계속 재발하면 콘솔·보존 메모리가
@@ -48,13 +50,14 @@ function logFrameError(err: unknown): void {
   suppressedFrameErrorCount = 0;
 }
 
-function startGame(root: HTMLDivElement): void {
+function startGame(root: HTMLDivElement, difficulty: Difficulty): void {
   const layout = createLayout(root);   // innerHTML을 덮어써 시작 화면을 통째로 치운다
   // ★ 캔버스 해상도를 화면 픽셀 밀도에 맞춘다 (v1.19). 백킹 스토어만 커지고 그리는 좌표계는
   // 0~640 그대로라, 아래 프레임 루프와 renderer/effects/enemyFx는 이 변경을 전혀 모른다.
   const ctx = createBoardContext(layout.canvas);
 
-  const state = createInitialState();
+  // 난이도는 여기서 상태에 굳는다 — 판이 시작된 뒤에는 어디서도 바뀌지 않는다(types.ts).
+  const state = createInitialState(difficulty);
   const events: GameEvent[] = [];
   const tick = createTicker();
 
@@ -69,7 +72,7 @@ function startGame(root: HTMLDivElement): void {
   wireControls(layout, state);
   layout.startBtn.addEventListener('click', () => { if (!state.paused) startWave(state); });
   const drag = new DragController(state, layout, events, audio);
-  const banners = new Banners(layout);
+  const banners = new Banners(layout, state.difficulty);
   const fx = new Effects();        // 속성별 공격 이펙트 + 화면 진동, 렌더 전용 (스펙 8.2, Task 19)
   const enemyFx = new EnemyFx();   // 적별 표시 상태(피격 플래시·체력바 보간), 렌더 전용 (v1.15)
   wireMuteButton(layout, audio);
@@ -118,13 +121,19 @@ function startGame(root: HTMLDivElement): void {
       const frozen = fx.tickHitstop(realDt);
       tick(frozen ? 0 : realDt, dt => stepGame(state, dt * state.speedMultiplier, events));
 
-      // ★ 승리를 기록한다 (v1.19 — 스킨 해금 조건). 코어는 자기가 기록된다는 사실을 모른다:
-      // localStorage를 core/에 들이면 한 판의 결과가 다음 판의 시작 상태를 바꾸는 통로가 생겨
-      // 헤드리스 밸런스 측정의 재현성이 깨진다(progress.ts의 ★ 참고). 그래서 **밖에서 페이즈를
-      // 보고 적는다.** 승리 화면이 떠 있는 동안 매 프레임 불리지만 recordFinalWaveClear가
-      // 멱등하므로(이미 기록됐으면 즉시 반환) 여기에 전환 감지 상태를 따로 두지 않는다.
-      if (state.phase === 'victory') recordFinalWaveClear();
-      for (const ev of events) { banners.onEvent(ev); fx.onEvent(ev); enemyFx.onEvent(ev); }
+      // ★ 성취를 기록한다 (v1.19 · v1.20에서 기록 지점이 옮겨졌다 — 스킨 해금 조건).
+      // 코어는 자기가 기록된다는 사실을 모른다: localStorage를 core/에 들이면 한 판의 결과가
+      // 다음 판의 시작 상태를 바꾸는 통로가 생겨 헤드리스 밸런스 측정의 재현성이 깨진다
+      // (progress.ts의 ★ 참고). 그래서 **밖에서 이벤트를 보고 적는다.**
+      //
+      // ★ **`victory` 페이즈가 아니라 `waveCleared` 이벤트를 본다** (v1.20, 사용자 결정:
+      // "20웨이브 이상 클리어 시 해금, 모드 상관없이"). 승리만 보고 적으면 하드에서 30웨이브를
+      // 넘기고 w31에 무너진 판이 **아무것도 남기지 못한다** — 이지 승리보다 멀리 갔는데도.
+      // 웨이브 단위로 적으면 판의 결말과 무관하게 도달한 만큼이 남는다.
+      for (const ev of events) {
+        if (ev.kind === 'waveCleared') recordWaveCleared(ev.wave);
+        banners.onEvent(ev); fx.onEvent(ev); enemyFx.onEvent(ev);
+      }
       // paused는 명시적으로 넘긴다 — stepGame이 일시정지 중 일찍 반환해 attack 이벤트 자체가
       // 생기지 않으므로 사실상 이미 조용하지만, cues.ts가 그 사실에만 기대지 않도록 방어한다.
       // phase는 victory/defeat 전환 감지용(cues.ts CueResolver.resolve 참고).

@@ -1,5 +1,5 @@
-import { CONFIG } from '../config';
-import type { GameState, Piece } from '../types';
+import { CONFIG, DEFAULT_DIFFICULTY } from '../config';
+import type { Difficulty, GameState, Piece } from '../types';
 
 /**
  * 시작 폰 배치 (v1.16). 가챠만으로 기물을 얻게 되면서 빈손으로는 w1을 넘길 수 없다.
@@ -26,11 +26,18 @@ function startingPawns(): Piece[] {
   }));
 }
 
-export function createInitialState(): GameState {
+/**
+ * 판 하나의 시작 상태. 난이도는 **여기서 한 번 정해지고 판 내내 바뀌지 않는다** (v1.20).
+ *
+ * 기본값이 있는 이유는 편의가 아니라 **기존 측정의 보존**이다: 인자 없이 부르면 이지(= 배수
+ * 전부 1)라, 이 함수를 부르는 모든 헤드리스 하네스가 난이도 도입 전과 똑같은 판을 계속 잰다.
+ */
+export function createInitialState(difficulty: Difficulty = DEFAULT_DIFFICULTY): GameState {
   return {
     hp: CONFIG.player.startHp,
     gold: CONFIG.player.startGold,
     wave: 1,
+    difficulty,
     phase: 'prepare',
     prepareTimer: CONFIG.wave.prepareSeconds,
     spawnTimer: 0,

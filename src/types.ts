@@ -6,6 +6,15 @@ export type PieceType =
   | 'pawn' | 'knight' | 'bishop' | 'rook' | 'queen'
   | 'archbishop' | 'chancellor' | 'amazon';
 
+/**
+ * 난이도 (v1.20, 사용자 결정) — **한 판을 시작할 때 고르고 그 판 내내 바뀌지 않는다.**
+ *
+ * ★ 이지가 **기존 밸런스 그대로**다(배수 전부 1). 그래서 이 저장소의 모든 헤드리스 실측과
+ * 밸런스 문서(§9)의 수치는 기본값에서 계속 그대로 유효하다 — 난이도는 기존 곡선을 고쳐
+ * 쓰는 것이 아니라 그 위에 배수를 얹는 것이다.
+ */
+export type Difficulty = 'easy' | 'normal' | 'hard';
+
 /** file 0(a)~7(h), rank 1~8 */
 export interface Square { file: number; rank: number }
 
@@ -98,6 +107,16 @@ export interface GameState {
   hp: number;
   gold: number;
   wave: number;              // 1..20
+  /**
+   * 이 판의 난이도 (v1.20). 시작 화면에서 고른 값이 createInitialState로 들어오고 **판 안에서
+   * 절대 바뀌지 않는다** — 웨이브 중에 난이도가 흔들리면 이미 스폰된 적과 앞으로 스폰될 적의
+   * 체력이 갈라진다.
+   *
+   * ★ 모듈 전역이 아니라 **상태 필드**인 것이 요점이다. 전역에 두면 한 판의 선택이 다음 판
+   * (그리고 헤드리스 측정)에 새어 나가, 같은 함수가 같은 답을 낸다는 보장이 깨진다 —
+   * `progress.ts`가 localStorage를 코어 밖에 두는 것과 같은 이유다.
+   */
+  difficulty: Difficulty;
   phase: Phase;
   prepareTimer: number;
   spawnTimer: number;

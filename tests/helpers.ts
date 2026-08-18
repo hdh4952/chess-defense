@@ -1,4 +1,6 @@
-import { CONFIG, drawCost, enemyCount, enemyHp, enemyTraits, tierMultiplier } from '../src/config';
+import {
+  CONFIG, drawCost, enemyCount, enemyHp, enemyTraits, tierMultiplier, waveTotal,
+} from '../src/config';
 import { createEnemy } from '../src/core/enemy';
 import { stepGame } from '../src/core/step';
 import { recalcQueenBuffs } from '../src/core/buff';
@@ -212,7 +214,7 @@ export function gachaRng(want: PieceType, positionRoll = 0): () => number {
 export function totalSplitBorn(): number {
   const count = CONFIG.traitDefs.splitter.splitCount ?? 0;
   let n = 0;
-  for (let w = 1; w <= CONFIG.wave.total; w++) {
+  for (let w = 1; w <= waveTotal(); w++) {
     if (w % CONFIG.wave.bossEvery === 0) continue;
     for (let i = 0; i < enemyCount(w); i++) {
       if (enemyTraits(w, i, false).includes('splitter')) n += count;
@@ -246,7 +248,7 @@ export function totalSplitKillGold(): number {
   const ratio = def.splitHpRatio ?? 0;
   if (count <= 0 || ratio <= 0) return 0;
   let g = 0;
-  for (let w = 1; w <= CONFIG.wave.total; w++) g += splitKillGoldFor(w);
+  for (let w = 1; w <= waveTotal(); w++) g += splitKillGoldFor(w);
   return g;
 }
 

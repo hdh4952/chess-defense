@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CONFIG } from '../src/config';
+import { CONFIG, waveTotal } from '../src/config';
 import { emptySquares } from '../src/core/economy';
 import { squareKey } from '../src/core/grid';
 import { allySpriteUrl } from '../src/render/skins';
@@ -121,7 +121,7 @@ describe('updateHud (Task 14)', () => {
     updateHud(layout, state);
     expect(layout.hud.hp.textContent).toBe('17');
     expect(layout.hud.gold.textContent).toBe('555');
-    expect(layout.hud.wave.textContent).toBe(`3/${CONFIG.wave.total}`);
+    expect(layout.hud.wave.textContent).toBe(`3/${waveTotal()}`);
     expect(layout.hud.timer.textContent).toBe('4.3s');
   });
 

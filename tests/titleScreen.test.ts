@@ -3,9 +3,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CONFIG, TRAITS } from '../src/config';
 import { bishopTargets, slowSquares } from '../src/core/patterns';
 import type { PieceType } from '../src/types';
-import { recordFinalWaveClear, resetProgressForTest } from '../src/progress';
+import { recordWaveCleared, resetProgressForTest } from '../src/progress';
 import {
-  allySpriteUrl, DEFAULT_SKIN_ID, resetSkinsForTest, selectedSkinId, skinsFor, unlockLabel,
+  allySpriteUrl, DEFAULT_SKIN_ID, resetSkinsForTest, selectedSkinId, SKINS, skinsFor, unlockLabel,
 } from '../src/render/skins';
 import { createLayout, PIECE_NAME } from '../src/ui/layout';
 import { createTitleScreen, RANGE_CENTER, RANGE_RADIUS } from '../src/ui/titleScreen';
@@ -19,6 +19,16 @@ const ALL_TYPES: PieceType[] = Object.keys(TRAITS) as PieceType[];
 // resetSkinsForTest는 그래서 있다). 시작 화면 스위트 전체가 스킨에 영향을 받으므로
 // (아이콘 src 단언 등) 파일 단위로 되돌린다.
 afterEach(() => { resetSkinsForTest(); resetProgressForTest(); });
+
+/**
+ * 잠긴 스킨의 조건을 전부 만족시킨다. **필요한 웨이브 수를 스킨 표에서 유도한다** — 여기에
+ * 20을 적어 두면 조건을 바꿨을 때 이 스위트만 옛 수로 통과하거나 실패한다(§10.2).
+ */
+function unlockAllSkins(): void {
+  const need = Object.values(SKINS).flat()
+    .reduce((m, s) => (s.unlock.kind === 'clearWaves' ? Math.max(m, s.unlock.waves) : m), 0);
+  recordWaveCleared(need);
+}
 
 function mount(onBattle: () => void = () => {}): HTMLElement {
   const app = document.createElement('div');
@@ -190,7 +200,7 @@ describe('스킨 선택 (panel-head)', () => {
 
   // 이 스위트가 보는 것은 **고르는 동작**이다 — 해금은 아래 전용 describe가 본다.
   // 마운트 **전에** 해금해야 한다: 잠김 여부는 패널을 그리는 시점에 마크업으로 굳는다.
-  beforeEach(() => { recordFinalWaveClear(); });
+  beforeEach(() => { unlockAllSkins(); });
 
   function swatches(app: HTMLElement, type: PieceType): HTMLButtonElement[] {
     return [...app.querySelectorAll<HTMLButtonElement>(
@@ -370,7 +380,7 @@ describe('스킨 해금 조건 (panel-head)', () => {
   });
 
   it('해금한 뒤 열면 자물쇠도 조건 문구도 사라지고 고를 수 있다', () => {
-    recordFinalWaveClear();
+    unlockAllSkins();
     const app = mount();
     const btn = swatch(app, lockedSkin.id);
     expect(btn.classList.contains('is-locked')).toBe(false);

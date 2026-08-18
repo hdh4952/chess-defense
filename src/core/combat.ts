@@ -116,7 +116,7 @@ export function killEnemy(state: GameState, e: Enemy, events: GameEvent[]): void
   //   그 루프가 순회하는 배열이 state.enemies가 **아니라** killed이기 때문이다. 피해 루프에서
   //   바로 생성하면 순회 중인 배열에 push하게 되고, 새로 태어난 적이 같은 발사에 다시 맞는다.
   if (e.traits.includes('splitter')) {
-    const born = splitEnemies(e, state.wave);
+    const born = splitEnemies(e, state.wave, state.difficulty);
     if (born.length > 0) {
       state.enemies.push(...born);
       events.push({ kind: 'enemySplit', square: enemySquare(e), count: born.length });

@@ -1,11 +1,14 @@
-import { CONFIG, TRAITS, slowPercent, tierMultiplier } from '../config';
+import { CONFIG, DIFFICULTIES, TRAITS, slowPercent, tierMultiplier } from '../config';
 import { sellPrice } from '../core/economy';
+import {
+  DIFFICULTY_NAME, difficultyDetail, selectedDifficulty, setDifficulty,
+} from '../difficulty';
 import { attackTargets, queenLines, slowTargets } from '../core/patterns';
 import {
   allySpriteUrl, isSkinUnlocked, selectedSkinId, setSkin, skinsFor, unlockLabel,
 } from '../render/skins';
 import { tierRingColor } from '../render/tiers';
-import type { PieceType, Square } from '../types';
+import type { Difficulty, PieceType, Square } from '../types';
 import { CREDIT_HTML, PIECE_NAME } from './layout';
 
 /**
@@ -269,10 +272,43 @@ function buildPanel(type: PieceType): HTMLElement {
 }
 
 /**
- * 시작 화면을 app에 그린다. BATTLE을 누르면 onBattle이 호출되고, 그때 호출부가 app을 게임
- * 화면으로 통째로 갈아끼운다(createLayout이 innerHTML을 덮어쓰므로 별도 정리는 필요 없다).
+ * 난이도 드롭다운 (v1.20) — BATTLE 버튼 **왼쪽**에 놓인다 (사용자 결정).
+ *
+ * ★ 목록도 문구도 전부 유도한다: 난이도는 `DIFFICULTIES`(=CONFIG.difficulty의 키)에서,
+ * 배수 설명은 `difficultyDetail`에서 온다. 난이도를 하나 더 넣거나 배수를 조정해도 이 함수는
+ * 그대로다 — 이 화면의 다른 모든 수치가 코드에서 유도되는 것과 같은 규칙이다.
+ *
+ * 탭·스킨과 달리 여기서는 버튼이 아니라 `<select>`를 쓴다. 셋 중 **하나만** 고르는 배타적
+ * 선택이고 화면에 늘 펼쳐 둘 이유가 없다 — 그리고 네이티브 select는 키보드·모바일 조작을
+ * 스스로 처리한다(aria-pressed 토글 줄로 흉내 내면 그 전부를 직접 구현해야 한다).
  */
-export function createTitleScreen(app: HTMLElement, onBattle: () => void): void {
+function difficultySelect(): string {
+  // ⚠️ 초기 선택은 여기서 `selected` 속성으로 넣지 **않는다** — 아래 배선에서 `.value`로 넣는다.
+  // 이유가 둘이다: ① "지금 골라져 있는 값"을 정하는 곳이 한 군데로 모인다, ② happy-dom은
+  // innerHTML로 파싱한 selected 속성을 select.value에 반영하지 않아, 마크업에 적어 두면
+  // 테스트가 실제 화면과 다른 것을 보게 된다.
+  const options = DIFFICULTIES.map(d =>
+    `<option value="${d}">${DIFFICULTY_NAME[d]} — ${difficultyDetail(d)}</option>`).join('');
+  // 라벨을 눈에 보이게 둔다 — 드롭다운만 있으면 "이 셀렉트가 무엇을 고르는 것인가"를
+  // 펼쳐 봐야만 알 수 있다(선택된 항목 문구가 "이지 — 기본 밸런스"이지 "난이도"가 아니다).
+  return '<div id="difficulty-pick">'
+    + '<label for="difficulty">난이도</label>'
+    + `<select id="difficulty" name="difficulty">${options}</select>`
+    + '</div>';
+}
+
+/**
+ * 시작 화면을 app에 그린다. BATTLE을 누르면 **고른 난이도와 함께** onBattle이 호출되고, 그때
+ * 호출부가 app을 게임 화면으로 통째로 갈아끼운다(createLayout이 innerHTML을 덮어쓰므로 별도
+ * 정리는 필요 없다).
+ *
+ * ★ 난이도를 인자로 넘기는 것이 요점이다. main.ts가 `selectedDifficulty()`를 스스로 다시
+ * 읽게 두면 "화면에 보이는 선택"과 "실제로 시작된 판"이 갈라질 수 있는 통로가 생긴다 —
+ * 누른 그 순간의 값이 그대로 판에 굳어야 한다.
+ */
+export function createTitleScreen(
+  app: HTMLElement, onBattle: (difficulty: Difficulty) => void,
+): void {
   app.innerHTML = `
     <div id="title">
       <header id="title-head">
@@ -284,7 +320,10 @@ export function createTitleScreen(app: HTMLElement, onBattle: () => void): void 
         <div id="title-panels"></div>
       </div>
       <div id="title-foot">
-        <button id="battle">BATTLE</button>
+        <div id="title-start">
+          ${difficultySelect()}
+          <button id="battle">BATTLE</button>
+        </div>
         <p id="title-hint">기물을 사서 보드로 드래그하면 자동으로 싸운다. 웨이브 중에도 자유롭게 옮길 수 있다.<br>
         <b>같은 종류·같은 단계</b> 기물 위로 드래그해 겹치면 <b>합성</b>된다 — 능력치가 두 기물의 합이 되고 테두리 색이 한 단계 오른다.</p>
       </div>
@@ -354,5 +393,18 @@ export function createTitleScreen(app: HTMLElement, onBattle: () => void): void 
   }
 
   select(TAB_ORDER[0]);
-  app.querySelector<HTMLButtonElement>('#battle')!.addEventListener('click', () => onBattle());
+
+  // 고르는 즉시 저장한다(BATTLE을 누를 때가 아니라). 저장값은 다음에 이 화면을 열 때의 초기
+  // 선택일 뿐이라 판을 시작하지 않고 떠나도 손해가 없고, 반대로 시작 시점에만 저장하면
+  // "골라 놓고 설명을 읽다가 새로고침"한 사람의 선택이 조용히 사라진다.
+  const difficultyEl = app.querySelector<HTMLSelectElement>('#difficulty')!;
+  difficultyEl.value = selectedDifficulty();      // 지난번 선택을 되살린다 (없으면 기본값)
+  difficultyEl.addEventListener('change', () => {
+    setDifficulty(difficultyEl.value as Difficulty);
+  });
+
+  // 판에 굳는 난이도는 **누른 순간의 드롭다운 값**이다 — setDifficulty가 모르는 값을 거르므로
+  // 여기서는 selectedDifficulty()를 통해 한 번 정규화해서 넘긴다.
+  app.querySelector<HTMLButtonElement>('#battle')!
+    .addEventListener('click', () => onBattle(selectedDifficulty()));
 }

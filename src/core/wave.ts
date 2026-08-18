@@ -1,4 +1,4 @@
-import { CONFIG, clearBonus, enemyCount, enemyTraits, pickGrantType } from '../config';
+import { CONFIG, clearBonus, enemyCount, enemyTraits, pickGrantType, waveTotal } from '../config';
 import { grantPiece, sellPrice } from './economy';
 import type { GameEvent, GameState } from '../types';
 import { createEnemy } from './enemy';
@@ -23,7 +23,7 @@ export function updateSpawning(
   state: GameState, dt: number, events: GameEvent[], rng: () => number,
 ): void {
   if (state.phase !== 'wave') return;
-  const total = enemyCount(state.wave);
+  const total = enemyCount(state.wave, state.difficulty);
   if (state.spawnedCount >= total) return;
   state.spawnTimer -= dt;
   while (state.spawnTimer <= 0 && state.spawnedCount < total) {
@@ -33,7 +33,9 @@ export function updateSpawning(
     // 시퀀스가 통째로 달라져 기존 헤드리스 측정이 조용히 다른 것을 잰다(signals의 N8이 잡는다).
     const traits = enemyTraits(state.wave, state.spawnedCount, isBoss);
     state.enemies.push(
-      createEnemy(state.wave, file, isBoss, `e-${state.wave}-${state.spawnedCount}`, traits),
+      createEnemy(
+        state.wave, file, isBoss, `e-${state.wave}-${state.spawnedCount}`, traits, state.difficulty,
+      ),
     );
     state.spawnedCount++;
     if (isBoss) events.push({ kind: 'bossSpawned', file });
@@ -46,9 +48,12 @@ export function checkWaveEnd(
   state: GameState, events: GameEvent[], grantRng: () => number = Math.random,
 ): void {
   if (state.phase !== 'wave') return;
-  if (state.spawnedCount < enemyCount(state.wave) || state.enemies.length > 0) return;
+  const total = enemyCount(state.wave, state.difficulty);
+  if (state.spawnedCount < total || state.enemies.length > 0) return;
   // 보너스는 지금 막 끝난 웨이브(state.wave) 기준이다 — 지급이 state.wave++보다 앞에 있다.
-  const bonus = clearBonus(state.wave, state.killedThisWave / enemyCount(state.wave));
+  // ⚠️ 처치율의 분모도 난이도를 탄 마릿수다 — 여기만 이지 기준으로 두면 하드에서 전멸시켜도
+  // 처치율이 0.5로 계산돼 클리어 보너스가 반토막 난다.
+  const bonus = clearBonus(state.wave, state.killedThisWave / total);
   state.gold += bonus;
   state.stats.totalGoldEarned += bonus;
   events.push({ kind: 'waveCleared', wave: state.wave });
@@ -75,7 +80,8 @@ export function checkWaveEnd(
       events.push({ kind: 'grantDiscarded', pieceType: type, refund });
     }
   }
-  if (state.wave >= CONFIG.wave.total) {
+  // 마지막 웨이브는 난이도가 정한다 — 이지 20 · 노멀 30 · 하드 40 (v1.20).
+  if (state.wave >= waveTotal(state.difficulty)) {
     state.phase = 'victory';
     return;
   }
@@ -91,7 +97,7 @@ export function checkWaveEnd(
 
 /** HUD "남은 적": 아직 스폰 안 된 수 + 보드 위 생존 수 */
 export function remainingEnemies(state: GameState): number {
-  const total = enemyCount(state.wave);
+  const total = enemyCount(state.wave, state.difficulty);
   return state.phase === 'wave'
     ? total - state.spawnedCount + state.enemies.length
     : total;

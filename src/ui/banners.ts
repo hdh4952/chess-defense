@@ -1,7 +1,7 @@
-import { CONFIG } from '../config';
+import { CONFIG, DEFAULT_DIFFICULTY, waveTotal } from '../config';
 import { fileLabel } from '../core/grid';
 import { PIECE_NAME } from './layout';
-import type { GameEvent, GameState } from '../types';
+import type { Difficulty, GameEvent, GameState } from '../types';
 import type { Layout } from './layout';
 
 export class Banners {
@@ -9,14 +9,23 @@ export class Banners {
   bossFlash: { file: number; t: number } | null = null;
   private resultShown = false;
 
-  constructor(private layout: Layout) {}
+  /**
+   * 난이도를 생성자로 받는 이유 (v1.20): 아래 "최대 고비" 판정이 **마지막 웨이브 번호**를
+   * 알아야 하는데, `onEvent`는 이벤트만 받고 상태를 보지 못한다. 판이 시작된 뒤 난이도는
+   * 절대 바뀌지 않으므로(types.ts) 한 번 받아 두는 것이 매 이벤트마다 상태를 끌어오는 것보다
+   * 정확하다. 기본값은 테스트 편의가 아니라 이지가 기본 난이도라는 사실의 반영이다.
+   */
+  constructor(private layout: Layout, private difficulty: Difficulty = DEFAULT_DIFFICULTY) {}
 
   onEvent(ev: GameEvent): void {
     if (ev.kind === 'prepareStarted' && ev.isBossWave) {
       // 네 보스가 승패에 기여하는 정도가 전혀 다르다. w5·w10은 표준 빌드로 잡히고, w20은
       // 놓쳐도 이긴다(체력 10 → −5 → 5 > 0). **실제로 판을 가르는 것은 w15 하나뿐**이라
       // 그 웨이브만 다른 문구를 준다 — 배너가 네 번 다 같으면 그 사실을 배울 길이 없다.
-      const isPivotal = ev.wave === CONFIG.wave.total - CONFIG.wave.bossEvery;
+      // 마지막에서 두 번째 보스 웨이브다. 이지의 w15가 그랬듯 **마지막 보스는 놓쳐도 이기지만
+      // 그 앞은 아니다** — 판이 길어져도(노멀 w25 · 하드 w35) 그 구조는 같으므로 총 웨이브
+      // 수에서 유도한다.
+      const isPivotal = ev.wave === waveTotal(this.difficulty) - CONFIG.wave.bossEvery;
       this.showBanner(isPivotal ? '⚠ 최대 고비 — BOSS WAVE' : '⚠ BOSS WAVE');
     }
     // 무상 지급만 배너로 알린다. **구매는 알리지 않는다** — 플레이어가 방금 스스로 누른
@@ -63,7 +72,7 @@ export class Banners {
     el.innerHTML = `
       <div class="result-box">
         <h1>${state.phase === 'victory' ? '🏆 승리!' : '💀 패배'}</h1>
-        <p>도달 웨이브 <b>${state.wave} / ${CONFIG.wave.total}</b></p>
+        <p>도달 웨이브 <b>${state.wave} / ${waveTotal(state.difficulty)}</b></p>
         <p>처치 수 <b>${state.stats.totalKills}</b></p>
         <p>획득 골드 <b>${state.stats.totalGoldEarned}G</b></p>
         <button id="restart">다시 시작</button>

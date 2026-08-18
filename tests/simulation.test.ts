@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CONFIG, clearBonus, enemyCount, enemyHp } from '../src/config';
+import { CONFIG, clearBonus, enemyCount, enemyHp, waveTotal } from '../src/config';
 import { stepGame } from '../src/core/step';
 import { BOARD_H } from '../src/core/grid';
 import type { GameEvent, GameState, Phase } from '../src/types';
@@ -72,12 +72,12 @@ describe('전 게임 시뮬레이션', () => {
     expect(s.phase).toBe('victory');
     expect(s.hp).toBe(100 - 4 * CONFIG.player.hpLossBoss);
 
-    const bossWaveCount = Math.floor(CONFIG.wave.total / CONFIG.wave.bossEvery);
+    const bossWaveCount = Math.floor(waveTotal() / CONFIG.wave.bossEvery);
     const bossWaves = Array.from({ length: bossWaveCount }, (_, i) => (i + 1) * CONFIG.wave.bossEvery);
     const bossHpTotal = bossWaves.map(w => enemyHp(w) * CONFIG.enemy.bossHpMultiplier).reduce((a, b) => a + b, 0);
     let killGold = 0;
     let totalEnemies = 0;
-    for (let w = 1; w <= CONFIG.wave.total; w++) {
+    for (let w = 1; w <= waveTotal(); w++) {
       const isBoss = w % CONFIG.wave.bossEvery === 0;
       totalEnemies += enemyCount(w);
       killGold += enemyCount(w) * enemyHp(w) * (isBoss ? CONFIG.enemy.bossHpMultiplier : 1);
@@ -94,7 +94,7 @@ describe('전 게임 시뮬레이션', () => {
     expect(s.stats.totalKills).toBe(totalEnemies - bossWaves.length + totalSplitBorn());
     // 이 빌드는 일반 적을 전멸시키고 보스만 놓치므로, 보스 웨이브의 처치율만 0이다.
     let bonusTotal = 0;
-    for (let w = 1; w <= CONFIG.wave.total; w++) {
+    for (let w = 1; w <= waveTotal(); w++) {
       bonusTotal += clearBonus(w, w % CONFIG.wave.bossEvery === 0 ? 0 : 1);
     }
     expect(s.stats.totalGoldEarned).toBe(killGold + bonusTotal);

@@ -1,4 +1,4 @@
-import { CONFIG } from '../config';
+import { CONFIG, waveTotal } from '../config';
 import { remainingEnemies } from '../core/wave';
 import type { GameState } from '../types';
 import type { Layout } from './layout';
@@ -14,7 +14,7 @@ export function updateHud(layout: Layout, state: GameState): void {
   h.bossRoom.textContent = `♚ 여유 ${bossRoom}`;
   h.bossRoom.classList.toggle('danger', bossRoom === 0);
   h.gold.textContent = String(state.gold);
-  h.wave.textContent = `${state.wave}/${CONFIG.wave.total}`;
+  h.wave.textContent = `${state.wave}/${waveTotal(state.difficulty)}`;
   // remainingEnemies()는 phase !== 'wave'일 때 웨이브 전체 수를 반환한다.
   // victory/defeat 화면 뒤에 "남은 적 N"이 그대로 남는 것을 막기 위해 여기서 0으로 덮어쓴다.
   h.remaining.textContent = String(

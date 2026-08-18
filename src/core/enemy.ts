@@ -1,5 +1,5 @@
-import { CONFIG, enemyHp } from '../config';
-import type { Enemy, EnemyTrait, GameEvent, GameState } from '../types';
+import { CONFIG, DEFAULT_DIFFICULTY, enemyHp } from '../config';
+import type { Difficulty, Enemy, EnemyTrait, GameEvent, GameState } from '../types';
 import { BOARD_H } from './grid';
 import { NO_SLOW, effectiveSpeed } from './slow';
 
@@ -9,11 +9,16 @@ function hashId(id: string): number {
   return Math.abs(h);
 }
 
+/**
+ * 적 한 마리. 난이도는 **체력에만** 닿는다 — 속도·유형·지터는 난이도와 무관하다(config.ts의
+ * CONFIG.difficulty 주석 참고). 인자를 생략하면 이지, 즉 난이도 도입 전과 같은 적이다.
+ */
 export function createEnemy(
   wave: number, file: number, isBoss: boolean, id: string,
   traits: readonly EnemyTrait[] = [],
+  difficulty: Difficulty = DEFAULT_DIFFICULTY,
 ): Enemy {
-  const hp = enemyHp(wave) * (isBoss ? CONFIG.enemy.bossHpMultiplier : 1);
+  const hp = enemyHp(wave, difficulty) * (isBoss ? CONFIG.enemy.bossHpMultiplier : 1);
   const base = CONFIG.board.squarePx / CONFIG.enemy.secondsPerSquare;
   const j = CONFIG.enemy.jitterPx;
   // 영구 배수만 speed에 굽는다. 일시적 감속 같은 것이 생기면 speed가 아니라 별도 상태로 둬야
@@ -59,7 +64,9 @@ export function createEnemy(
  * 파일이 보드를 벗어나면 남은 한쪽에 몰아 준다 — "죽으면 2마리"라는 규칙이 가장자리에서만
  * 조용히 1마리가 되지 않게 한다.
  */
-export function splitEnemies(parent: Enemy, wave: number): Enemy[] {
+export function splitEnemies(
+  parent: Enemy, wave: number, difficulty: Difficulty = DEFAULT_DIFFICULTY,
+): Enemy[] {
   const def = CONFIG.traitDefs.splitter;
   const count = def.splitCount ?? 0;
   const ratio = def.splitHpRatio ?? 0;
@@ -73,7 +80,11 @@ export function splitEnemies(parent: Enemy, wave: number): Enemy[] {
   const out: Enemy[] = [];
   for (let i = 0; i < count; i++) {
     const file = sides[i % sides.length];
-    const child = createEnemy(wave, file, false, `${parent.id}-s${i}`, []);
+    // 난이도를 넘기지만 아래에서 hp를 부모 비율로 덮으므로 체력에는 영향이 없다 — 그래도
+    // 넘기는 이유는 "적을 만드는 곳은 난이도를 함께 넘긴다"는 규칙에 예외를 만들지 않기
+    // 위해서다. createEnemy가 나중에 난이도를 체력 말고 다른 곳에 쓰게 되면 여기만 조용히
+    // 이지로 남는다.
+    const child = createEnemy(wave, file, false, `${parent.id}-s${i}`, [], difficulty);
     child.hp = hp;
     child.maxHp = hp;          // 처치 보상도 이 값이다 — 분열은 골드를 늘린다(의도된 성질)
     child.y = parent.y;        // 부모가 죽은 자리에서 태어난다
