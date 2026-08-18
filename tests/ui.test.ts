@@ -132,6 +132,37 @@ describe('createLayout (Task 14 — UI 셸)', () => {
     expect(layout.bannerRoot).toBeInstanceOf(HTMLElement);
   });
 
+  /**
+   * ★ v1.29 — 화면 맨 위 상태 막대(`#hud`)를 없애고 값들을 **자기가 말하는 것 옆으로** 옮겼다
+   * (사용자 결정). 웨이브·남은 적·타이머는 판에서 벌어지는 일이므로 보드 위로, 일시정지·
+   * 배속·음소거는 판을 조작하는 것이므로 웨이브 시작 아래로.
+   *
+   * 위치를 못박는 이유: 이 요소들은 `id`로 잡히므로 **DOM 어디에 있든 코드는 동작한다** —
+   * 누가 편의로 되돌려 놓아도 테스트가 아니면 드러나지 않는다.
+   */
+  it('★ 상태 표시는 보드 위에, 조작 버튼은 웨이브 시작 아래에 있다 (v1.29)', () => {
+    const app = makeApp();
+    createLayout(app);
+    expect(app.querySelector('#hud')).toBeNull();          // 맨 위 막대는 사라졌다
+
+    const status = app.querySelector('#board-status')!;
+    for (const id of ['hud-wave', 'hud-remaining', 'hud-timer']) {
+      expect(status.querySelector(`#${id}`)).toBeTruthy();
+    }
+    // 보드 바로 **위**여야 한다 — 아래에 있으면 시선이 여전히 오간다.
+    const col = app.querySelector('#board-col')!;
+    const kids = [...col.children];
+    expect(kids.indexOf(status)).toBeLessThan(kids.indexOf(app.querySelector('#board-wrap')!));
+
+    const right = app.querySelector('#right')!;
+    const controls = right.querySelector('#controls')!;
+    for (const id of ['hud-pause', 'hud-speed', 'hud-mute']) {
+      expect(controls.querySelector(`#${id}`)).toBeTruthy();
+    }
+    const rk = [...right.children];
+    expect(rk.indexOf(controls)).toBeGreaterThan(rk.indexOf(app.querySelector('#start-wave')!));
+  });
+
   it('PIECE_NAME은 5개 기물 종류를 모두 포함한다', () => {
     for (const type of PIECE_TYPES) {
       expect(PIECE_NAME[type]).toBeTruthy();
@@ -170,10 +201,12 @@ describe('updateHud (Task 14)', () => {
     state.gold = 555;
     state.hp = 7;
     updateHud(layout, state);
-    const hud = layout.hud.wave.closest('#hud')!;
-    expect(hud.textContent).not.toContain('555');
-    expect(hud.textContent).not.toContain('여유');
-    expect(hud.textContent).not.toContain('♥');
+    // ★ v1.29에서 `#hud` 막대 자체가 사라졌다 — 상태 표시는 보드 위로 옮겨 갔다.
+    const status = layout.hud.wave.closest('#board-status')!;
+    expect(status).toBeTruthy();
+    expect(status.textContent).not.toContain('555');
+    expect(status.textContent).not.toContain('여유');
+    expect(status.textContent).not.toContain('♥');
   });
 
   it('보스 웨이브(5의 배수) 준비 중에만 보스 아이콘을 표시한다', () => {

@@ -3,10 +3,58 @@ body {
   margin: 0; background: #23221f; color: #e8e8e8;
   font-family: system-ui, sans-serif; user-select: none;
 }
-#hud { display: flex; gap: 20px; align-items: center; padding: 8px 16px; background: #1a1918; }
-#hud button { font-size: 14px; }
+/* ⚠️ v1.29에서 `#hud`(화면 맨 위 상태 막대)가 통째로 사라졌다. 값들은 없어진 게 아니라
+   자기가 말하는 것 옆으로 옮겨 갔다 — 상태 표시는 보드 위(#board-status), 조작 버튼은
+   웨이브 시작 아래(#controls). ui/layout.ts의 Layout.hud 주석 참고. */
 #main { display: flex; gap: 12px; padding: 12px; justify-content: center; align-items: flex-start; }
 #left, #right { width: 210px; display: flex; flex-direction: column; gap: 12px; }
+#board-col { display: flex; flex-direction: column; }
+
+/* ── 카툰 UI 공통 (v1.27 뽑기 버튼 → v1.29 전체로) ─────────────────────────
+   3D 쪽과 같은 어휘를 CSS로 옮긴 것이다: **두꺼운 어두운 테두리**(기물 윤곽선과 같은 잉크
+   #2A2028) · **위쪽 안쪽 광택** · **아래쪽 두께**. 마지막 하나가 캐주얼 게임 UI의 핵심 —
+   아래로 깔린 그림자가 버튼에 높이를 주고, 누르면 그 높이만큼 내려앉아 "눌렸다"가 색이
+   아니라 움직임으로 읽힌다.
+   ⚠️ 내려앉는 만큼 margin-bottom을 미리 비워 둔다 — 없으면 누를 때마다 아래 요소가 들썩인다. */
+/* ★ 선택자를 한 줄에 모아 **공통 어휘를 한 곳에서** 정의한다. 클래스를 HTML에 뿌리지 않는
+   이유는, 이 목록 자체가 "카툰 처리를 받는 것들의 전부"라는 문서가 되기 때문이다. */
+.stat-pill, .ctl-btn, #start-wave, #draw-btn {
+  color: #FFF6E4; font: inherit; font-weight: 800;
+  border: 3px solid #2A2028; border-radius: 11px;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+  box-shadow: 0 4px 0 #2A2028, inset 0 3px 0 rgba(255, 255, 255, 0.28);
+  margin-bottom: 4px;
+}
+.ctl-btn, #start-wave, #draw-btn { cursor: pointer; transition: transform 60ms, box-shadow 60ms; }
+.ctl-btn:active:not(:disabled), #start-wave:active:not(:disabled), #draw-btn:active:not(:disabled) {
+  transform: translateY(4px);
+  box-shadow: 0 0 0 #2A2028, inset 0 3px 0 rgba(255, 255, 255, 0.2);
+}
+.ctl-btn:disabled, #start-wave:disabled, #draw-btn:disabled {
+  cursor: default; color: #B6B1A8;
+  background: linear-gradient(#6F6A62, #514C45 52%, #403C36);
+}
+
+/* 보드 위 상태 표시 — 웨이브 · 남은 적 · 타이머. */
+#board-status { display: flex; gap: 10px; justify-content: center; margin-bottom: 8px; }
+.stat-pill {
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; font-size: 15px;
+  background: linear-gradient(#5A5668, #413D4E 52%, #35313F);
+}
+.stat-pill b { color: #FFD34D; font-variant-numeric: tabular-nums; }
+/* ★ 보스 웨이브 준비 중에는 타이머 알약 자체가 붉어진다 — 아이콘 하나보다 훨씬 먼저 읽힌다.
+   `:has()`를 쓰면 hidden 속성 하나로 상태가 따라오므로 ui/hud.ts는 손댈 필요가 없다. */
+#timer-pill:has(#hud-boss-icon:not([hidden])) {
+  background: linear-gradient(#C4525A, #9E3038 52%, #832229);
+}
+
+/* 판을 조작하는 버튼 셋 — 웨이브 시작 아래. 판을 **시작**하는 것과 **다루는** 것이라
+   색을 나눈다(호박 / 청회색). */
+#controls { display: flex; gap: 6px; }
+.ctl-btn {
+  flex: 1; padding: 9px 2px; font-size: 15px;
+  background: linear-gradient(#6C7A93, #4C5870 52%, #3C465C);
+}
 /* ⚠️ v1.12에서 #slots(기물 보관함 4×4 그리드)와 .slot-cell/.slot-icon이 사라졌다 — 구매·지급이
    보드의 빈 칸에 직접 스폰하므로 대기 공간이 없다. #left에는 상점만 남는다. */
 
@@ -27,19 +75,12 @@ body {
    **두꺼운 어두운 테두리**(기물 윤곽선과 같은 잉크 #2A2028) · **위쪽 광택** · **아래쪽 두께**.
    마지막 하나가 캐주얼 게임 버튼의 핵심이다 — 아래로 깔린 그림자가 버튼에 **높이**를 주고,
    누르면 그 높이만큼 내려앉아 "눌렸다"가 색이 아니라 움직임으로 읽힌다. */
+/* 뽑기 버튼 — 공통 어휘(위)에 더해 가장 큰 버튼이므로 두께와 여백만 키운다. */
 #draw-btn {
-  padding: 12px 6px 13px; font: inherit; font-size: 16px; font-weight: 800; line-height: 1.3;
-  color: #FFF6E4;
-  border: 3px solid #2A2028;
-  border-radius: 12px;
+  padding: 12px 6px 13px; font-size: 16px; line-height: 1.3;
   background: linear-gradient(#7FC24B, #57A032 52%, #40801F);
-  /* 아래쪽 두께 + 위쪽 안쪽 광택. 체력바의 테두리·광택과 같은 두 요소다. */
   box-shadow: 0 5px 0 #2A2028, inset 0 3px 0 rgba(255, 255, 255, 0.32);
-  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
-  cursor: pointer;
-  /* 눌릴 때 아래로 내려앉으므로 그만큼 자리를 비워 둔다 — 없으면 아래 요소가 함께 들썩인다. */
   margin-bottom: 5px;
-  transition: transform 60ms, box-shadow 60ms;
 }
 #draw-btn .draw-title { display: block; }
 /* 보유 / 필요 — 자릿수가 바뀌어도 폭이 흔들리지 않도록 tabular-nums. */
@@ -47,10 +88,8 @@ body {
   display: block; margin-top: 3px; font-size: 15px;
   font-variant-numeric: tabular-nums; color: #FFD34D;
 }
-#draw-btn:active:not(:disabled) {
-  transform: translateY(5px);
-  box-shadow: 0 0 0 #2A2028, inset 0 3px 0 rgba(255, 255, 255, 0.22);
-}
+/* 눌림 깊이는 두께(5px)에 맞춘다 — 공통값(4px)보다 한 겹 깊다. */
+#draw-btn:active:not(:disabled) { transform: translateY(5px); }
 /* ★ 못 누르는 상태는 **회색 하나로 통일**하고, 그중 **왜** 못 누르는지는 숫자 색이 말한다.
    골드 부족도 canDraw가 막으므로(core/economy.ts) 버튼 자체는 어차피 비활성이다 —
    그래서 세 상태가 이렇게 갈린다:
@@ -58,11 +97,6 @@ body {
      회색 + 붉은 숫자 = 돈이 모자라다
      회색 + 금색 = 돈은 있는데 지금은 안 된다 (일시정지 · 보드 만석) */
 #draw-btn.poor #draw-cost { color: #FF8F7A; }
-#draw-btn:disabled {
-  cursor: default;
-  background: linear-gradient(#6F6A62, #514C45 52%, #403C36);
-  color: #B6B1A8;
-}
 #draw-btn:disabled #draw-cost { color: #C9B98A; }
 #draw-btn:disabled.poor #draw-cost { color: #D08A7C; }
 #odds {
@@ -77,14 +111,23 @@ body {
 #board-wrap { position: relative; }   /* 툴팁/고스트/오버레이 캔버스 기준점 */
 /* 3D 보드 위에 정확히 겹치는 정보 계층. pointer-events를 끊어야 드래그가 아래 캔버스에 닿는다. */
 #board-overlay { position: absolute; left: 0; top: 0; pointer-events: none; }
+/* 판매 슬롯은 **점선을 유지한다** — 점선이 "여기 놓아라"라는 뜻이라, 채운 테두리로 바꾸면
+   드롭 대상이 아니라 버튼처럼 보인다. 잉크 색만 나머지와 맞춘다. */
 #sell-slot {
-  min-height: 110px; border: 2px dashed #a05548; border-radius: 6px;
+  min-height: 110px; border: 3px dashed #6E4C52; border-radius: 11px;
   text-align: center; padding: 12px 4px; font-size: 26px; color: #caa;
+  background: rgba(42, 32, 40, 0.35);
 }
 #sell-slot small { font-size: 11px; }
 #sell-slot.armed { background: rgba(200, 80, 60, 0.25); }
 #sell-preview { font-size: 14px; color: #ffd54a; min-height: 18px; }
-#start-wave { padding: 12px; font-size: 16px; }
+/* 웨이브 시작 — 뽑기(초록)와 색을 나눈다. 둘 다 초록이면 "돈 쓰기"와 "판 시작"이 같은
+   무게로 보이는데, 되돌릴 수 없다는 점에서 후자가 더 무겁다. */
+#start-wave {
+  padding: 13px; font-size: 17px; color: #3A2408;
+  background: linear-gradient(#F5C24E, #DE9A2C 52%, #BE7B16);
+  text-shadow: 0 2px 0 rgba(255, 255, 255, 0.3);
+}
 canvas { display: block; }
 
 #tooltip {

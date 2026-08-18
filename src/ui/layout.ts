@@ -15,9 +15,16 @@ export interface Layout {
    */
   overlay: HTMLCanvasElement;
   hud: {
-    // ★ HUD가 계속 얇아지고 있다. `gold`는 v1.27에 뽑기 버튼 안으로, ★ **`hp`와 `bossRoom`은
-    //   v1.28에 판 밖의 플레이어 킹으로** 옮겨 갔다(사용자 결정: "킹 = 플레이어").
-    //   남은 것은 전부 **판 위에 그릴 자리가 없는 값**뿐이다 — 웨이브 번호, 남은 적 수, 타이머.
+    /**
+     * ★ **v1.29에서 상단 HUD 막대 자체가 사라졌다** (사용자 결정). 값들은 없어진 게 아니라
+     * **자기가 말하는 것 옆으로** 옮겨 갔다:
+     *   - 웨이브·남은 적·타이머 → **보드 바로 위**(`#board-status`). 판에서 벌어지는 일이다.
+     *   - 일시정지·배속·음소거 → **웨이브 시작 버튼 아래**(`#controls`). 판을 조작하는 것이다.
+     *
+     * 그 앞선 두 판에서 `gold`(v1.27 → 뽑기 버튼)와 `hp`·`bossRoom`(v1.28 → 플레이어 킹)이
+     * 먼저 빠졌다. 이 필드 묶음이 `hud`라는 이름을 유지하는 것은 여전히 "상태 표시와 조작"이기
+     * 때문이지, 한 곳에 모여 있어서가 아니다.
+     */
     wave: HTMLElement; remaining: HTMLElement;
     timer: HTMLElement; bossIcon: HTMLElement;
     pauseBtn: HTMLButtonElement; speedBtn: HTMLButtonElement; muteBtn: HTMLButtonElement;
@@ -86,29 +93,37 @@ export const CREDIT_HTML = `
 
 export function createLayout(app: HTMLElement): Layout {
   app.innerHTML = `
-    <header id="hud">
-      <span>웨이브 <b id="hud-wave"></b></span>
-      <span>남은 적 <b id="hud-remaining"></b></span>
-      <span>⏱<b id="hud-timer"></b><b id="hud-boss-icon" hidden> ♚보스!</b></span>
-      <button id="hud-pause">⏸</button>
-      <button id="hud-speed">▶▶1x</button>
-      <button id="hud-mute" aria-pressed="false">🔊</button>
-    </header>
     <main id="main">
       <aside id="left">
         <div id="shop"></div>
       </aside>
-      <div id="board-wrap">
-        <!-- width/height는 배율 1일 때의 값이자 폴백이다. 실제 해상도는 두 캔버스 모두 화면
-             픽셀 밀도에 맞춰 다시 정해지고 CSS 크기는 640px로 못박힌다 — 3D 쪽은
-             WebGLRenderer.setPixelRatio(render3d/scene.ts), 오버레이는 createBoardContext
-             (render/dpr.ts)가 맡는다. -->
-        <canvas id="board" width="${VIEW_W}" height="${VIEW_H}"></canvas>
-        <canvas id="board-overlay" width="${VIEW_W}" height="${VIEW_H}"></canvas>
+      <div id="board-col">
+        <!-- ★ 판에서 벌어지는 일은 판 바로 위에 적는다 (v1.29). 화면 맨 위 막대에 있을 때는
+             시선이 보드와 HUD 사이를 오갔다 — 웨이브 번호도 남은 적 수도 타이머도 전부
+             "지금 저 판에서 무슨 일이 일어나는가"에 대한 답이기 때문이다. -->
+        <div id="board-status">
+          <span class="stat-pill">웨이브 <b id="hud-wave"></b></span>
+          <span class="stat-pill">남은 적 <b id="hud-remaining"></b></span>
+          <span class="stat-pill" id="timer-pill">⏱<b id="hud-timer"></b><b id="hud-boss-icon" hidden> ♚보스!</b></span>
+        </div>
+        <div id="board-wrap">
+          <!-- width/height는 배율 1일 때의 값이자 폴백이다. 실제 해상도는 두 캔버스 모두
+               화면 픽셀 밀도에 맞춰 다시 정해지고 CSS 크기는 뷰 크기로 못박힌다 — 3D 쪽은
+               WebGLRenderer.setPixelRatio(render3d/scene.ts), 오버레이는 createBoardContext
+               (render/dpr.ts)가 맡는다. -->
+          <canvas id="board" width="${VIEW_W}" height="${VIEW_H}"></canvas>
+          <canvas id="board-overlay" width="${VIEW_W}" height="${VIEW_H}"></canvas>
+        </div>
       </div>
       <aside id="right">
         <div id="sell-slot">🗑<br><small>드래그 = 즉시 판매 (50%)</small><div id="sell-preview"></div></div>
         <button id="start-wave">웨이브 시작</button>
+        <!-- ★ 판을 조작하는 버튼은 판을 시작하는 버튼 아래에 모은다 (v1.29). -->
+        <div id="controls">
+          <button id="hud-pause" class="ctl-btn" title="일시정지">⏸</button>
+          <button id="hud-speed" class="ctl-btn" title="배속">▶▶1x</button>
+          <button id="hud-mute" class="ctl-btn" aria-pressed="false" title="음소거">🔊</button>
+        </div>
       </aside>
     </main>
 ${CREDIT_HTML}
