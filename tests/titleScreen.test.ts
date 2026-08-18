@@ -1,14 +1,24 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CONFIG, TRAITS } from '../src/config';
 import { bishopTargets, slowSquares } from '../src/core/patterns';
 import type { PieceType } from '../src/types';
+import { recordFinalWaveClear, resetProgressForTest } from '../src/progress';
+import {
+  allySpriteUrl, DEFAULT_SKIN_ID, resetSkinsForTest, selectedSkinId, skinsFor, unlockLabel,
+} from '../src/render/skins';
+import { createLayout, PIECE_NAME } from '../src/ui/layout';
 import { createTitleScreen, RANGE_CENTER, RANGE_RADIUS } from '../src/ui/titleScreen';
 
 const TYPES: PieceType[] = ['pawn', 'knight', 'bishop', 'rook', 'queen'];
 /** 탭에 실제로 실리는 전 기물(융합물 포함). TAB_ORDER와 같은 출처에서 뽑아 두면 기물이
  *  늘어도 전수 검사가 저절로 따라온다 — 여기에 목록을 다시 적으면 그 순간 갈라진다. */
 const ALL_TYPES: PieceType[] = Object.keys(TRAITS) as PieceType[];
+
+// 스킨 선택은 모듈 전역이라 한 테스트가 바꾼 값이 다음 테스트로 새어 나간다 (skins.ts의
+// resetSkinsForTest는 그래서 있다). 시작 화면 스위트 전체가 스킨에 영향을 받으므로
+// (아이콘 src 단언 등) 파일 단위로 되돌린다.
+afterEach(() => { resetSkinsForTest(); resetProgressForTest(); });
 
 function mount(onBattle: () => void = () => {}): HTMLElement {
   const app = document.createElement('div');
@@ -166,5 +176,208 @@ describe('createTitleScreen', () => {
     const app = mount();
     // queenLines는 8방향 관통이므로 창(5×5) 안에서는 중앙 + 4방향×2칸 + 4대각×2칸 = 17칸
     expect(markedSquares(app, 'queen', 'is-target').size).toBe(17);
+  });
+});
+
+/**
+ * 스킨 선택 (v1.19). 로비에서 기물 탭을 고르고 panel-head의 썸네일을 누르면 그 기물의 그림이
+ * 바뀐다 — 이 화면 안의 세 곳(탭·패널·사거리 미니보드)이 **함께** 바뀌는 것이 요점이다.
+ * 한 곳만 바뀌면 플레이어는 자기가 무엇을 골랐는지 확신할 수 없다.
+ */
+describe('스킨 선택 (panel-head)', () => {
+  /** 스킨이 둘 이상인 기물 — 목록을 여기 다시 적으면 스킨이 늘 때 갈라진다. */
+  const skinnable = ALL_TYPES.find(t => skinsFor(t).length > 1)!;
+
+  // 이 스위트가 보는 것은 **고르는 동작**이다 — 해금은 아래 전용 describe가 본다.
+  // 마운트 **전에** 해금해야 한다: 잠김 여부는 패널을 그리는 시점에 마크업으로 굳는다.
+  beforeEach(() => { recordFinalWaveClear(); });
+
+  function swatches(app: HTMLElement, type: PieceType): HTMLButtonElement[] {
+    return [...app.querySelectorAll<HTMLButtonElement>(
+      `.title-panel[data-piece-type="${type}"] .skin-swatch`,
+    )];
+  }
+
+  it('스킨이 둘 이상인 기물의 패널에만 선택 버튼이 붙는다', () => {
+    // 고를 것이 없는 기물에 버튼 한 칸을 띄우면 "잠긴 스킨"으로 읽힌다.
+    const app = mount();
+    expect(skinsFor(skinnable).length).toBeGreaterThan(1);   // 전제 고정 (공허 방지)
+    expect(swatches(app, skinnable)).toHaveLength(skinsFor(skinnable).length);
+    for (const type of ALL_TYPES) {
+      if (skinsFor(type).length > 1) continue;
+      expect(swatches(app, type), type).toHaveLength(0);
+    }
+  });
+
+  it('선택 버튼은 panel-head 안에 있다 — 설명 본문이 아니라 기물 머리에서 고른다', () => {
+    const app = mount();
+    for (const btn of swatches(app, skinnable)) {
+      expect(btn.closest('.panel-head')).not.toBeNull();
+    }
+  });
+
+  it('처음에는 기본 스킨만 눌린 상태다', () => {
+    const app = mount();
+    for (const btn of swatches(app, skinnable)) {
+      expect(btn.getAttribute('aria-pressed'), btn.dataset.skinId)
+        .toBe(String(btn.dataset.skinId === DEFAULT_SKIN_ID));
+    }
+  });
+
+  it('썸네일을 누르면 그 스킨이 선택되고 aria-pressed가 하나만 true가 된다', () => {
+    const app = mount();
+    const alt = skinsFor(skinnable)[1];
+    swatches(app, skinnable).find(b => b.dataset.skinId === alt.id)!.click();
+
+    expect(selectedSkinId(skinnable)).toBe(alt.id);
+    const pressed = swatches(app, skinnable).filter(b => b.getAttribute('aria-pressed') === 'true');
+    expect(pressed).toHaveLength(1);
+    expect(pressed[0].dataset.skinId).toBe(alt.id);
+  });
+
+  it('★ 누르는 즉시 탭·패널·사거리 그림의 아이콘이 전부 새 스킨으로 바뀐다', () => {
+    const app = mount();
+    const alt = skinsFor(skinnable)[1];
+    const icons = () => [...app.querySelectorAll<HTMLImageElement>(
+      `img[data-piece-icon="${skinnable}"]`,
+    )];
+    // 탭 · 패널 머리 · 사거리 미니보드 가운데 칸 — 셋 다 잡혔는지부터 고정한다(셀렉터가
+    // 헛돌면 아래 단언이 "빈 목록을 전부 통과"로 조용히 넘어간다).
+    expect(icons().length).toBe(3);
+
+    swatches(app, skinnable).find(b => b.dataset.skinId === alt.id)!.click();
+
+    expect(allySpriteUrl(skinnable)).toBe(alt.url);
+    for (const img of icons()) expect(img.getAttribute('src')).toBe(alt.url);
+  });
+
+  it('다른 기물의 아이콘은 건드리지 않는다', () => {
+    const app = mount();
+    const others = ALL_TYPES.filter(t => t !== skinnable);
+    const before = new Map(others.map(t => [t, allySpriteUrl(t)]));
+
+    swatches(app, skinnable).find(b => b.dataset.skinId === skinsFor(skinnable)[1].id)!.click();
+
+    for (const type of others) {
+      for (const img of app.querySelectorAll<HTMLImageElement>(`img[data-piece-icon="${type}"]`)) {
+        expect(img.getAttribute('src'), type).toBe(before.get(type));
+      }
+    }
+  });
+
+  it('기본으로 되돌릴 수 있다', () => {
+    const app = mount();
+    const btns = swatches(app, skinnable);
+    btns.find(b => b.dataset.skinId === skinsFor(skinnable)[1].id)!.click();
+    btns.find(b => b.dataset.skinId === DEFAULT_SKIN_ID)!.click();
+
+    expect(selectedSkinId(skinnable)).toBe(DEFAULT_SKIN_ID);
+    expect(allySpriteUrl(skinnable)).toBe(skinsFor(skinnable)[0].url);
+    for (const img of app.querySelectorAll<HTMLImageElement>(`img[data-piece-icon="${skinnable}"]`)) {
+      expect(img.getAttribute('src')).toBe(skinsFor(skinnable)[0].url);
+    }
+  });
+
+  it('이미 고른 스킨을 다시 눌러도 상태가 흐트러지지 않는다', () => {
+    const app = mount();
+    const alt = skinsFor(skinnable)[1];
+    const btn = swatches(app, skinnable).find(b => b.dataset.skinId === alt.id)!;
+    btn.click();
+    btn.click();
+    expect(selectedSkinId(skinnable)).toBe(alt.id);
+    expect(swatches(app, skinnable).filter(b => b.getAttribute('aria-pressed') === 'true'))
+      .toHaveLength(1);
+  });
+
+  it('선택 버튼이 스크린 리더용 이름을 갖는다 — 그림만으로는 무엇인지 알 수 없다', () => {
+    const app = mount();
+    for (const skin of skinsFor(skinnable)) {
+      const btn = swatches(app, skinnable).find(b => b.dataset.skinId === skin.id)!;
+      expect(btn.getAttribute('aria-label'), skin.id).toContain(skin.name);
+      expect(btn.querySelector('img')!.getAttribute('draggable')).toBe('false');
+    }
+  });
+
+  it('선택한 스킨이 게임 화면(뽑기 확률표)으로 이어진다', () => {
+    // 로비에서 고른 스킨이 BATTLE 이후에 원래 그림으로 돌아가면 기능이 반쪽이다.
+    // createLayout은 만들어지는 시점에 allySpriteUrl을 읽으므로 별도 배선 없이 따라온다.
+    const app = mount();
+    const alt = skinsFor(skinnable)[1];
+    swatches(app, skinnable).find(b => b.dataset.skinId === alt.id)!.click();
+
+    const game = document.createElement('div');
+    document.body.appendChild(game);
+    createLayout(game);
+    const odds = [...game.querySelectorAll<HTMLImageElement>('#odds li img')];
+    expect(odds.length).toBeGreaterThan(0);
+    const names = [...game.querySelectorAll<HTMLElement>('#odds li span')].map(e => e.textContent);
+    const idx = names.indexOf(PIECE_NAME[skinnable]);
+    expect(idx, `${skinnable}이 확률표에 없다`).toBeGreaterThanOrEqual(0);
+    expect(odds[idx].getAttribute('src')).toBe(alt.url);
+  });
+});
+
+/**
+ * 스킨 해금 조건이 화면에 드러나는 방식 (v1.19).
+ *
+ * 잠긴 스킨을 **숨기지 않고 잠긴 채로 보여주는** 것이 이 기능의 설계다 — 이 화면이 만들 수
+ * 없는 융합 기물까지 탭에 두는 이유와 같다(숨기면 존재 자체를 모른다). 그래서 검사할 것도
+ * "안 보인다"가 아니라 "보이되 눌리지 않고, 왜 그런지 읽을 수 있다"이다.
+ */
+describe('스킨 해금 조건 (panel-head)', () => {
+  const skinnable = ALL_TYPES.find(t => skinsFor(t).length > 1)!;
+  const lockedSkin = skinsFor(skinnable)[1];
+
+  function swatch(app: HTMLElement, skinId: string): HTMLButtonElement {
+    return app.querySelector<HTMLButtonElement>(
+      `.title-panel[data-piece-type="${skinnable}"] .skin-swatch[data-skin-id="${skinId}"]`,
+    )!;
+  }
+
+  it('잠긴 스킨도 목록에 그대로 보인다 — 숨기면 존재 자체를 모른다', () => {
+    const app = mount();
+    expect(swatch(app, lockedSkin.id)).not.toBeNull();
+    expect(swatch(app, lockedSkin.id).querySelector('img')!.getAttribute('src')).toBe(lockedSkin.url);
+  });
+
+  it('잠긴 스킨은 잠긴 것으로 표시된다', () => {
+    const app = mount();
+    const btn = swatch(app, lockedSkin.id);
+    expect(btn.classList.contains('is-locked')).toBe(true);
+    expect(btn.getAttribute('aria-disabled')).toBe('true');
+    expect(swatch(app, DEFAULT_SKIN_ID).getAttribute('aria-disabled'), '열린 스킨은 잠기지 않는다')
+      .toBe('false');
+  });
+
+  it('★ 해금 조건을 눈으로도, 스크린 리더로도 읽을 수 있다', () => {
+    // 자물쇠 그림만 두면 "왜 못 쓰는지"가 아무 데도 없다. 조건은 목표이므로 반드시 읽혀야 한다.
+    const app = mount();
+    const label = unlockLabel(lockedSkin)!;
+    const btn = swatch(app, lockedSkin.id);
+    expect(btn.getAttribute('aria-label')).toContain(label);
+    const head = app.querySelector<HTMLElement>(
+      `.title-panel[data-piece-type="${skinnable}"] .panel-head`,
+    )!;
+    expect(head.textContent, '화면에도 조건이 적혀 있어야 한다').toContain(label);
+  });
+
+  it('잠긴 스킨은 눌러도 바뀌지 않는다', () => {
+    const app = mount();
+    swatch(app, lockedSkin.id).click();
+    expect(selectedSkinId(skinnable)).toBe(DEFAULT_SKIN_ID);
+    expect(allySpriteUrl(skinnable)).toBe(skinsFor(skinnable)[0].url);
+    expect(swatch(app, lockedSkin.id).getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('해금한 뒤 열면 자물쇠도 조건 문구도 사라지고 고를 수 있다', () => {
+    recordFinalWaveClear();
+    const app = mount();
+    const btn = swatch(app, lockedSkin.id);
+    expect(btn.classList.contains('is-locked')).toBe(false);
+    expect(btn.getAttribute('aria-disabled')).toBe('false');
+    expect(app.querySelector(`.title-panel[data-piece-type="${skinnable}"] .skin-hint`)).toBeNull();
+
+    btn.click();
+    expect(selectedSkinId(skinnable)).toBe(lockedSkin.id);
   });
 });

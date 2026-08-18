@@ -1,21 +1,21 @@
 import { CONFIG } from '../config';
 import type { PieceType } from '../types';
 
-import allyPawnUrl from '../assets/pieces/ally-pawn.svg';
-import allyKnightUrl from '../assets/pieces/ally-knight.svg';
-import allyBishopUrl from '../assets/pieces/ally-bishop.svg';
-import allyArchbishopUrl from '../assets/pieces/ally-archbishop.svg';
-import allyChancellorUrl from '../assets/pieces/ally-chancellor.svg';
-import allyAmazonUrl from '../assets/pieces/ally-amazon.svg';
-import allyRookUrl from '../assets/pieces/ally-rook.svg';
-import allyQueenUrl from '../assets/pieces/ally-queen.svg';
+import { onPixelScaleChange, pixelScale } from './dpr';
+import { allySpriteUrl, onSkinChange, SKINS } from './skins';
+
 import enemyPawnUrl from '../assets/pieces/enemy-pawn.svg';
 import enemyKingUrl from '../assets/pieces/enemy-king.svg';
 
 /**
- * 위키미디어 공용 체스 기물 SVG 로더 (출처·저작자·라이선스는 NOTICE.md — 대부분 Cburnett의
- * CC BY-SA 3.0이고, 아마존 한 종만 Mszulc29의 CC BY-SA 4.0이다). DOM(Image,
- * HTMLCanvasElement, document)에 의존하므로 src/render/에 둔다 — src/core/는 DOM-free를 유지한다.
+ * 기물 스프라이트 로더 (출처·저작자·라이선스는 NOTICE.md — 기본 아트워크는 위키미디어 공용
+ * 체스 기물로, 대부분 Cburnett의 CC BY-SA 3.0이고 아마존 한 종만 Mszulc29의 CC BY-SA 4.0이다).
+ * DOM(Image, HTMLCanvasElement, document)에 의존하므로 src/render/에 둔다 — src/core/는
+ * DOM-free를 유지한다.
+ *
+ * ★ **어떤 그림을 구울지는 이 모듈이 정하지 않는다** (v1.19). 기물 → 이미지 대응은 스킨 표
+ * (render/skins.ts)가 소유하고, 여기서는 그 결과(allySpriteUrl)를 받아 굽기만 한다. 스킨이
+ * 바뀌면 onSkinChange 구독으로 해당 기물만 다시 굽는다.
  *
  * 원본은 45×45에 viewBox가 추가돼 있어(NOTICE.md "변경 내역" 1번) 어떤 크기로든 브라우저가
  * 벡터를 다시 래스터화할 수 있다. 그렇더라도 매 프레임 drawImage로 45→72처럼 확대하면 매번
@@ -26,25 +26,17 @@ import enemyKingUrl from '../assets/pieces/enemy-king.svg';
 /** 80px 칸 위에 그릴 아군 기물 크기(칸 경계와 겹치지 않도록 약간의 여백을 남긴다).
  * 적 크기는 밸런스 값인 CONFIG.enemy.spritePx(44)를 그대로 따르며, 여기서 다시 상수화하지 않는다.
  *
- * devicePixelRatio 결합 주의(재검토 Item 6): 보드 캔버스(#board)는 CSS 픽셀과 무관하게 고정된
- * 640×640 백킹 스토어이고 DPR 대응이 없다(이 저장소 기존 설계, 이번 작업 범위 아님). 그래서
- * 여기서 72/44로 굽는 것이 지금은 맞지만, 이는 벡터 아트를 고정 래스터에 얼려 넣는 것이기도
- * 하다 — 나중에 캔버스가 DPR을 인식하도록 바뀌면(backing store를 window.devicePixelRatio배로
- * 키우는 식) 보드의 나머지는 선명해지는데 이 기물 스프라이트만 흐려진다. 그때는 bake() 크기도
- * 같은 배율로 함께 키워야 한다. */
+ * ★ **이 값은 보드 좌표계의 크기이지 굽는 크기가 아니다** (v1.19). 실제로 굽는 픽셀 수는
+ * `ALLY_SPRITE_PX × pixelScale()`이다 — 캔버스가 DPR을 인식하게 되면서(render/dpr.ts) 백킹
+ * 스토어가 배율만큼 커졌고, 스프라이트만 72px로 구우면 **보드의 나머지는 선명해지는데 기물만
+ * 흐린** 상태가 된다(이 주석이 예전에 예고해 둔 바로 그 결함이다). 그리는 쪽(renderer.ts)은
+ * 여전히 dest 크기를 이 값으로 명시하므로 좌표 계산은 한 줄도 바뀌지 않는다. */
 export const ALLY_SPRITE_PX = 72;
 const ENEMY_SPRITE_PX = CONFIG.enemy.spritePx;
 
-export const ALLY_SPRITE_URL: Record<PieceType, string> = {
-  pawn: allyPawnUrl,
-  knight: allyKnightUrl,
-  bishop: allyBishopUrl,
-  archbishop: allyArchbishopUrl,
-  chancellor: allyChancellorUrl,
-  amazon: allyAmazonUrl,
-  rook: allyRookUrl,
-  queen: allyQueenUrl,
-};
+/** 아군 기물 전체 목록 — 스킨 표(render/skins.ts)에서 유도한다. 기물이 늘면 그쪽에 스킨
+ * 목록을 한 줄 추가하는 것만으로 여기 굽기 대상에도 저절로 포함된다. */
+const ALLY_TYPES = Object.keys(SKINS) as PieceType[];
 
 // 적은 DOM에 그려지지 않는다(적 이미지는 캔버스 전용) — 이 모듈 안(bake 호출)에서만 쓰이므로
 // export를 걷어냈다(재검토 Item 7).
@@ -67,6 +59,9 @@ function bake(url: string, sizePx: number, label: string, onReady: (d: Drawable)
     canvas.height = sizePx;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;               // 2D 컨텍스트를 못 얻으면(일부 DOM 스텁) 조용히 폴백에 맡긴다
+    // 스킨 PNG는 원본이 1254px이라 72px까지 17배 넘게 줄어든다 — 기본값(저품질 쌍선형)으로
+    // 한 번에 줄이면 가는 선이 끊겨 보인다. 굽기는 스킨당 딱 한 번이므로 품질을 최대로 둔다.
+    ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(img, 0, 0, sizePx, sizePx);
     onReady(canvas);
   };
@@ -77,12 +72,47 @@ function bake(url: string, sizePx: number, label: string, onReady: (d: Drawable)
   img.src = url;
 }
 
-if (browserAvailable) {
-  (Object.entries(ALLY_SPRITE_URL) as [PieceType, string][]).forEach(([type, url]) => {
-    bake(url, ALLY_SPRITE_PX, `ally-${type}`, d => allyReady.set(type, d));
+/**
+ * 굽기 세대 번호 (경합 방지). 굽기를 다시 부르는 계기가 **둘**이다 — 스킨 선택과 픽셀 밀도
+ * 변경. 스킨을 A→B→A로 빠르게 누르거나 그 사이 창을 다른 모니터로 옮기면 요청 여럿이 동시에
+ * 뜨는데, 이미지 디코딩 시간은 파일마다 달라 **완료 순서가 요청 순서와 다를 수 있다** —
+ * 세대를 붙여 두지 않으면 뒤늦게 끝난 결과가 나중 요청을 덮어써, 화면 아이콘은 A인데 보드 위
+ * 기물만 B이거나(스킨) 방금 키운 배율이 옛 해상도로 되돌아간다(DPR).
+ */
+const bakeSeq = new Map<string, number>();
+
+/** 같은 label의 **최신 요청만** 반영한다. 새 그림이 준비될 때까지 옛 그림을 지우지 않는다 —
+ * 지우면 로딩 몇 프레임 동안 기물이 글리프로 깜빡인다. */
+function bakeLatest(label: string, url: string, sizePx: number, commit: (d: Drawable) => void): void {
+  const seq = (bakeSeq.get(label) ?? 0) + 1;
+  bakeSeq.set(label, seq);
+  bake(url, sizePx, label, d => {
+    if (bakeSeq.get(label) !== seq) return;     // 그 사이 더 새로운 요청이 있었다 — 낡은 결과는 버린다
+    commit(d);
   });
-  bake(ENEMY_SPRITE_URL.normal, ENEMY_SPRITE_PX, 'enemy-normal', d => enemyReady.set('normal', d));
-  bake(ENEMY_SPRITE_URL.boss, ENEMY_SPRITE_PX, 'enemy-boss', d => enemyReady.set('boss', d));
+}
+
+// 굽는 픽셀 수 = 보드 좌표계 크기 × 화면 배율. 배율이 1이면 예전과 정확히 같다.
+function bakeAlly(type: PieceType): void {
+  bakeLatest(`ally-${type}`, allySpriteUrl(type), Math.round(ALLY_SPRITE_PX * pixelScale()),
+    d => allyReady.set(type, d));
+}
+function bakeEnemy(kind: 'normal' | 'boss'): void {
+  bakeLatest(`enemy-${kind}`, ENEMY_SPRITE_URL[kind], Math.round(ENEMY_SPRITE_PX * pixelScale()),
+    d => enemyReady.set(kind, d));
+}
+function bakeAll(): void {
+  ALLY_TYPES.forEach(bakeAlly);
+  bakeEnemy('normal');
+  bakeEnemy('boss');
+}
+
+if (browserAvailable) {
+  bakeAll();
+  // 구독 둘 다 모듈 수명 내내 유지하므로 해지 함수는 쓰지 않는다 — 이 모듈이 살아 있는 동안
+  // 스프라이트도 항상 최신이어야 한다.
+  onSkinChange(bakeAlly);              // 시작 화면에서 스킨을 고르면 그 기물만
+  onPixelScaleChange(bakeAll);         // 밀도가 바뀌면(모니터 이동·확대) 전부 다시
 }
 
 /** 아군 기물 스프라이트. 아직 굽지 못했으면(로드 전·실패·비-브라우저 환경) null —

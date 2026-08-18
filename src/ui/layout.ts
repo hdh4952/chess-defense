@@ -1,6 +1,6 @@
 import { CONFIG } from '../config';
 import { BOARD_H, BOARD_W } from '../core/grid';
-import { ALLY_SPRITE_URL } from '../render/sprites';
+import { allySpriteUrl } from '../render/skins';
 import type { PieceType } from '../types';
 
 export interface Layout {
@@ -82,6 +82,8 @@ export function createLayout(app: HTMLElement): Layout {
         <div id="shop"></div>
       </aside>
       <div id="board-wrap">
+        <!-- width/height는 배율 1일 때의 값이자 폴백이다. 실제 해상도는 createBoardContext가
+             화면 픽셀 밀도에 맞춰 다시 정하고 CSS 크기를 640px로 못 박는다(render/dpr.ts). -->
         <canvas id="board" width="${BOARD_W}" height="${BOARD_H}"></canvas>
       </div>
       <aside id="right">
@@ -98,7 +100,7 @@ ${CREDIT_HTML}
   // 나오지"가 버그로 읽힌다. 수치는 CONFIG에서 유도하므로 확률을 바꾸면 문구가 따라온다.
   const shop = app.querySelector<HTMLElement>('#shop')!;
   const odds = gachaOdds()
-    .map(([t, w]) => `<li><img class="piece-icon odds-icon" src="${ALLY_SPRITE_URL[t]}" alt="" draggable="false">`
+    .map(([t, w]) => `<li><img class="piece-icon odds-icon" src="${allySpriteUrl(t)}" alt="" draggable="false">`
       + `<span>${PIECE_NAME[t]}</span><b>${Math.round(w * 1000) / 10}%</b></li>`)
     .join('');
   shop.innerHTML = `

@@ -16,6 +16,9 @@ export function makeStubCtx() {
   ctxObj.save = (): void => record('save', []);
   ctxObj.restore = (): void => record('restore', []);
   ctxObj.translate = (x: number, y: number): void => record('translate', [x, y]);
+  // DPR 대응(render/dpr.ts)이 배율을 걸 때 쓴다. render()는 부르지 않으므로 기존 테스트의
+  // 기록에는 영향이 없다.
+  ctxObj.setTransform = (...args: unknown[]): void => record('setTransform', args);
   ctxObj.fillRect = (x: number, y: number, w: number, h: number): void => record('fillRect', [x, y, w, h]);
   ctxObj.beginPath = (): void => record('beginPath', []);
   ctxObj.moveTo = (x: number, y: number): void => record('moveTo', [x, y]);

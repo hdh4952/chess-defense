@@ -97,6 +97,38 @@ canvas { display: block; }
 .panel-price { margin: 0 0 0 auto; text-align: right; font-size: 20px; color: #ffd54a; }
 .panel-price small { color: #9d968a; font-size: 12px; }
 
+/* 스킨 선택 (v1.19 · ui/titleScreen.ts의 skinPicker). 탭(.title-tab)과 같은 선택 어휘를 쓴다 —
+   고르면 배경이 밝아지고 금색 테두리가 생긴다. 여기서 배운 "금색 테두리 = 지금 고른 것"이
+   바로 위 탭 줄에서도 그대로 통해야 한다.
+   ⚠️ 스와치는 56px 패널 아이콘보다 **작게**(44px) 둔다 — 크게 하면 스킨이 있는 폰 탭에서만
+   panel-head가 높아져, 탭을 옮길 때마다 아래 내용이 덜컥 밀린다(#title-panels의 min-height가
+   막아 주는 것은 패널 전체 높이지 머리 높이가 아니다). */
+.panel-skins { display: flex; align-items: center; gap: 6px; }
+.skin-label { color: #9d968a; font-size: 12px; }
+.skin-swatch {
+  width: 44px; height: 44px; padding: 3px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  background: #35332f; color: inherit; border: 1px solid transparent; border-radius: 6px;
+}
+.skin-swatch:hover { background: #403d38; }
+.skin-swatch[aria-pressed='true'] { background: #4a463f; border-color: #ffd54a; }
+.skin-swatch img { width: 100%; height: 100%; object-fit: contain; }
+
+/* 잠긴 스킨 (v1.19). 숨기지 않고 **잠긴 채로 보여준다** — 해금 조건은 목표가 되어야 의미가
+   있고, 목표는 보여야 목표다(ui/titleScreen.ts의 skinPicker 참고).
+   그림을 지우지 않고 흐리게만 두는 이유: 무엇을 얻게 되는지가 보여야 조건이 동기가 된다.
+   자물쇠는 그림 위에 겹쳐 얹어, 흐려진 그림이 "로딩 중"으로 오해되지 않게 한다. */
+.skin-swatch.is-locked { position: relative; cursor: not-allowed; }
+/* 흐리게 하되 **알아볼 수는 있게** 둔다. 더 지우면(예: opacity 0.3 + 완전 흑백) 무엇이
+   잠겨 있는지 자체가 안 보여, 조건이 동기가 되지 못한다. */
+.skin-swatch.is-locked img { opacity: 0.5; filter: grayscale(0.7); }
+/* 자물쇠는 가운데가 아니라 **모서리 배지**다 — 가운데 두면 44px 썸네일을 통째로 가린다. */
+.skin-lock {
+  position: absolute; right: -3px; bottom: -3px; font-size: 13px; line-height: 1;
+  text-shadow: 0 0 3px #23221f, 0 0 3px #23221f;
+}
+.skin-hint { color: #9d968a; font-size: 12px; white-space: nowrap; }
+
 .panel-body { display: flex; gap: 20px; align-items: flex-start; margin-top: 14px; flex-wrap: wrap; }
 .panel-facts { flex: 1; min-width: 220px; }
 .panel-facts dl {

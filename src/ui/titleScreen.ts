@@ -1,7 +1,9 @@
 import { CONFIG, TRAITS, slowPercent, tierMultiplier } from '../config';
 import { sellPrice } from '../core/economy';
 import { attackTargets, queenLines, slowTargets } from '../core/patterns';
-import { ALLY_SPRITE_URL } from '../render/sprites';
+import {
+  allySpriteUrl, isSkinUnlocked, selectedSkinId, setSkin, skinsFor, unlockLabel,
+} from '../render/skins';
 import { tierRingColor } from '../render/tiers';
 import type { PieceType, Square } from '../types';
 import { CREDIT_HTML, PIECE_NAME } from './layout';
@@ -158,7 +160,8 @@ function buildRangeBoard(type: PieceType): HTMLElement {
       if (file === RANGE_CENTER.file && rank === RANGE_CENTER.rank) {
         cell.classList.add('is-self');
         cell.innerHTML =
-          `<img class="piece-icon range-icon" src="${ALLY_SPRITE_URL[type]}" alt="" draggable="false">`;
+          `<img class="piece-icon range-icon" data-piece-icon="${type}" `
+          + `src="${allySpriteUrl(type)}" alt="" draggable="false">`;
       }
       board.appendChild(cell);
     }
@@ -184,6 +187,49 @@ function mergeRow(type: PieceType): string {
     + `<span class="tier-dots">${swatches}</span></dd>`;
 }
 
+/**
+ * 스킨 선택 UI — 패널 머리(panel-head)에 놓이는 썸네일 줄 (v1.19).
+ *
+ * **스킨이 하나뿐인 기물에는 아무것도 그리지 않는다.** 고를 것이 없는데 버튼 한 칸을 띄우면
+ * "이 기물은 스킨이 잠겨 있다"는 잘못된 인상을 주고, 패널 머리에 의미 없는 여백만 남는다.
+ * 스킨을 추가하면(render/skins.ts에 한 줄) 그 기물 패널에 저절로 나타난다.
+ *
+ * ★ **잠긴 스킨은 숨기지 않고 잠긴 채로 보여준다** (해금 조건 도입, v1.19). 이 화면이 기물 탭을
+ * 8개 두는 이유와 같다 — **만들 수 없는 기물을 숨기면 존재 자체를 모르게 된다.** 해금 조건은
+ * 목표가 되어야 의미가 있고, 목표는 보여야 목표다. 그래서 조건 문구까지 함께 적는다.
+ *
+ * 라디오 그룹 대신 aria-pressed 토글 버튼을 쓴다 — role="radio"는 화살표 키 이동(로빙
+ * tabindex)까지 갖춰야 약속을 지키는 것이고, 이 저장소의 다른 상태 버튼(음소거)도 이미
+ * aria-pressed다. 선택 상태의 표현을 한 어휘로 통일한다.
+ */
+function skinPicker(type: PieceType): string {
+  const skins = skinsFor(type);
+  if (skins.length < 2) return '';
+  const chosen = selectedSkinId(type);
+  const buttons = skins.map(skin => {
+    const locked = !isSkinUnlocked(skin);
+    // 라벨은 버튼에 붙인다(이미지는 alt=""로 장식 처리) — 스크린 리더가 "폰 하트 프린세스 스킨,
+    // 선택됨"으로 한 번에 읽는다. ★ 잠겨 있으면 **조건까지 그 라벨 안에** 넣는다: 자물쇠 그림만
+    // 읽어 주면 "왜 못 쓰는지"를 눈으로 볼 수 없는 사용자에게는 정보가 하나도 전달되지 않는다.
+    const label = locked
+      ? `${PIECE_NAME[type]} ${skin.name} 스킨 — 잠김 · ${unlockLabel(skin)}`
+      : `${PIECE_NAME[type]} ${skin.name} 스킨`;
+    // ⚠️ disabled가 아니라 aria-disabled를 쓴다. disabled는 포커스와 title 툴팁을 함께 잃어
+    // "왜 못 쓰는지"를 알려줄 두 경로가 동시에 막힌다 — 잠긴 것은 **읽을 수 있어야** 한다.
+    return `<button type="button" class="skin-swatch${locked ? ' is-locked' : ''}" `
+      + `data-piece-type="${type}" data-skin-id="${skin.id}" `
+      + `aria-pressed="${skin.id === chosen}" aria-disabled="${locked}" `
+      + `aria-label="${label}" title="${locked ? unlockLabel(skin) : skin.name}">`
+      + `<img class="piece-icon" src="${skin.url}" alt="" draggable="false">`
+      + (locked ? '<span class="skin-lock" aria-hidden="true">🔒</span>' : '')
+      + '</button>';
+  }).join('');
+  // 조건 문구는 잠긴 것이 있을 때만. 다 열려 있으면 적을 말이 없다.
+  const pending = skins.map(unlockLabel).find(Boolean);
+  const hint = pending ? `<span class="skin-hint">🔒 ${pending}</span>` : '';
+  return `<div class="panel-skins"><span class="skin-label">스킨</span>${buttons}${hint}</div>`;
+}
+
 function buildPanel(type: PieceType): HTMLElement {
   const def = CONFIG.pieces[type];
   const blurb = BLURB[type];
@@ -193,11 +239,13 @@ function buildPanel(type: PieceType): HTMLElement {
   panel.setAttribute('role', 'tabpanel');
   panel.innerHTML = `
     <div class="panel-head">
-      <img class="piece-icon panel-icon" src="${ALLY_SPRITE_URL[type]}" alt="" draggable="false">
+      <img class="piece-icon panel-icon" data-piece-icon="${type}"
+           src="${allySpriteUrl(type)}" alt="" draggable="false">
       <div>
         <h2>${PIECE_NAME[type]}</h2>
         <p class="panel-role">${blurb.role}</p>
       </div>
+      ${skinPicker(type)}
       <p class="panel-price">${def.cost}G<br><small>판매 ${sellPrice(type)}G</small></p>
     </div>
     <div class="panel-body">
@@ -248,6 +296,27 @@ export function createTitleScreen(app: HTMLElement, onBattle: () => void): void 
   const tabs = new Map<PieceType, HTMLButtonElement>();
   const panels = new Map<PieceType, HTMLElement>();
 
+  /**
+   * 스킨을 고른 뒤 화면을 맞춘다. 한 기물의 그림은 이 화면 안에서만도 **세 곳**(탭 아이콘 ·
+   * 패널 아이콘 · 사거리 미니보드 가운데 칸)에 나오므로, 참조를 따로 들고 다니는 대신
+   * `data-piece-icon` 표식 하나로 전부 찾아 한꺼번에 갈아 끼운다 — 나중에 아이콘이 늘어도
+   * 그 요소에 표식만 붙이면 여기 코드는 그대로다.
+   *
+   * 게임 화면(뽑기 확률표·드래그 고스트)과 보드 캔버스는 여기서 손대지 않는다: 확률표는
+   * BATTLE 이후에 만들어지고, 고스트는 집을 때마다, 캔버스 스프라이트는 sprites.ts가
+   * onSkinChange 구독으로 각각 최신 선택을 다시 읽는다.
+   */
+  const syncSkin = (type: PieceType): void => {
+    const url = allySpriteUrl(type);
+    for (const img of app.querySelectorAll<HTMLImageElement>(`img[data-piece-icon="${type}"]`)) {
+      img.setAttribute('src', url);
+    }
+    const chosen = selectedSkinId(type);
+    for (const btn of app.querySelectorAll<HTMLButtonElement>(`.skin-swatch[data-piece-type="${type}"]`)) {
+      btn.setAttribute('aria-pressed', String(btn.dataset.skinId === chosen));
+    }
+  };
+
   const select = (chosen: PieceType): void => {
     for (const type of TAB_ORDER) {
       const active = type === chosen;
@@ -263,13 +332,23 @@ export function createTitleScreen(app: HTMLElement, onBattle: () => void): void 
     tab.setAttribute('role', 'tab');
     // alt=""(장식용): 아이콘 바로 옆에 같은 이름이 텍스트로 있다 — layout.ts 상점 버튼과 같은 이유.
     tab.innerHTML =
-      `<img class="piece-icon tab-icon" src="${ALLY_SPRITE_URL[type]}" alt="" draggable="false">`
+      `<img class="piece-icon tab-icon" data-piece-icon="${type}" `
+      + `src="${allySpriteUrl(type)}" alt="" draggable="false">`
       + `<span>${PIECE_NAME[type]}</span>`;
     tab.addEventListener('click', () => select(type));
     tabBar.appendChild(tab);
     tabs.set(type, tab);
 
     const panel = buildPanel(type);
+    for (const swatch of panel.querySelectorAll<HTMLButtonElement>('.skin-swatch')) {
+      swatch.addEventListener('click', () => {
+        // 잠긴 스킨은 setSkin이 false를 돌려주므로 여기서 따로 막지 않는다 — 게이트를 UI에도
+        // 두면 규칙이 두 곳에 생기고, 그 둘은 언젠가 갈라진다(§10.6). 판정의 단일 출처는
+        // skins.ts이고 UI는 그 결과를 보여줄 뿐이다.
+        setSkin(type, swatch.dataset.skinId!);
+        syncSkin(type);          // setSkin이 false를 돌려줘도(같은 스킨 재클릭) 맞춰 두면 손해가 없다
+      });
+    }
     panelBox.appendChild(panel);
     panels.set(type, panel);
   }

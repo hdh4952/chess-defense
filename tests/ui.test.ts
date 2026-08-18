@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CONFIG } from '../src/config';
 import { emptySquares } from '../src/core/economy';
 import { squareKey } from '../src/core/grid';
-import { ALLY_SPRITE_URL } from '../src/render/sprites';
+import { allySpriteUrl } from '../src/render/skins';
 import { CREDIT_HTML, createLayout, PIECE_NAME } from '../src/ui/layout';
 import { updateHud } from '../src/ui/hud';
 import { updateShop, wireShop } from '../src/ui/shop';
@@ -355,7 +355,7 @@ describe('기물 이미지 — draggable="false" 안전장치 (지난 시도 회
       const name = li.querySelector('span')!.textContent!;
       const type = (Object.keys(PIECE_NAME) as PieceType[]).find(t => PIECE_NAME[t] === name)!;
       expect(type, name).toBeDefined();
-      expect(img!.getAttribute('src'), name).toBe(ALLY_SPRITE_URL[type]);
+      expect(img!.getAttribute('src'), name).toBe(allySpriteUrl(type));
     }
   });
 });

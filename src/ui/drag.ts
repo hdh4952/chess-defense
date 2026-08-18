@@ -4,7 +4,7 @@ import { sellPiece, sellPrice } from '../core/economy';
 import type { UiAudio } from '../audio';
 import type { GameEvent, GameState, Interaction } from '../types';
 import { PIECE_NAME, type Layout } from './layout';
-import { ALLY_SPRITE_URL } from '../render/sprites';
+import { allySpriteUrl } from '../render/skins';
 
 export interface RectLike { left: number; top: number; width: number; height: number }
 export interface DropZones { board: RectLike; sell: RectLike }
@@ -162,7 +162,7 @@ export class DragController {
     // L자가 아닌 칸에 떨어뜨리면 dropAction의 moveOnBoard가 false를 돌려주어 기존 uiInvalid
     // 경로로 자연히 흡수된다 — 새로 만들 처리가 없다.
     this.interaction.dragging = hit;
-    this.ghostImg.src = ALLY_SPRITE_URL[piece.type];
+    this.ghostImg.src = allySpriteUrl(piece.type);
     this.ghostImg.alt = PIECE_NAME[piece.type];
     this.moveGhost(e);
     // 집기/선택 시작(uiPickup)은 소리를 내지 않는다 — v1.3에서는 짧은 틱음을 냈지만, 사용자가

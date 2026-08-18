@@ -5,7 +5,9 @@ import { stepGame } from './core/step';
 import { createTicker } from './core/ticker';
 import { startWave } from './core/wave';
 import { createAudioController } from './audio';
+import { recordFinalWaveClear } from './progress';
 import { BOARD_H, BOARD_W } from './core/grid';
+import { createBoardContext } from './render/dpr';
 import { Effects } from './render/effects';
 import { EnemyFx } from './render/enemyFx';
 import { buildHighlights } from './render/highlights';
@@ -48,7 +50,9 @@ function logFrameError(err: unknown): void {
 
 function startGame(root: HTMLDivElement): void {
   const layout = createLayout(root);   // innerHTML을 덮어써 시작 화면을 통째로 치운다
-  const ctx = layout.canvas.getContext('2d')!;
+  // ★ 캔버스 해상도를 화면 픽셀 밀도에 맞춘다 (v1.19). 백킹 스토어만 커지고 그리는 좌표계는
+  // 0~640 그대로라, 아래 프레임 루프와 renderer/effects/enemyFx는 이 변경을 전혀 모른다.
+  const ctx = createBoardContext(layout.canvas);
 
   const state = createInitialState();
   const events: GameEvent[] = [];
@@ -114,6 +118,12 @@ function startGame(root: HTMLDivElement): void {
       const frozen = fx.tickHitstop(realDt);
       tick(frozen ? 0 : realDt, dt => stepGame(state, dt * state.speedMultiplier, events));
 
+      // ★ 승리를 기록한다 (v1.19 — 스킨 해금 조건). 코어는 자기가 기록된다는 사실을 모른다:
+      // localStorage를 core/에 들이면 한 판의 결과가 다음 판의 시작 상태를 바꾸는 통로가 생겨
+      // 헤드리스 밸런스 측정의 재현성이 깨진다(progress.ts의 ★ 참고). 그래서 **밖에서 페이즈를
+      // 보고 적는다.** 승리 화면이 떠 있는 동안 매 프레임 불리지만 recordFinalWaveClear가
+      // 멱등하므로(이미 기록됐으면 즉시 반환) 여기에 전환 감지 상태를 따로 두지 않는다.
+      if (state.phase === 'victory') recordFinalWaveClear();
       for (const ev of events) { banners.onEvent(ev); fx.onEvent(ev); enemyFx.onEvent(ev); }
       // paused는 명시적으로 넘긴다 — stepGame이 일시정지 중 일찍 반환해 attack 이벤트 자체가
       // 생기지 않으므로 사실상 이미 조용하지만, cues.ts가 그 사실에만 기대지 않도록 방어한다.
