@@ -51,10 +51,15 @@ export const PIECE_NAME: Record<PieceType, string> = {
  * 4.0 하나 때문에 "CC BY-SA 3.0"만 적으면 그 파일의 BY 이행이 틀린 것이 되므로 둘 다 링크한다.
  * 자세한 대응표는 NOTICE.md에 있고, 아래 NOTICE.md 링크가 그리로 가는 유일한 경로다
  * (NOTICE.md는 dist/에 포함되지 않는다).
+ *
+ * ★ **"기본 기물 이미지"라고 좁혀 적는다** (v1.19 — 스킨 도입). 스킨을 켜면 화면의 그 기물은
+ * 위키미디어 저작물이 아니다(생성형 AI 산출물이라 표시할 저작자가 없다 — NOTICE.md). 그냥
+ * "기물 이미지"라고 두면 **그들이 만들지 않은 그림을 그들의 것으로 표시하는** 셈이 된다.
+ * BY 조항은 저작자를 빠뜨리지 않는 것만이 아니라 엉뚱한 사람을 적지 않는 것이기도 하다.
  */
 export const CREDIT_HTML = `
     <footer id="credit">
-      기물 이미지:
+      기본 기물 이미지:
       <a href="https://commons.wikimedia.org/wiki/Category:SVG_chess_pieces" target="_blank" rel="noopener noreferrer">Cburnett · NikNaks93 · Mszulc29 / Wikimedia Commons</a>
       —
       <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noopener noreferrer">CC BY-SA 3.0</a>

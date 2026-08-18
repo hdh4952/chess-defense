@@ -369,6 +369,11 @@ describe('저작자 표시줄 (NOTICE.md — CC BY-SA 이행)', () => {
     expect(credit).not.toBeNull();                 // #main 밖 일회성 오버레이가 아니라 항상 존재하는 요소
     expect(credit!.textContent).toContain('Cburnett');
     expect(credit!.textContent).toContain('CC BY-SA 3.0');
+    // ★ 크레딧이 **자기 주장의 범위를 좁혀** 말하는지 (v1.19 — 스킨 도입). 스킨을 켜면 화면의
+    // 그 기물은 위키미디어 저작물이 아니다. "기물 이미지: Cburnett …"이라고 두면 그들이 만들지
+    // 않은 그림을 그들의 것으로 표시하게 된다 — BY 조항은 저작자를 빠뜨리지 않는 것만이 아니라
+    // **엉뚱한 사람을 적지 않는 것**이기도 하다. 이 단언이 없으면 그 회귀는 조용히 배포된다.
+    expect(credit!.textContent).toContain('기본 기물 이미지');
 
     const links = Array.from(credit!.querySelectorAll('a')) as HTMLAnchorElement[];
     expect(links.length).toBeGreaterThanOrEqual(3);
