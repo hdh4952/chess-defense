@@ -1,8 +1,7 @@
-import { CONFIG } from '../config';
 import { moveOnBoard, pieceAt, findPiece } from '../core/pieces';
 import { sellPiece, sellPrice } from '../core/economy';
 import type { UiAudio } from '../audio';
-import type { GameEvent, GameState, Interaction } from '../types';
+import type { GameEvent, GameState, Interaction, Square } from '../types';
 import { PIECE_NAME, type Layout } from './layout';
 import { allySpriteUrl } from '../render/skins';
 
@@ -17,14 +16,39 @@ function contains(r: RectLike, x: number, y: number): boolean {
   return x >= r.left && x < r.left + r.width && y >= r.top && y < r.top + r.height;
 }
 
-/** 화면 좌표 → 드롭 대상 (순수) */
-export function pickDropTarget(x: number, y: number, zones: DropZones): DropTarget {
+/**
+ * 캔버스 로컬 좌표(0~640) → 그 아래 칸. 판 밖이면 null.
+ *
+ * ★ **v1.24에서 생긴 이음매다.** v1.23까지 보드는 직교 투영이라 화면 사각형과 판이 항등이었고,
+ * 이 함수 자리에 `rect를 8등분한다`는 산수 두 줄이 있었다. 원근 쿼터뷰가 되면서 그 매핑이
+ * **역투영**이 됐고, 그건 카메라를 아는 계층(render3d/)만 할 수 있다.
+ *
+ * 그래도 이 파일은 카메라를 몰라야 한다 — `ui/`가 `render3d/`를 의존하면 계층이 뒤집힌다
+ * (types.ts의 `Interaction` 주석이 같은 문제를 다룬다). 그래서 **함수로 주입받는다**:
+ * 여기는 "어디를 눌렀나"만 알고, "그 아래가 어느 칸인가"는 밖에서 온다.
+ *
+ * ★ **좌표는 0~1로 정규화해서 넘긴다** (v1.28). 캔버스가 보드보다 넓어지면서(플레이어 킹이
+ * 판 밖에 선다) "캔버스 픽셀"이 더는 이 계층이 아는 값이 아니게 됐다 — 정규화하면 여기는
+ * rect만 알면 되고 뷰 크기는 render3d/에 남는다.
+ */
+export type SquarePicker = (u: number, v: number) => Square | null;
+
+/**
+ * 화면 좌표 → 드롭 대상 (순수).
+ *
+ * ⚠️ **캔버스 안이라고 판 위인 것이 아니다** (v1.24). 원근에서 판은 사다리꼴이라 캔버스
+ * 네 귀퉁이는 판 밖이고, `pickSquare`가 그때 null을 준다 — 그 경우 드롭은 실패(원위치 복귀)다.
+ */
+export function pickDropTarget(
+  x: number, y: number, zones: DropZones, pickSquare: SquarePicker,
+): DropTarget {
   if (contains(zones.sell, x, y)) return { kind: 'sell' };
   if (contains(zones.board, x, y)) {
-    const files = CONFIG.board.files, ranks = CONFIG.board.ranks;
-    const file = Math.floor((x - zones.board.left) / (zones.board.width / files));
-    const row = Math.floor((y - zones.board.top) / (zones.board.height / ranks));
-    return { kind: 'square', file, rank: ranks - row };
+    const sq = pickSquare(
+      (x - zones.board.left) / zones.board.width,
+      (y - zones.board.top) / zones.board.height,
+    );
+    return sq ? { kind: 'square', file: sq.file, rank: sq.rank } : null;
   }
   return null;
 }
@@ -61,6 +85,8 @@ export class DragController {
     private layout: Layout,
     private events: GameEvent[],
     private audio: UiAudio,
+    /** 캔버스 좌표 → 칸. 카메라를 아는 계층이 넘겨준다 (위 `SquarePicker` 주석). */
+    private pickSquare: SquarePicker,
   ) {
     this.ghost = document.createElement('div');
     this.ghost.className = 'drag-ghost';
@@ -123,7 +149,7 @@ export class DragController {
 
   /** 좌표 아래의 기물 — v1.12부터 보드 칸 하나만 본다(트레이가 사라졌다) */
   private pieceUnder(x: number, y: number): { pieceId: string } | null {
-    const t = pickDropTarget(x, y, this.zones());
+    const t = pickDropTarget(x, y, this.zones(), this.pickSquare);
     if (t?.kind === 'square') {
       const p = pieceAt(this.state, t.file, t.rank);
       return p ? { pieceId: p.id } : null;
@@ -170,7 +196,7 @@ export class DragController {
   };
 
   private onMove = (e: PointerEvent): void => {
-    const t = pickDropTarget(e.clientX, e.clientY, this.zones());
+    const t = pickDropTarget(e.clientX, e.clientY, this.zones(), this.pickSquare);
     this.interaction.hoverSquare = t?.kind === 'square' ? { file: t.file, rank: t.rank } : null;
     const d = this.interaction.dragging;
     if (d) this.moveGhost(e);
@@ -196,7 +222,7 @@ export class DragController {
     if (this.state.paused) { this.hideGhost(); return; }
 
     if (d && !wasClick) {                               // 드래그 드롭
-      const target = pickDropTarget(e.clientX, e.clientY, this.zones());
+      const target = pickDropTarget(e.clientX, e.clientY, this.zones(), this.pickSquare);
       // 드래그 경로만 합성을 허용한다 (사용자 결정 — 합성은 비가역이므로 "직접 집어 겹쳐 놓는"
       // 명확한 의도의 제스처에만 붙인다). 아래 클릭-투-무브 경로는 이 인자를 넘기지 않으므로
       // 같은 종류 기물 위에 놓아도 예전 그대로 맞교환이다.
@@ -213,7 +239,7 @@ export class DragController {
     const hit = this.pieceUnder(e.clientX, e.clientY);
     if (sel && (!hit || hit.pieceId !== sel)) {
       if (findPiece(this.state, sel)) {
-        const target = pickDropTarget(e.clientX, e.clientY, this.zones());
+        const target = pickDropTarget(e.clientX, e.clientY, this.zones(), this.pickSquare);
         const ok = dropAction(this.state, sel, target, this.events);
         this.playDropCue(target, ok);
       }

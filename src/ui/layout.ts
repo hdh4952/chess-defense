@@ -1,12 +1,24 @@
 import { CONFIG } from '../config';
-import { BOARD_H, BOARD_W } from '../core/grid';
+import { VIEW_H, VIEW_W } from '../render3d/coords';
 import { allySpriteUrl } from '../render/skins';
 import type { PieceType } from '../types';
 
 export interface Layout {
   canvas: HTMLCanvasElement;
+  /**
+   * 3D 씬 위에 얹히는 2D 오버레이 캔버스 (v1.21) — 체력바·데미지 숫자·골드처럼 **무엇에도
+   * 가려지면 안 되는 정보**만 여기 그린다(render3d/overlay.ts).
+   *
+   * ★ 드롭 판정은 여전히 `canvas`(3D 쪽) 기준이다. 오버레이는 `pointer-events: none`이라
+   * 포인터를 잡지 않고, 두 캔버스의 CSS 크기·위치가 정확히 같으므로 어느 쪽 rect를 재도
+   * 같은 답이 나온다 — 그래도 기준을 하나로 못 박아 두는 편이 낫다(ui/drag.ts).
+   */
+  overlay: HTMLCanvasElement;
   hud: {
-    hp: HTMLElement; bossRoom: HTMLElement; gold: HTMLElement; wave: HTMLElement; remaining: HTMLElement;
+    // ★ HUD가 계속 얇아지고 있다. `gold`는 v1.27에 뽑기 버튼 안으로, ★ **`hp`와 `bossRoom`은
+    //   v1.28에 판 밖의 플레이어 킹으로** 옮겨 갔다(사용자 결정: "킹 = 플레이어").
+    //   남은 것은 전부 **판 위에 그릴 자리가 없는 값**뿐이다 — 웨이브 번호, 남은 적 수, 타이머.
+    wave: HTMLElement; remaining: HTMLElement;
     timer: HTMLElement; bossIcon: HTMLElement;
     pauseBtn: HTMLButtonElement; speedBtn: HTMLButtonElement; muteBtn: HTMLButtonElement;
   };
@@ -15,6 +27,9 @@ export interface Layout {
    * 없으므로 버튼도 하나가 됐다.
    */
   drawBtn: HTMLButtonElement;
+  /** 뽑기 버튼 안의 `보유 / 필요` 줄. 매 프레임 텍스트만 갈아 끼우려고 따로 잡아 둔다 —
+   *  버튼 전체를 innerHTML로 다시 쓰면 골드가 오를 때마다 DOM을 재파싱한다. */
+  drawCost: HTMLElement;
   sellSlot: HTMLElement;
   startBtn: HTMLButtonElement;
   bannerRoot: HTMLElement;
@@ -72,9 +87,6 @@ export const CREDIT_HTML = `
 export function createLayout(app: HTMLElement): Layout {
   app.innerHTML = `
     <header id="hud">
-      <span>♥<b id="hud-hp"></b></span>
-      <span id="hud-boss-room" title="보스를 몇 번 더 놓쳐도 버티는가"></span>
-      <span>💰<b id="hud-gold"></b></span>
       <span>웨이브 <b id="hud-wave"></b></span>
       <span>남은 적 <b id="hud-remaining"></b></span>
       <span>⏱<b id="hud-timer"></b><b id="hud-boss-icon" hidden> ♚보스!</b></span>
@@ -87,9 +99,12 @@ export function createLayout(app: HTMLElement): Layout {
         <div id="shop"></div>
       </aside>
       <div id="board-wrap">
-        <!-- width/height는 배율 1일 때의 값이자 폴백이다. 실제 해상도는 createBoardContext가
-             화면 픽셀 밀도에 맞춰 다시 정하고 CSS 크기를 640px로 못 박는다(render/dpr.ts). -->
-        <canvas id="board" width="${BOARD_W}" height="${BOARD_H}"></canvas>
+        <!-- width/height는 배율 1일 때의 값이자 폴백이다. 실제 해상도는 두 캔버스 모두 화면
+             픽셀 밀도에 맞춰 다시 정해지고 CSS 크기는 640px로 못박힌다 — 3D 쪽은
+             WebGLRenderer.setPixelRatio(render3d/scene.ts), 오버레이는 createBoardContext
+             (render/dpr.ts)가 맡는다. -->
+        <canvas id="board" width="${VIEW_W}" height="${VIEW_H}"></canvas>
+        <canvas id="board-overlay" width="${VIEW_W}" height="${VIEW_H}"></canvas>
       </div>
       <aside id="right">
         <div id="sell-slot">🗑<br><small>드래그 = 즉시 판매 (50%)</small><div id="sell-preview"></div></div>
@@ -108,22 +123,27 @@ ${CREDIT_HTML}
     .map(([t, w]) => `<li><img class="piece-icon odds-icon" src="${allySpriteUrl(t)}" alt="" draggable="false">`
       + `<span>${PIECE_NAME[t]}</span><b>${Math.round(w * 1000) / 10}%</b></li>`)
     .join('');
+  // ★ 버튼 안에 **보유 골드 / 필요 골드**를 함께 적는다 (v1.27, 사용자 결정). 구조는 여기서
+  //   한 번만 만들고, 매 프레임 바뀌는 것은 `#draw-cost`의 텍스트뿐이다(ui/shop.ts).
   shop.innerHTML = `
     <button id="draw-btn">
-      기물 뽑기<br><small>${CONFIG.gacha.cost}G</small>
+      <span class="draw-title">기물 뽑기</span>
+      <b id="draw-cost"></b>
     </button>
     <ul id="odds">${odds}</ul>`;
 
   const q = <T extends HTMLElement>(sel: string) => app.querySelector<T>(sel)!;
   return {
     canvas: q<HTMLCanvasElement>('#board'),
+    overlay: q<HTMLCanvasElement>('#board-overlay'),
     hud: {
-      hp: q('#hud-hp'), bossRoom: q('#hud-boss-room'), gold: q('#hud-gold'), wave: q('#hud-wave'),
+      wave: q('#hud-wave'),
       remaining: q('#hud-remaining'), timer: q('#hud-timer'), bossIcon: q('#hud-boss-icon'),
       pauseBtn: q<HTMLButtonElement>('#hud-pause'), speedBtn: q<HTMLButtonElement>('#hud-speed'),
       muteBtn: q<HTMLButtonElement>('#hud-mute'),
     },
     drawBtn: q<HTMLButtonElement>('#draw-btn'),
+    drawCost: q('#draw-cost'),
     sellSlot: q('#sell-slot'),
     startBtn: q<HTMLButtonElement>('#start-wave'),
     bannerRoot: q('#banner-root'),

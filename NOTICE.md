@@ -24,10 +24,19 @@
 | `src/assets/pieces/ally-bishop.svg` | `Chess_blt45.svg` | 플레이어 비숍 (화이트) |
 | `src/assets/pieces/ally-rook.svg` | `Chess_rlt45.svg` | 플레이어 룩 (화이트) |
 | `src/assets/pieces/ally-queen.svg` | `Chess_qlt45.svg` | 플레이어 퀸 (화이트) |
-| `src/assets/pieces/enemy-pawn.svg` | `Chess_pdt45.svg` | 일반 적 (블랙) |
-| `src/assets/pieces/enemy-king.svg` | `Chess_kdt45.svg` | 보스 (블랙) |
 
 각 원본은 `https://commons.wikimedia.org/wiki/File:<원본 파일명>` 에서 확인할 수 있다.
+
+### ★ v1.21 — 적 기물 SVG 두 개를 저장소에서 제거했다
+
+`enemy-pawn.svg`(`Chess_pdt45.svg`)와 `enemy-king.svg`(`Chess_kdt45.svg`)는 v1.20까지 보드
+캔버스에 적을 그리는 데 쓰였다. v1.21에서 보드가 Three.js 3D 씬이 되면서 적은 **절차적으로
+생성한 회전체 지오메트리**가 됐고(`src/render3d/profiles.ts`), 두 파일을 참조하는 코드가
+하나도 남지 않아 저장소에서 지웠다.
+
+**아군 기물 SVG 여덟 개는 그대로 남는다.** 보드에는 더 이상 쓰이지 않지만 DOM 쪽 아이콘
+(시작 화면 기물 설명 · 뽑기 확률표 · 드래그 고스트)이 여전히 이 파일들을 `<img>`로 띄우므로,
+`src/ui/layout.ts`의 `CREDIT_HTML` 저작자 표시도 그대로 유효하다.
 
 ### 페어리 기물 3종 (v1.9 도입 → ★ v1.10에서 아트워크 교체)
 

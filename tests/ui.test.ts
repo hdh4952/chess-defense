@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CONFIG, waveTotal } from '../src/config';
+import { drawCost, CONFIG, waveTotal } from '../src/config';
 import { emptySquares } from '../src/core/economy';
 import { squareKey } from '../src/core/grid';
 import { allySpriteUrl } from '../src/render/skins';
@@ -53,10 +53,46 @@ describe('createLayout (Task 14 — UI 셸)', () => {
     //   얻는 유일한 구매 경로가 뽑기가 되면서 버튼도 하나가 됐다.
     const layout = createLayout(makeApp());
     expect(layout.drawBtn).toBeInstanceOf(HTMLButtonElement);
-    expect(layout.drawBtn.textContent).toContain(String(CONFIG.gacha.cost));
-    expect(layout.drawBtn.textContent).toContain('G');
+    expect(layout.drawCost).toBeInstanceOf(HTMLElement);
+    expect(layout.drawBtn.textContent).toContain('기물 뽑기');
+    // ★ v1.27: 금액은 **`createLayout`이 쓰지 않는다.** 보유 골드와 가격 둘 다 상태에서
+    //   오므로 매 프레임 `updateShop`이 채운다 — 껍데기가 초기값을 하드코딩하면 상태가
+    //   붙기 전 한 프레임 동안 거짓 금액이 떠 있게 된다.
+    expect(layout.drawCost.textContent).toBe('');
     // 기물을 고르는 UI가 남아 있지 않은지 — data-piece-type이 붙은 버튼이 하나도 없어야 한다.
     expect(makeApp().querySelectorAll('button[data-piece-type]')).toHaveLength(0);
+  });
+
+  /**
+   * ★ v1.27 — 버튼이 `기물 뽑기` / `보유 / 필요` 두 줄이 됐다(사용자 결정). "지금 뽑을 수
+   * 있나"가 두 수의 대소로 즉시 읽히는 것이 이 배치의 전부라, 순서가 뒤집히거나 한쪽이
+   * 빠지면 의미가 사라진다.
+   */
+  it('★ 뽑기 버튼이 `보유 / 필요` 골드를 함께 적는다 (v1.27)', () => {
+    const layout = createLayout(makeApp());
+    const state = cleanState();
+    state.gold = 137;
+    updateShop(layout, state);
+    expect(layout.drawCost.textContent).toBe(`137 / ${drawCost(state.draws)}`);
+    // 모자라면 숫자 색이 바뀐다 — 버튼 자체는 비활성화 사유(일시정지·만석)와 구분해야 하므로
+    // 클래스로만 말한다.
+    expect(layout.drawBtn.classList.contains('poor')).toBe(true);
+
+    state.gold = 99999;
+    updateShop(layout, state);
+    expect(layout.drawBtn.classList.contains('poor')).toBe(false);
+  });
+
+  it('★ 뽑기 가격이 오르면 버튼의 필요 금액도 따라 오른다 — 누진(v1.18)이 화면에 드러나는 유일한 자리', () => {
+    const layout = createLayout(makeApp());
+    const state = cleanState();
+    state.gold = 99999;
+    updateShop(layout, state);
+    const first = layout.drawCost.textContent!;
+    state.draws = 5;
+    updateShop(layout, state);
+    expect(layout.drawCost.textContent).not.toBe(first);
+    expect(layout.drawCost.textContent).toBe(`99999 / ${drawCost(5)}`);
   });
 
   it('★ 뽑기 확률이 화면에 항상 적혀 있다 — 가챠에서 확률을 숨기면 판단 근거가 없다', () => {
@@ -82,9 +118,6 @@ describe('createLayout (Task 14 — UI 셸)', () => {
   it('Layout의 모든 필드가 실제 요소로 해석된다 (null/undefined 없음)', () => {
     const layout = createLayout(makeApp());
     expect(layout.canvas).toBeInstanceOf(HTMLCanvasElement);
-    expect(layout.hud.hp).toBeInstanceOf(HTMLElement);
-    expect(layout.hud.bossRoom).toBeInstanceOf(HTMLElement);
-    expect(layout.hud.gold).toBeInstanceOf(HTMLElement);
     expect(layout.hud.wave).toBeInstanceOf(HTMLElement);
     expect(layout.hud.remaining).toBeInstanceOf(HTMLElement);
     expect(layout.hud.timer).toBeInstanceOf(HTMLElement);
@@ -93,6 +126,7 @@ describe('createLayout (Task 14 — UI 셸)', () => {
     expect(layout.hud.speedBtn).toBeInstanceOf(HTMLButtonElement);
     expect(layout.hud.muteBtn).toBeInstanceOf(HTMLButtonElement);
     expect(layout.drawBtn).toBeInstanceOf(HTMLButtonElement);
+    expect(layout.drawCost).toBeInstanceOf(HTMLElement);
     expect(layout.sellSlot).toBeInstanceOf(HTMLElement);
     expect(layout.startBtn).toBeInstanceOf(HTMLButtonElement);
     expect(layout.bannerRoot).toBeInstanceOf(HTMLElement);
@@ -112,17 +146,34 @@ describe('updateHud (Task 14)', () => {
     return { layout, state };
   }
 
-  it('hp/gold/wave/prepareTimer 값을 HUD 요소에 반영한다', () => {
+  it('wave/prepareTimer 값을 HUD 요소에 반영한다', () => {
     const { layout, state } = setup();
-    state.hp = 17;
-    state.gold = 555;
     state.wave = 3;
     state.prepareTimer = 4.26;
     updateHud(layout, state);
-    expect(layout.hud.hp.textContent).toBe('17');
-    expect(layout.hud.gold.textContent).toBe('555');
     expect(layout.hud.wave.textContent).toBe(`3/${waveTotal()}`);
     expect(layout.hud.timer.textContent).toBe('4.3s');
+  });
+
+  /**
+   * ★ v1.27 — 보유 골드가 HUD를 떠나 뽑기 버튼으로 갔다(사용자 결정). HUD가 골드를 **다시
+   * 그리지 않는다**는 것을 못박아 두지 않으면, 나중에 누가 편의로 되살렸을 때 같은 값이 화면
+   * 두 곳에 생기고 그중 하나가 조용히 낡는다.
+   */
+  /**
+   * ★ HUD가 계속 얇아졌다: 골드는 v1.27에 뽑기 버튼으로, **체력과 `♚ 여유`는 v1.28에 판 밖의
+   * 플레이어 킹으로** 옮겨 갔다. 같은 값이 두 곳에 있으면 하나는 반드시 조용히 낡으므로,
+   * HUD가 그것들을 **다시 그리지 않는다**는 사실을 못박는다.
+   */
+  it('★ HUD는 보유 골드·체력·여유를 그리지 않는다 — 각각 뽑기 버튼과 플레이어 킹의 몫이다', () => {
+    const { layout, state } = setup();
+    state.gold = 555;
+    state.hp = 7;
+    updateHud(layout, state);
+    const hud = layout.hud.wave.closest('#hud')!;
+    expect(hud.textContent).not.toContain('555');
+    expect(hud.textContent).not.toContain('여유');
+    expect(hud.textContent).not.toContain('♥');
   });
 
   it('보스 웨이브(5의 배수) 준비 중에만 보스 아이콘을 표시한다', () => {

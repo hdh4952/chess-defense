@@ -20,22 +20,63 @@ body {
 }
 /* 뽑기 UI (v1.16). 버튼 하나 + 확률 표 — 확률을 화면에 항상 적어 두는 것이 요점이다.
    가챠에서 확률을 숨기면 플레이어가 자기 판단의 근거를 가질 수 없다. */
-#shop { display: flex; flex-direction: column; gap: 8px; }
+#shop { display: flex; flex-direction: column; gap: 10px; }
+
+/* ★ 뽑기 버튼 — 카툰 렌더링 (v1.27).
+   보드가 툰이 된 뒤 이 버튼만 브라우저 기본 위젯으로 남아 있었다. 3D 쪽과 같은 어휘를 쓴다:
+   **두꺼운 어두운 테두리**(기물 윤곽선과 같은 잉크 #2A2028) · **위쪽 광택** · **아래쪽 두께**.
+   마지막 하나가 캐주얼 게임 버튼의 핵심이다 — 아래로 깔린 그림자가 버튼에 **높이**를 주고,
+   누르면 그 높이만큼 내려앉아 "눌렸다"가 색이 아니라 움직임으로 읽힌다. */
 #draw-btn {
-  padding: 10px 4px; font-size: 15px; font-weight: 700; line-height: 1.35;
+  padding: 12px 6px 13px; font: inherit; font-size: 16px; font-weight: 800; line-height: 1.3;
+  color: #FFF6E4;
+  border: 3px solid #2A2028;
+  border-radius: 12px;
+  background: linear-gradient(#7FC24B, #57A032 52%, #40801F);
+  /* 아래쪽 두께 + 위쪽 안쪽 광택. 체력바의 테두리·광택과 같은 두 요소다. */
+  box-shadow: 0 5px 0 #2A2028, inset 0 3px 0 rgba(255, 255, 255, 0.32);
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
   cursor: pointer;
+  /* 눌릴 때 아래로 내려앉으므로 그만큼 자리를 비워 둔다 — 없으면 아래 요소가 함께 들썩인다. */
+  margin-bottom: 5px;
+  transition: transform 60ms, box-shadow 60ms;
 }
-#draw-btn:disabled { cursor: default; }
+#draw-btn .draw-title { display: block; }
+/* 보유 / 필요 — 자릿수가 바뀌어도 폭이 흔들리지 않도록 tabular-nums. */
+#draw-cost {
+  display: block; margin-top: 3px; font-size: 15px;
+  font-variant-numeric: tabular-nums; color: #FFD34D;
+}
+#draw-btn:active:not(:disabled) {
+  transform: translateY(5px);
+  box-shadow: 0 0 0 #2A2028, inset 0 3px 0 rgba(255, 255, 255, 0.22);
+}
+/* ★ 못 누르는 상태는 **회색 하나로 통일**하고, 그중 **왜** 못 누르는지는 숫자 색이 말한다.
+   골드 부족도 canDraw가 막으므로(core/economy.ts) 버튼 자체는 어차피 비활성이다 —
+   그래서 세 상태가 이렇게 갈린다:
+     초록 + 금색 = 뽑을 수 있다
+     회색 + 붉은 숫자 = 돈이 모자라다
+     회색 + 금색 = 돈은 있는데 지금은 안 된다 (일시정지 · 보드 만석) */
+#draw-btn.poor #draw-cost { color: #FF8F7A; }
+#draw-btn:disabled {
+  cursor: default;
+  background: linear-gradient(#6F6A62, #514C45 52%, #403C36);
+  color: #B6B1A8;
+}
+#draw-btn:disabled #draw-cost { color: #C9B98A; }
+#draw-btn:disabled.poor #draw-cost { color: #D08A7C; }
 #odds {
-  list-style: none; margin: 0; padding: 6px 8px; display: flex; flex-direction: column; gap: 3px;
-  background: #35332f; border-radius: 4px; font-size: 12px;
+  list-style: none; margin: 0; padding: 7px 9px; display: flex; flex-direction: column; gap: 3px;
+  background: #35332f; border: 3px solid #2A2028; border-radius: 10px; font-size: 12px;
 }
 #odds li { display: flex; align-items: center; gap: 6px; }
 #odds b { margin-left: auto; font-variant-numeric: tabular-nums; }
 .odds-icon { width: 16px; height: 16px; object-fit: contain; }
 .shop-icon { width: 22px; height: 22px; object-fit: contain; vertical-align: middle; }
 .shop-btn:disabled { opacity: 0.4; }
-#board-wrap { position: relative; }   /* 툴팁/고스트 기준점 */
+#board-wrap { position: relative; }   /* 툴팁/고스트/오버레이 캔버스 기준점 */
+/* 3D 보드 위에 정확히 겹치는 정보 계층. pointer-events를 끊어야 드래그가 아래 캔버스에 닿는다. */
+#board-overlay { position: absolute; left: 0; top: 0; pointer-events: none; }
 #sell-slot {
   min-height: 110px; border: 2px dashed #a05548; border-radius: 6px;
   text-align: center; padding: 12px 4px; font-size: 26px; color: #caa;

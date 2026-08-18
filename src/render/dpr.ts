@@ -14,6 +14,10 @@ import { BOARD_H, BOARD_W } from '../core/grid';
  * 0~640이다. 그래서 renderer/effects/enemyFx는 **한 줄도 바뀌지 않는다** — 이 저장소가
  * 보드 좌표를 `core/grid.ts` 하나에서만 유도해 온 덕이다.
  *
+ * ★ **크기를 인자로 받는다** (v1.28). 예전에는 보드 크기(640×640)가 곧 캔버스 크기였지만,
+ * 플레이어 킹이 판 밖에 서면서 화면이 보드보다 넓어졌다(render3d/coords.ts의 `VIEW_W`).
+ * 이 모듈이 쓰이는 곳은 이제 오버레이 캔버스 하나뿐이고, 그 크기는 뷰 크기다.
+ *
  * ⚠️ **CSS 크기를 못 박는 것이 이 파일에서 가장 중요한 한 줄이다.** 캔버스에 CSS 크기가 없으면
  * 화면 크기가 백킹 스토어 크기를 따라가므로, 배율 2에서 보드가 1280px로 부풀어 3단 레이아웃이
  * 통째로 깨진다(`ui/layout.ts`의 #main).
@@ -47,17 +51,18 @@ export function pixelScale(): number {
  * 보드가 캔버스의 왼쪽 위 1/4에만 그려진다.
  */
 export function syncBoardCanvas(
-  canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, scale: number = pixelScale(),
+  canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D,
+  cssW: number = BOARD_W, cssH: number = BOARD_H, scale: number = pixelScale(),
 ): void {
-  canvas.style.width = `${BOARD_W}px`;
-  canvas.style.height = `${BOARD_H}px`;
-  const w = Math.round(BOARD_W * scale);
-  const h = Math.round(BOARD_H * scale);
+  canvas.style.width = `${cssW}px`;
+  canvas.style.height = `${cssH}px`;
+  const w = Math.round(cssW * scale);
+  const h = Math.round(cssH * scale);
   canvas.width = w;
   canvas.height = h;
   // 요청 배율이 아니라 **반올림된 백킹 스토어에서 되유도한 배율**을 건다 — 그래야 그리는 영역이
   // 백킹 스토어를 정확히 채운다(배율이 정수가 아닐 때 최대 반 픽셀이 어긋나는 것을 막는다).
-  ctx.setTransform(w / BOARD_W, 0, 0, h / BOARD_H, 0, 0);
+  ctx.setTransform(w / cssW, 0, 0, h / cssH, 0, 0);
 }
 
 /**
@@ -96,9 +101,11 @@ export function onPixelScaleChange(listener: () => void): () => void {
  * (구독은 페이지 수명 내내 유지하므로 해지 함수는 쓰지 않는다 — 캔버스는 하나이고, 이 캔버스가
  * 사라질 때는 페이지도 함께 사라진다).
  */
-export function createBoardContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
+export function createBoardContext(
+  canvas: HTMLCanvasElement, cssW: number = BOARD_W, cssH: number = BOARD_H,
+): CanvasRenderingContext2D {
   const ctx = canvas.getContext('2d')!;
-  syncBoardCanvas(canvas, ctx);
-  onPixelScaleChange(() => syncBoardCanvas(canvas, ctx));
+  syncBoardCanvas(canvas, ctx, cssW, cssH);
+  onPixelScaleChange(() => syncBoardCanvas(canvas, ctx, cssW, cssH));
   return ctx;
 }

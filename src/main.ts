@@ -6,12 +6,13 @@ import { createTicker } from './core/ticker';
 import { startWave } from './core/wave';
 import { createAudioController } from './audio';
 import { recordWaveCleared } from './progress';
-import { BOARD_H, BOARD_W } from './core/grid';
-import { createBoardContext } from './render/dpr';
+import { VIEW_H, VIEW_W } from './render3d/coords';
 import { Effects } from './render/effects';
 import { EnemyFx } from './render/enemyFx';
+import { PieceFx } from './render/pieceFx';
 import { buildHighlights } from './render/highlights';
-import { createFrameView, render } from './render/renderer';
+import { createFrameView } from './render/renderer';
+import { Board3D } from './render3d';
 import { Banners } from './ui/banners';
 import { wireControls, wireMuteButton } from './ui/controls';
 import { updateHud } from './ui/hud';
@@ -52,9 +53,10 @@ function logFrameError(err: unknown): void {
 
 function startGame(root: HTMLDivElement, difficulty: Difficulty): void {
   const layout = createLayout(root);   // innerHTML을 덮어써 시작 화면을 통째로 치운다
-  // ★ 캔버스 해상도를 화면 픽셀 밀도에 맞춘다 (v1.19). 백킹 스토어만 커지고 그리는 좌표계는
-  // 0~640 그대로라, 아래 프레임 루프와 renderer/effects/enemyFx는 이 변경을 전혀 모른다.
-  const ctx = createBoardContext(layout.canvas);
+  // ★ 보드는 Three.js 씬이다 (v1.21). 카메라가 직교 투영이고 프러스텀이 보드에 맞춰져 있어
+  // 그리는 좌표계는 여전히 0~640이다 — 그래서 아래 프레임 루프도, highlights/effects/enemyFx도,
+  // 드롭 판정(ui/drag.ts)도 이 변경을 전혀 모른다(render3d/scene.ts의 투영 주석).
+  const board = new Board3D(layout.canvas, layout.overlay);
 
   // 난이도는 여기서 상태에 굳는다 — 판이 시작된 뒤에는 어디서도 바뀌지 않는다(types.ts).
   const state = createInitialState(difficulty);
@@ -71,10 +73,13 @@ function startGame(root: HTMLDivElement, difficulty: Difficulty): void {
   wireShop(layout, state, events, audio);
   wireControls(layout, state);
   layout.startBtn.addEventListener('click', () => { if (!state.paused) startWave(state); });
-  const drag = new DragController(state, layout, events, audio);
+  // 드롭 판정에 **역투영을 주입한다** (v1.24 — 원근 쿼터뷰). ui/는 카메라를 모르고,
+  // 카메라를 아는 render3d/가 "이 화면 좌표 아래는 어느 칸인가"에만 답한다(ui/drag.ts).
+  const drag = new DragController(state, layout, events, audio, (x, y) => board.squareAt(x, y));
   const banners = new Banners(layout, state.difficulty);
   const fx = new Effects();        // 속성별 공격 이펙트 + 화면 진동, 렌더 전용 (스펙 8.2, Task 19)
   const enemyFx = new EnemyFx();   // 적별 표시 상태(피격 플래시·체력바 보간), 렌더 전용 (v1.15)
+  const pieceFx = new PieceFx();   // 기물 공격 모션(찌르기·반동), 렌더 전용 (v1.22)
   wireMuteButton(layout, audio);
   // 자동재생 정책: 사용자 제스처 전에는 AudioContext가 절대 소리를 내지 않는다 — 아무 에러 없이
   // 그냥 조용하다. 이 게임은 드래그 기반이라 pointerdown이 자연스러운 첫 제스처이므로 여기서
@@ -132,7 +137,7 @@ function startGame(root: HTMLDivElement, difficulty: Difficulty): void {
       // 웨이브 단위로 적으면 판의 결말과 무관하게 도달한 만큼이 남는다.
       for (const ev of events) {
         if (ev.kind === 'waveCleared') recordWaveCleared(ev.wave);
-        banners.onEvent(ev); fx.onEvent(ev); enemyFx.onEvent(ev);
+        banners.onEvent(ev); fx.onEvent(ev); enemyFx.onEvent(ev); pieceFx.onEvent(ev);
       }
       // paused는 명시적으로 넘긴다 — stepGame이 일시정지 중 일찍 반환해 attack 이벤트 자체가
       // 생기지 않으므로 사실상 이미 조용하지만, cues.ts가 그 사실에만 기대지 않도록 방어한다.
@@ -145,18 +150,22 @@ function startGame(root: HTMLDivElement, difficulty: Difficulty): void {
       // 적별 표시 상태(피격 플래시·체력바 보간)도 같은 규칙을 탄다 — 일시정지 중에는 멈춘다.
       // state를 함께 넘기는 이유는 죽은 적의 항목을 매 프레임 정리해야 하기 때문이다.
       enemyFx.update(state.paused ? 0 : realDt, state);
+      // 공격 모션도 같은 규칙을 탄다 — 일시정지 중에는 기물이 찌르던 자세 그대로 얼어붙는다.
+      pieceFx.update(state.paused ? 0 : realDt);
 
-      // ★ HUD 골드 표시의 **캔버스 좌표**를 매 프레임 넣어 준다 (v1.15). 이 저장소에서
+      // ★ 골드가 날아갈 **도착점의 캔버스 좌표**를 매 프레임 넣어 준다 (v1.15). 이 저장소에서
       // 캔버스와 DOM의 경계를 넘는 연출은 처음이라, 방향을 한쪽으로만 둔다: 렌더는 HUD가
       // 어디 있는지 모르고, 좌표를 밖에서 밀어 넣는다(드래그가 드롭 존 rect를 캐시하는
       // 방식의 선례를 따른다). getBoundingClientRect가 매 프레임 두 번이라 강제 레이아웃이
       // 걱정되지만, 두 요소 모두 크기가 고정이고 읽기만 하므로 레이아웃 무효화는 없다.
-      const gRect = layout.hud.gold.getBoundingClientRect();
+      // ★ v1.27에서 도착점이 HUD 골드 → **뽑기 버튼**으로 바뀌었다(HUD에서 골드 표시가
+      //   사라졌다). 오히려 이쪽이 맞다: 번 돈이 그 돈을 쓰는 자리로 날아간다.
+      const gRect = layout.drawBtn.getBoundingClientRect();
       const cRect = layout.canvas.getBoundingClientRect();
       fx.setGoldTarget(cRect.width > 0
         ? {
-          x: (gRect.left + gRect.width / 2 - cRect.left) * (BOARD_W / cRect.width),
-          y: (gRect.top + gRect.height / 2 - cRect.top) * (BOARD_H / cRect.height),
+          x: (gRect.left + gRect.width / 2 - cRect.left) * (VIEW_W / cRect.width),
+          y: (gRect.top + gRect.height / 2 - cRect.top) * (VIEW_H / cRect.height),
         }
         : null);
 
@@ -170,19 +179,12 @@ function startGame(root: HTMLDivElement, difficulty: Difficulty): void {
           view.highlights.push({ square: { file: banners.bossFlash.file, rank }, color: 'rgba(220,50,40,0.28)' });
         }
       }
-      view.shake = fx.shakeOffset();   // 룩/나이트 공격의 화면 진동을 렌더러에 전달 (스펙 8.2)
-      render(ctx, state, view, enemyFx);
-      // render()가 이미 view.shake만큼 translate했다가 자신의 save()/restore() 안에서 복구했으므로,
-      // 그 바깥에서 fx.draw()를 그대로 부르면 보드는 흔들리는데 이펙트만 고정된 것처럼 보인다.
-      // 동일한 오프셋으로 다시 translate한 뒤 이펙트를 그려 보드와 함께 흔들리게 하고,
-      // 그리기 중 예외가 나도 변환 스택이 어긋나지 않도록 try/finally로 restore를 보장한다.
-      ctx.save();
-      ctx.translate(view.shake.x, view.shake.y);
-      try {
-        fx.draw(ctx);          // 보드 위 오버레이로 그린다
-      } finally {
-        ctx.restore();
-      }
+      view.shake = fx.shakeOffset();   // 룩 공격의 화면 진동을 렌더러에 전달 (스펙 8.2)
+      // ★ 한 번의 호출이 세 계층(바닥 데칼 · 3D 씬 · 화면 오버레이)을 전부 그린다. 예전에는
+      // 이 자리에서 render()와 fx.draw()를 따로 부르고 그 사이에 shake만큼 translate를 손으로
+      // 걸었는데, 계층이 셋이 된 지금 그 순서와 흔들림 처리는 그리는 쪽의 지식이다 —
+      // 이펙트 목록만 넘기고 나머지는 Board3D가 안다(render3d/index.ts).
+      board.render(state, view, fx.items(), enemyFx, pieceFx);
       updateTooltip(tooltip, state, drag.interaction, mousePos);   // 기물 hover 툴팁 (스펙 7.7, Task 18)
       updateHud(layout, state);
       updateShop(layout, state);

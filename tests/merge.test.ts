@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import * as THREE from 'three';
 import { CONFIG, slowMultiplier, slowPercent, tierMultiplier } from '../src/config';
 import { pieceDamage, pieceGold, updateCombat } from '../src/core/combat';
 import { recalcQueenBuffs } from '../src/core/buff';
@@ -7,7 +8,8 @@ import { moveOnBoard, pieceAt, resolveLanding, canLandAt } from '../src/core/pie
 import { NO_SLOW, slowCoverage, slowFactorAt, updateSlowAura } from '../src/core/slow';
 import { buildHighlights, HIGHLIGHT_COLORS } from '../src/render/highlights';
 import { TIER_COLORS, tierRingColor } from '../src/render/tiers';
-import { render, createFrameView } from '../src/render/renderer';
+import { drawDecals, createFrameView } from '../src/render/renderer';
+import { Pieces3D } from '../src/render3d/pieces';
 import type { GameEvent, Interaction, PieceType } from '../src/types';
 import { makeStubCtx } from './canvasStub';
 import { boardPiece, enemyAt, waveState, gachaRng } from './helpers';
@@ -492,21 +494,26 @@ describe('합성 미리보기 — 드래그 중에만, 실제 판정과 같은 �
 });
 
 describe('렌더 — 티어 링과 미리보기가 실제로 그려진다', () => {
-  it('T1은 링을 그리지 않고, T2 이상만 그린다 (보드 전체가 상시 테두리로 덮이지 않게)', () => {
-    const t1 = waveState();
-    t1.pieces.push(boardPiece('rook', 3, 3));
-    const a = makeStubCtx();
-    render(a.ctx as unknown as CanvasRenderingContext2D, t1, createFrameView());
-    const arcsT1 = a.records.filter(r => r.method === 'arc').length;
+  it('T1은 링을 그리지 않고, T2 이상만 결과 티어 **색**으로 그린다 (보드 전체가 상시 테두리로 덮이지 않게)', () => {
+    // v1.21: 링은 캔버스 arc가 아니라 바닥에 눕힌 3D 토러스다. 검증해야 하는 규칙은 그대로다 —
+    // T1에는 없고, T2부터는 render/tiers.ts의 단일 출처 색을 그대로 쓴다.
+    const ringsOf = (tier: number): THREE.Mesh[] => {
+      const scene = new THREE.Scene();
+      const pieces = new Pieces3D(scene);
+      const s = waveState();
+      s.pieces.push(boardPiece('rook', 3, 3, tier));
+      pieces.sync(s);
+      // 링마다 윤곽선 헐이 하나 더 붙으므로(v1.23) 티어 색을 입은 쪽만 고른다.
+      return scene.children[0].children
+        .filter((c): c is THREE.Mesh => c instanceof THREE.Mesh
+          && c.geometry instanceof THREE.TorusGeometry && c.material instanceof THREE.MeshToonMaterial);
+    };
 
-    const t3 = waveState();
-    t3.pieces.push(boardPiece('rook', 3, 3, 3));
-    const b = makeStubCtx();
-    render(b.ctx as unknown as CanvasRenderingContext2D, t3, createFrameView());
-    const arcsT3 = b.records.filter(r => r.method === 'arc');
-
-    expect(arcsT3.length).toBe(arcsT1 + 1);                 // 링 하나만 늘어난다
-    expect(b.records.some(r => r.strokeStyle === tierRingColor(3))).toBe(true);
+    expect(ringsOf(1)).toHaveLength(0);
+    const t3 = ringsOf(3);
+    expect(t3).toHaveLength(1);
+    const mat = t3[0].material as THREE.MeshToonMaterial;
+    expect(`#${mat.color.getHexString().toUpperCase()}`).toBe(tierRingColor(3));
   });
 
   it('합성 미리보기는 점선 링과 결과 티어 라벨을 그린다', () => {
@@ -516,12 +523,12 @@ describe('렌더 — 티어 링과 미리보기가 실제로 그려진다', () =
     view.mergePreview = { square: { file: 3, rank: 3 }, tier: 4 };
 
     const { ctx, records } = makeStubCtx();
-    render(ctx as unknown as CanvasRenderingContext2D, s, view);
+    drawDecals(ctx as unknown as CanvasRenderingContext2D, s, view);
 
     expect(records.some(r => r.method === 'setLineDash')).toBe(true);
     const labels = records.filter(r => r.method === 'fillText').map(r => r.args[0]);
     expect(labels).toContain('T4');
-    // 퀸 버프 배지('×N')와 구분되는 접두사여야 한다 — renderer.test.ts가 '×' 계열을 전수 단언한다
+    // 퀸 버프 배지('×N')와 구분되는 접두사여야 한다 — overlay.test.ts가 '×' 계열을 전수 단언한다
     expect(labels.every(l => !String(l).startsWith('×'))).toBe(true);
   });
 });

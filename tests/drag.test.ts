@@ -29,19 +29,34 @@ const zones: DropZones = {
   sell: { left: 800, top: 0, width: 100, height: 100 },
 };
 
+/**
+ * ★ v1.24에서 `pickDropTarget`이 **칸 판정을 주입받게** 바뀌었다 — 보드가 원근 쿼터뷰가
+ * 되면서 "화면 좌표 → 칸"이 산수에서 역투영이 됐고, 그건 카메라를 아는 계층만 할 수 있다
+ * (src/ui/drag.ts의 `SquarePicker` 주석).
+ *
+ * 이 스위트가 검증하는 것은 **분기**다: 판매 슬롯인가 · 보드인가 · 아무 데도 아닌가, 그리고
+ * 그 결과가 `dropAction`으로 어떻게 이어지는가. 그래서 피커로는 v1.23까지 이 함수 안에
+ * 있던 선형 매핑을 그대로 쓴다 — 실제 역투영의 정확성(칸 → 화면 → 칸 왕복)은 카메라를
+ * 함께 세워야 의미가 있으므로 `tests/render3d.test.ts`가 따로 맡는다.
+ */
+const linearPicker = (u: number, v: number) => {
+  const files = CONFIG.board.files, ranks = CONFIG.board.ranks;
+  return { file: Math.floor(u * files), rank: ranks - Math.floor(v * ranks) };
+};
+
 describe('pickDropTarget', () => {
   it('보드 좌표 → 칸 (좌상단 = a8)', () => {
-    expect(pickDropTarget(101, 1, zones)).toEqual({ kind: 'square', file: 0, rank: 8 });
-    expect(pickDropTarget(100 + 639, 639, zones)).toEqual({ kind: 'square', file: 7, rank: 1 });
-    expect(pickDropTarget(100 + 250, 500, zones)).toEqual({ kind: 'square', file: 3, rank: 2 });
+    expect(pickDropTarget(101, 1, zones, linearPicker)).toEqual({ kind: 'square', file: 0, rank: 8 });
+    expect(pickDropTarget(100 + 639, 639, zones, linearPicker)).toEqual({ kind: 'square', file: 7, rank: 1 });
+    expect(pickDropTarget(100 + 250, 500, zones, linearPicker)).toEqual({ kind: 'square', file: 3, rank: 2 });
   });
   it('판매/바깥 판정 — 옛 슬롯 그리드 자리는 이제 아무 존도 아니다', () => {
-    expect(pickDropTarget(850, 50, zones)).toEqual({ kind: 'sell' });
-    expect(pickDropTarget(999, 999, zones)).toBeNull();
+    expect(pickDropTarget(850, 50, zones, linearPicker)).toEqual({ kind: 'sell' });
+    expect(pickDropTarget(999, 999, zones, linearPicker)).toBeNull();
     // ⚠️ 여기 있던 `{ kind: 'slot', index }` 단언이 v1.12에서 사라졌다 — 판정할 존 자체가 없다.
     // 지우고 끝내지 않고 **같은 좌표가 이제 null이 되는 것**을 고정한다: 보드 왼쪽의 이 빈
     // 공간이 다시 무언가를 삼키기 시작하면(존이 되살아나면) 여기서 먼저 빨개진다.
-    expect(pickDropTarget(50, 20, zones)).toBeNull();
+    expect(pickDropTarget(50, 20, zones, linearPicker)).toBeNull();
   });
 });
 
@@ -149,7 +164,7 @@ function setup(phase: GameState['phase'] = 'wave'): Rig {
   state.phase = phase;
   const events: GameEvent[] = [];
   const audio = makeAudioSpy();
-  const drag = new DragController(state, layout, events, audio);
+  const drag = new DragController(state, layout, events, audio, linearPicker);
   currentRig = { state, layout, events, drag, audio };
   return currentRig;
 }

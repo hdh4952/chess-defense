@@ -7,7 +7,7 @@ export function makeStubCtx() {
   const records: Call[] = [];
   const gradientStub = { addColorStop: (_offset: number, _color: string): void => {} };
   const ctxObj: any = {
-    fillStyle: '', strokeStyle: '', font: '', lineWidth: 1,
+    fillStyle: '', strokeStyle: '', font: '', lineWidth: 1, lineCap: 'butt',
     textAlign: 'start', textBaseline: 'alphabetic', globalAlpha: 1,
   };
   const record = (method: string, args: unknown[]): void => {
@@ -20,6 +20,10 @@ export function makeStubCtx() {
   // 기록에는 영향이 없다.
   ctxObj.setTransform = (...args: unknown[]): void => record('setTransform', args);
   ctxObj.fillRect = (x: number, y: number, w: number, h: number): void => record('fillRect', [x, y, w, h]);
+  // v1.21: 데칼 계층(render/renderer.ts의 drawDecals)과 화면 오버레이(render3d/overlay.ts)는
+  // 둘 다 투명 캔버스에 매번 새로 그리므로 맨 앞에서 지운다.
+  ctxObj.clearRect = (x: number, y: number, w: number, h: number): void => record('clearRect', [x, y, w, h]);
+  ctxObj.strokeRect = (x: number, y: number, w: number, h: number): void => record('strokeRect', [x, y, w, h]);
   ctxObj.beginPath = (): void => record('beginPath', []);
   ctxObj.moveTo = (x: number, y: number): void => record('moveTo', [x, y]);
   ctxObj.lineTo = (x: number, y: number): void => record('lineTo', [x, y]);

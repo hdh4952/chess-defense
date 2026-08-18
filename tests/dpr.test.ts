@@ -56,7 +56,7 @@ describe('syncBoardCanvas', () => {
   it('백킹 스토어를 배율만큼 키운다', () => {
     const canvas = document.createElement('canvas');
     const { ctx } = makeTransformSpy(canvas);
-    syncBoardCanvas(canvas, ctx, 2);
+    syncBoardCanvas(canvas, ctx, BOARD_W, BOARD_H, 2);
     expect(canvas.width).toBe(BOARD_W * 2);
     expect(canvas.height).toBe(BOARD_H * 2);
   });
@@ -67,7 +67,7 @@ describe('syncBoardCanvas', () => {
     for (const scale of [1, 2, 3]) {
       const canvas = document.createElement('canvas');
       const { ctx } = makeTransformSpy(canvas);
-      syncBoardCanvas(canvas, ctx, scale);
+      syncBoardCanvas(canvas, ctx, BOARD_W, BOARD_H, scale);
       expect(canvas.style.width, String(scale)).toBe(`${BOARD_W}px`);
       expect(canvas.style.height, String(scale)).toBe(`${BOARD_H}px`);
     }
@@ -76,7 +76,7 @@ describe('syncBoardCanvas', () => {
   it('그리는 좌표계가 백킹 스토어를 정확히 채우는 배율을 건다', () => {
     const canvas = document.createElement('canvas');
     const { ctx, calls } = makeTransformSpy(canvas);
-    syncBoardCanvas(canvas, ctx, 2);
+    syncBoardCanvas(canvas, ctx, BOARD_W, BOARD_H, 2);
     expect(calls).toHaveLength(1);
     expect(calls[0].args).toEqual([2, 0, 0, 2, 0, 0]);
     // 자기 참조를 피해 백킹 스토어에서 되유도한다: (0,0)~(BOARD_W,BOARD_H)를 그리면
@@ -89,7 +89,7 @@ describe('syncBoardCanvas', () => {
     // 1.5처럼 반올림이 필요한 배율에서 "요청 배율"을 그대로 걸면 최대 반 픽셀이 어긋난다.
     const canvas = document.createElement('canvas');
     const { ctx, calls } = makeTransformSpy(canvas);
-    syncBoardCanvas(canvas, ctx, 1.5);
+    syncBoardCanvas(canvas, ctx, BOARD_W, BOARD_H, 1.5);
     expect(calls[0].args[0] * BOARD_W).toBe(canvas.width);
     expect(calls[0].args[3] * BOARD_H).toBe(canvas.height);
   });
@@ -99,7 +99,7 @@ describe('syncBoardCanvas', () => {
     // 배율이 사라져 보드가 캔버스의 왼쪽 위 1/4에만 그려지는데, 인자만 보는 테스트는 통과한다.
     const canvas = document.createElement('canvas');
     const { ctx, calls } = makeTransformSpy(canvas);
-    syncBoardCanvas(canvas, ctx, 2);
+    syncBoardCanvas(canvas, ctx, BOARD_W, BOARD_H, 2);
     expect(calls[0].canvasWidth).toBe(BOARD_W * 2);
     expect(calls[0].canvasHeight).toBe(BOARD_H * 2);
   });
@@ -107,9 +107,9 @@ describe('syncBoardCanvas', () => {
   it('다시 불러도 안전하다 — 밀도가 바뀔 때마다 부르는 함수다', () => {
     const canvas = document.createElement('canvas');
     const { ctx, calls } = makeTransformSpy(canvas);
-    syncBoardCanvas(canvas, ctx, 2);
-    syncBoardCanvas(canvas, ctx, 3);
-    syncBoardCanvas(canvas, ctx, 1);
+    syncBoardCanvas(canvas, ctx, BOARD_W, BOARD_H, 2);
+    syncBoardCanvas(canvas, ctx, BOARD_W, BOARD_H, 3);
+    syncBoardCanvas(canvas, ctx, BOARD_W, BOARD_H, 1);
     expect(canvas.width).toBe(BOARD_W);                    // 배율이 내려가면 함께 줄어든다
     expect(calls.map(c => c.args[0])).toEqual([2, 3, 1]);   // 배율이 곱으로 누적되지 않는다
   });

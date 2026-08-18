@@ -1,6 +1,6 @@
 import { CONFIG, TRAITS, slowPercent } from '../config';
 import { fileCenterX, rankToTopY } from '../core/grid';
-import { SLOW_INK } from './palette';
+
 import { prefersReducedMotion } from './enemyFx';
 import { tierRingColor } from './tiers';
 import type { GameEvent, Square } from '../types';
@@ -29,7 +29,7 @@ const HITSTOP_MIN_GAP = 0.25;
  */
 const slowLabel = (tier: number): string => `−${slowPercent(tier)}%`;
 
-interface Fx {
+export interface Fx {
   kind: 'shock' | 'crack' | 'beam' | 'puff' | 'coin' | 'mergeBurst' | 'frostTag' | 'spawnMark'
     | 'splitArrow' | 'dmgNum' | 'blockMark' | 'shard' | 'goldFly';
   x: number; y: number;
@@ -143,8 +143,13 @@ export class Effects {
       //
       // 좌표는 칸 중심이 아니라 적의 실제 픽셀 위치다(ev.y). 적은 칸 사이를 연속으로 움직이므로
       // 칸 중심에 띄우면 최대 40px 어긋난 자리에 라벨이 뜬다.
+      //
+      // ★ **v1.24에서 "머리 위로 42px" 보정이 사라졌다.** 그 값은 보드 좌표가 곧 화면
+      //   좌표이던 시절의 **화면 공간** 결정이었는데, 원근 쿼터뷰에서는 보드 y를 42 줄이면
+      //   화면에서 위로 뜨는 게 아니라 **판 위에서 8랭크 쪽으로 물러난다.** 목록은 이제
+      //   일어난 자리만 담고, 띄우는 일은 그리는 쪽(render3d/overlay.ts)이 화면 공간에서 한다.
       this.list.push({
-        kind: 'frostTag', x: fileCenterX(ev.file), y: Math.max(16, ev.y - 42),
+        kind: 'frostTag', x: fileCenterX(ev.file), y: ev.y,
         label: slowLabel(ev.tier), t: 0, ttl: 0.7,
       });
     }
@@ -164,7 +169,8 @@ export class Effects {
       //   있어서(이 게임의 이벤트 중 유일하게 그렇다) 하나씩 팝업을 띄우면 화면이 숫자로
       //   덮인다. 같은 적의 팝업이 아직 살아 있으면 값을 더하고 수명을 되돌린다 — 룩 여러
       //   기가 한 적을 때리는 흔한 상황에서 "총 얼마나 들어갔는가"가 한 숫자로 읽힌다.
-      const y = Math.max(14, ev.y - 26);
+      // ★ frostTag와 같은 이유로 화면 공간 보정을 걷어냈다 (v1.24).
+      const y = ev.y;
       if (ev.blocked) {
         // 막힌 피격은 숫자가 아니라 표식이다. "0"을 띄우면 데미지 0인 공격과 구분되지 않고,
         // 장갑형 문턱에 막혔다는 사실이 이 게임에서 가장 배우기 어려운 규칙이다.
@@ -281,183 +287,20 @@ export class Effects {
     return { ...this.lastShakeOffset };
   }
 
-  draw(ctx: CanvasRenderingContext2D): void {
-    // 모션 축소 요청 시 **움직임만** 끈다 — 숫자·표식 같은 정보는 그대로 보여준다.
-    const reduced = prefersReducedMotion();
-    for (const f of this.list) {
-      const k = 1 - f.t / f.ttl;   // 1 → 0
-      ctx.save();
-      ctx.globalAlpha = k;
-      switch (f.kind) {
-        case 'shock': {            // 폰 — 노말: 회백색 충격파 + 어두운 테두리
-          ctx.beginPath();
-          ctx.arc(f.x, f.y, 8 + (1 - k) * 16, 0, Math.PI * 2);
-          ctx.strokeStyle = '#2a2a2a'; ctx.lineWidth = 4; ctx.stroke();
-          ctx.strokeStyle = '#d8d8d0'; ctx.lineWidth = 2; ctx.stroke();
-          break;
-        }
-        // ★ crack·beam은 v1.15에서 세 겹이 됐다: **잔광 → 테두리 → 코어**.
-        //   잔광은 시간이 갈수록 **넓어지며 옅어지고**(잉크가 퍼지는 것처럼), 코어는 반대로
-        //   **얇아진다**. 두 방향이 반대라야 "번쩍 터진 뒤 잦아든다"로 읽힌다 — 둘 다 넓어지면
-        //   그냥 흐려지는 것이고, 둘 다 얇아지면 처음부터 약해 보인다.
-        //   폭을 k(1 → 0)로 만드는 것이 요점이고, 알파는 draw 앞머리에서 이미 k가 걸려 있다.
-        case 'crack': {            // 룩 — 땅: 갈색 균열 + 밝은 테두리 + 흙빛 잔광
-          if (!reduced) {
-            ctx.save();
-            ctx.globalAlpha *= 0.35 * k;
-            ctx.lineWidth = 6 + (1 - k) * 14;
-            ctx.strokeStyle = '#c9a06a';
-            line(ctx, f);
-            ctx.restore();
-          }
-          ctx.lineWidth = 6; ctx.strokeStyle = '#f0e0c0';
-          line(ctx, f);
-          ctx.lineWidth = 1.5 + k * 2.5; ctx.strokeStyle = '#7a5230';
-          line(ctx, f);
-          break;
-        }
-        case 'beam': {             // 비숍 — 빛: 흰-금 광선 + 어두운 테두리 + 금빛 잔광
-          if (!reduced) {
-            ctx.save();
-            ctx.globalAlpha *= 0.4 * k;
-            ctx.lineWidth = 5 + (1 - k) * 16;
-            ctx.strokeStyle = '#ffe9a8';
-            line(ctx, f);
-            ctx.restore();
-          }
-          ctx.lineWidth = 5; ctx.strokeStyle = '#4a4020';
-          line(ctx, f);
-          ctx.lineWidth = 0.8 + k * 2.2; ctx.strokeStyle = '#fff6cf';
-          line(ctx, f);
-          break;
-        }
-        case 'puff': {             // 처치 연출
-          ctx.fillStyle = '#999';
-          ctx.beginPath(); ctx.arc(f.x, f.y, (1 - k) * 14, 0, Math.PI * 2); ctx.fill();
-          break;
-        }
-        case 'mergeBurst': {       // 합성 성사 — 결과 티어 색으로 퍼지는 링
-          ctx.beginPath();
-          ctx.arc(f.x, f.y, 16 + (1 - k) * 30, 0, Math.PI * 2);
-          ctx.lineWidth = 3 + k * 4;
-          ctx.strokeStyle = f.color!;
-          ctx.stroke();
-          break;
-        }
-        case 'frostTag': {         // 감속 진입 — 적 머리 위 "−30%"
-          // coin과 같은 이유로 마지막 구간에서만 사라지게 한다 — 선형이면 읽기 전에 흐려진다.
-          ctx.globalAlpha = Math.min(1, k / 0.35);
-          ctx.font = 'bold 13px system-ui';
-          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-          // 문자열이 '−'(U+2212)로 시작한다. '×'로 시작하는 fillText는 퀸 버프 배지라는
-          // 규칙이 renderer.test.ts에 못박혀 있어, 배수(×0.7)가 아니라 감산량으로 적는다 —
-          // 어차피 플레이어에게는 "얼마나 느려지는가"가 곧 감산량이다.
-          ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(8,22,36,0.85)';
-          ctx.strokeText(f.label!, f.x, f.y);
-          ctx.fillStyle = SLOW_INK;
-          ctx.fillText(f.label!, f.x, f.y);
-          break;
-        }
-        case 'spawnMark': {        // 기물 스폰 — 칸을 감싸며 조여드는 이중 사각형
-          // 확장이 아니라 **수축**이다. 퍼지는 링(mergeBurst·shock)은 "여기서 무슨 일이
-          // 일어났다"를 말하지만, 조여드는 테두리는 시선을 그 칸 **안으로** 모은다 — 찾게
-          // 하는 것이 목적인 유일한 연출이라 방향이 반대다.
-          const grow = (1 - k) * SQ * 0.9;               // k: 1 → 0 이므로 시간이 갈수록 작아진다
-          const r = SQ * 0.5 + grow;
-          for (const [w, color] of [[5, 'rgba(10, 26, 36, 0.5)'], [2.5, '#ffe27a']] as const) {
-            ctx.lineWidth = w; ctx.strokeStyle = color;
-            ctx.strokeRect(f.x - r, f.y - r, r * 2, r * 2);
-          }
-          break;
-        }
-        case 'splitArrow': {       // 분열 — 부모 자리에서 양옆으로 벌어지는 쐐기 둘
-          // 좌우로 **벌어지는** 것이 요점이다. 분열체가 인접 파일에 태어나므로 연출의
-          // 방향이 규칙과 같아야 "어디로 갔는지"가 읽힌다.
-          const spread = (1 - k) * SQ * 0.7;
-          ctx.lineWidth = 3; ctx.strokeStyle = '#7BD16B';   // TRAIT_COLOR.splitter와 같은 톤
-          for (const dir of [-1, 1]) {
-            ctx.beginPath();
-            ctx.moveTo(f.x + dir * spread, f.y - 7);
-            ctx.lineTo(f.x + dir * (spread + 9), f.y);
-            ctx.lineTo(f.x + dir * spread, f.y + 7);
-            ctx.stroke();
-          }
-          break;
-        }
-        case 'dmgNum': {           // 피해 숫자 — 위로 떠오르며 페이드
-          // coin과 같은 이유로 마지막 구간에서만 사라진다. 색은 체력바 채움(#e04b3a)과 같은
-          // 계열이라 "체력이 이만큼 깎였다"가 두 곳에서 같은 색으로 읽힌다.
-          ctx.globalAlpha = Math.min(1, k / 0.35);
-          const dy = reduced ? 0 : (1 - k) * 22;
-          ctx.font = 'bold 15px system-ui';
-          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-          ctx.lineWidth = 3.5; ctx.strokeStyle = 'rgba(20,6,6,0.85)';
-          const text = String(Math.round(f.amount ?? 0));
-          ctx.strokeText(text, f.x, f.y - dy);
-          ctx.fillStyle = '#ff8f7a';
-          ctx.fillText(text, f.x, f.y - dy);
-          break;
-        }
-        case 'blockMark': {        // 막힌 피격 — 숫자 대신 사선이 그어진 고리
-          // 형태로 말한다: 고리(피격은 있었다) + 사선(들어가지 않았다). 색은 장갑형 표식과
-          // 같은 회청(#9AA7B4)이라 "무엇이 막았는가"가 적 유형 표식과 이어진다.
-          ctx.globalAlpha = Math.min(1, k / 0.4);
-          ctx.strokeStyle = '#9AA7B4'; ctx.lineWidth = 2.5;
-          const r = 7;
-          ctx.beginPath(); ctx.arc(f.x, f.y, r, 0, Math.PI * 2); ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(f.x - r * 0.7, f.y + r * 0.7);
-          ctx.lineTo(f.x + r * 0.7, f.y - r * 0.7);
-          ctx.stroke();
-          break;
-        }
-        case 'shard': {            // 처치 파편 — 사방으로 튀며 떨어지는 작은 조각
-          ctx.fillStyle = '#8a8a8a';
-          const sz = 2 + k * 2;
-          ctx.fillRect(f.x - sz / 2, f.y - sz / 2, sz, sz);
-          break;
-        }
-        case 'goldFly': {          // 처치 골드 — 적이 죽은 자리에서 HUD 골드로 날아간다
-          // ★ 곡선으로 날린다. 직선이면 여러 개가 겹쳐 한 줄로 보이고, "어디로 가는가"가
-          //   읽히지 않는다. 진행률을 ease-in으로 두어 처음엔 느리게 뜬 뒤 빨려 들어간다.
-          const p = 1 - k;                        // 0 → 1
-          const e = p * p;                        // ease-in
-          const mx = (f.x + (f.tx ?? f.x)) / 2;
-          const my = Math.min(f.y, f.ty ?? f.y) - 70;   // 제어점을 위로 띄워 아치를 만든다
-          const bx = (1 - e) * (1 - e) * f.x + 2 * (1 - e) * e * mx + e * e * (f.tx ?? f.x);
-          const by = (1 - e) * (1 - e) * f.y + 2 * (1 - e) * e * my + e * e * (f.ty ?? f.y);
-          ctx.globalAlpha = Math.min(1, k / 0.25);
-          ctx.font = 'bold 13px system-ui';
-          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-          ctx.lineWidth = 3.5; ctx.strokeStyle = '#3a2c05';
-          ctx.strokeText(`+${f.amount}`, bx, by);
-          ctx.fillStyle = '#ffd34d';
-          ctx.fillText(`+${f.amount}`, bx, by);
-          break;
-        }
-        case 'coin': {             // 골드 획득 — 위로 떠오르며 사라지는 "+10G"
-          // 마지막 30%에서만 서서히 사라지게 한다: 선형 알파(k)로 두면 뜨자마자 흐려져서
-          // 숫자를 읽을 시간이 없다.
-          ctx.globalAlpha = Math.min(1, k / 0.3);
-          const y = f.y - (1 - k) * 30;
-          ctx.font = 'bold 20px system-ui';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.lineWidth = 4; ctx.strokeStyle = '#3a2c05';   // 밝은 칸 위에서도 읽히도록 테두리
-          ctx.strokeText(`+${f.amount}G`, f.x, y);
-          ctx.fillStyle = '#ffd34d';
-          ctx.fillText(`+${f.amount}G`, f.x, y);
-          break;
-        }
-      }
-      ctx.restore();
-    }
-  }
-}
 
-function line(ctx: CanvasRenderingContext2D, f: { x: number; y: number; x2?: number; y2?: number }): void {
-  ctx.beginPath();
-  ctx.moveTo(f.x, f.y);
-  ctx.lineTo(f.x2!, f.y2!);
-  ctx.stroke();
+  /**
+   * 지금 살아 있는 이펙트 목록 (읽기 전용).
+   *
+   * ★ **v1.21에서 `draw(ctx)`를 대신한다.** 전면 3D로 가면서 이펙트가 두 계층으로 갈렸기
+   * 때문이다 — 판에서 벌어지는 것(충격파·균열·광선·파편)은 실제 3D 물체가 되고, 떠오르는
+   * 글자(데미지 숫자·골드·감속 라벨)는 화면 오버레이에 남는다. 한 함수가 캔버스 하나에
+   * 전부 그리던 구조로는 그 분기를 표현할 수 없다.
+   *
+   * 그래서 이 클래스는 **그리기를 그만두고 목록만 소유한다.** 이벤트 소비·수명 관리·
+   * 히트스톱·화면 진동은 그대로 여기 남는다 — 그것들은 어느 계층에서 그리든 같기 때문이다.
+   * 소비자는 `kind`를 보고 자기 몫만 골라 간다(render3d/effects3d.ts · render3d/overlay.ts).
+   */
+  items(): readonly Fx[] {
+    return this.list;
+  }
 }

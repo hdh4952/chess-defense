@@ -1,4 +1,4 @@
-import { CONFIG, drawCost } from '../config';
+import { drawCost } from '../config';
 import { canDraw, drawPiece } from '../core/economy';
 import type { UiAudio } from '../audio';
 import type { GameEvent, GameState } from '../types';
@@ -27,17 +27,27 @@ export function wireShop(
 }
 
 /**
- * 매 프레임: 가격 갱신 + 골드 부족 / 보드 만석 / 일시정지 → 비활성화 (스펙 7.4).
+ * 매 프레임: 보유/필요 골드 갱신 + 골드 부족 / 보드 만석 / 일시정지 → 비활성화 (스펙 7.4).
  *
  * ★ **가격을 매 프레임 다시 쓴다** (v1.18). 뽑기 값이 뽑은 횟수에 따라 오르므로 버튼에
  * 고정 문구를 두면 실제로 깎이는 금액과 화면이 어긋난다 — 가챠에서 그 어긋남은 곧
- * "속았다"로 읽힌다. 증가분도 함께 적어 **왜 비싸지는지**를 화면이 스스로 설명하게 한다.
+ * "속았다"로 읽힌다.
+ *
+ * ★ **v1.27부터 보유 골드가 여기 함께 산다** (사용자 결정 — HUD에서 옮겨 왔다).
+ * `보유 / 필요` 한 줄이면 "지금 뽑을 수 있나"가 두 수의 대소로 즉시 읽힌다 — 화면 반대편
+ * 끝의 HUD 숫자와 버튼의 가격을 눈으로 오가며 비교할 필요가 없어진다.
+ *
+ * ⚠️ **`textContent`만 갈아 끼운다.** 골드는 초당 여러 번 바뀌므로(비숍 수입) 버튼 전체를
+ * innerHTML로 다시 쓰면 그때마다 DOM을 재파싱한다. 구조는 `createLayout`이 한 번 만든다.
  */
 export function updateShop(layout: Layout, state: GameState): void {
   const price = drawCost(state.draws);
-  const html = `기물 뽑기<br><small>${price}G`
-    + (CONFIG.gacha.costStep > 0 ? ` · 다음 ${price + CONFIG.gacha.costStep}G` : '')
-    + '</small>';
-  if (layout.drawBtn.innerHTML !== html) layout.drawBtn.innerHTML = html;
+  const text = `${state.gold} / ${price}`;
+  if (layout.drawCost.textContent !== text) layout.drawCost.textContent = text;
+  // ★ 골드 부족도 canDraw가 막으므로 버튼은 어차피 비활성이 된다 — 이 클래스가 하는 일은
+  //   **비활성 사유를 가르는 것**이다. 회색 버튼만으로는 "돈이 모자라서"인지 "일시정지·보드
+  //   만석이라서"인지 구분되지 않고, 그 둘은 플레이어가 해야 할 행동이 정반대다(기다린다 /
+  //   자리를 만든다). 숫자를 붉게 물들여 전자만 따로 말한다(style.css).
+  layout.drawBtn.classList.toggle('poor', state.gold < price);
   layout.drawBtn.disabled = !canDraw(state);
 }

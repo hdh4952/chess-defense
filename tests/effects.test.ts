@@ -2,11 +2,26 @@ import { describe, expect, it, vi } from 'vitest';
 import { CONFIG, slowPercent } from '../src/config';
 import { fileCenterX, rankToTopY } from '../src/core/grid';
 import { bishopTargets, pawnTargets, rookTargets } from '../src/core/patterns';
-import { Effects } from '../src/render/effects';
+import { Effects, type Fx } from '../src/render/effects';
 import type { GameEvent, Square } from '../src/types';
-import { makeStubCtx } from './canvasStub';
 
 const center = (sq: Square) => ({ x: fileCenterX(sq.file), y: rankToTopY(sq.rank) + 40 });
+
+/**
+ * ★ v1.21 — `Effects`는 더 이상 그리지 않는다. 이벤트를 소비해 **목록**을 소유할 뿐이고,
+ * 그 목록을 두 계층이 나눠 그린다(3D 씬 · 화면 오버레이). 그래서 아래 단언들은 캔버스 호출이
+ * 아니라 목록을 본다.
+ *
+ * 옮기면서 검증력이 오히려 올라간 곳이 있다: 예전에는 "룩 균열이 세 겹(stroke 3회)으로
+ * 그려진다" 같은 **그리는 방식**까지 못박혀 있어서, 연출 구현을 바꾸면 밸런스와 무관한
+ * 테스트가 무더기로 깨졌다. 지금 남은 것은 "방향마다 균열 하나가 원점에서 가장 먼 칸까지
+ * 난다"는 **규칙**뿐이고, 그것은 어느 계층에서 그리든 참이어야 한다.
+ */
+const itemsOf = (fx: Effects, kind: Fx['kind']): readonly Fx[] => fx.items().filter(f => f.kind === kind);
+const endsOf = (list: readonly Fx[]): Set<string> => new Set(list.map(f => `${f.x2},${f.y2}`));
+const squareSet = (sqs: readonly Square[]): Set<string> =>
+  new Set(sqs.map(sq => { const c = center(sq); return `${c.x},${c.y}`; }));
+const labelsOf = (fx: Effects): string[] => itemsOf(fx, 'frostTag').map(f => String(f.label));
 
 // 방향 키(부호쌍)별 원점에서 가장 먼 대상 칸 — effects.ts의 onEvent와 동일한 로직을 테스트에서
 // 독립적으로 재구성해, "회귀 시 두 곳이 함께 틀려서 통과해버리는" 상황을 피한다.
@@ -26,24 +41,18 @@ function farthestPerDirection(from: Square, targets: Square[]): Square[] {
 }
 
 describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스펙 8.2)', () => {
-  describe('onEvent → draw: 이벤트 종류별 이펙트 생성', () => {
-    it('폰 attack: 대상 칸마다 짧은 충격파(shock) 1개씩 (arc 호출 수 == targets 수)', () => {
+  describe('onEvent → items: 이벤트 종류별 이펙트 생성', () => {
+    it('폰 attack: 대상 칸마다 짧은 충격파(shock) 1개씩', () => {
       const fx = new Effects();
       const from: Square = { file: 4, rank: 4 };
       const targets = pawnTargets(from);
       expect(targets).toHaveLength(2); // 보드 중앙이므로 대각선 2칸 모두 유효
       fx.onEvent({ kind: 'attack', pieceType: 'pawn', from, targets });
 
-      const { ctx, records } = makeStubCtx();
-      fx.draw(ctx as unknown as CanvasRenderingContext2D);
-
-      const arcs = records.filter(r => r.method === 'arc');
-      expect(arcs).toHaveLength(targets.length);
-      const arcCenters = arcs.map(a => ({ x: a.args[0], y: a.args[1] }));
-      for (const sq of targets) {
-        const c = center(sq);
-        expect(arcCenters).toContainEqual({ x: c.x, y: c.y });
-      }
+      const shocks = itemsOf(fx, 'shock');
+      expect(shocks).toHaveLength(targets.length);
+      const at = shocks.map(f => ({ x: f.x, y: f.y }));
+      for (const sq of targets) expect(at).toContainEqual(center(sq));
     });
 
     it('룩 attack: 발사된 각 방향(십자)마다 균열(crack) 선 1개 — 발사 원점에서 각 방향의 가장 먼 칸까지', () => {
@@ -54,24 +63,15 @@ describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스�
       expect(expectedEnds).toHaveLength(4); // 중앙이므로 상하좌우 4방향 모두 존재
 
       fx.onEvent({ kind: 'attack', pieceType: 'rook', from, targets });
-      const { ctx, records } = makeStubCtx();
-      fx.draw(ctx as unknown as CanvasRenderingContext2D);
 
-      // ★ v1.15에서 세 겹이 됐다: **잔광 → 밝은 테두리 → 갈색 코어**. 잔광은 넓어지며
-      // 옅어지고 코어는 얇아진다(두 방향이 반대라야 "터진 뒤 잦아든다"로 읽힌다).
-      // 겹 수를 상수로 두고 유도하는 이유는, 겹이 늘 때 이 테스트가 **의도적으로** 깨져
-      // 누가 연출을 바꿨다는 사실이 드러나야 하기 때문이다 — 자동으로 따라가면 잔광이
-      // 실수로 빠져도 초록으로 남는다.
-      const PASSES = 3;
-      const moveTos = records.filter(r => r.method === 'moveTo');
-      expect(moveTos).toHaveLength(expectedEnds.length * PASSES);
+      // ⚠️ v1.15~v1.20에는 여기에 "세 겹(stroke 3회)으로 그려진다"는 단언이 있었다. 3D에서
+      // 균열은 **물체 하나**이고 잔광·코어는 재질이 맡으므로 그 단언은 대상을 잃었다. 대신
+      // 규칙만 남긴다: 방향마다 정확히 하나, 원점에서 그 방향의 가장 먼 칸까지.
+      const cracks = itemsOf(fx, 'crack');
+      expect(cracks).toHaveLength(expectedEnds.length);
       const fromC = center(from);
-      for (const m of moveTos) expect(m.args).toEqual([fromC.x, fromC.y]);
-
-      const lineTos = records.filter(r => r.method === 'lineTo');
-      const endpoints = new Set(lineTos.map(l => `${l.args[0]},${l.args[1]}`));
-      const expectedEndpoints = new Set(expectedEnds.map(sq => { const c = center(sq); return `${c.x},${c.y}`; }));
-      expect(endpoints).toEqual(expectedEndpoints);
+      for (const c of cracks) expect({ x: c.x, y: c.y }).toEqual(fromC);
+      expect(endsOf(cracks)).toEqual(squareSet(expectedEnds));
     });
 
     it('룩 d4 발사: 균열 4개의 끝점이 정확히 h4/a4/d8/d1 칸 중심이다 (하드코딩된 기대값 — 알고리즘 재구현에 기대지 않음)', () => {
@@ -82,11 +82,7 @@ describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스�
       const from: Square = { file: 3, rank: 4 }; // d4
       fx.onEvent({ kind: 'attack', pieceType: 'rook', from, targets: rookTargets(from) });
 
-      const { ctx, records } = makeStubCtx();
-      fx.draw(ctx as unknown as CanvasRenderingContext2D);
-
-      const lineTos = records.filter(r => r.method === 'lineTo');
-      const endpoints = new Set(lineTos.map(l => `${l.args[0]},${l.args[1]}`));
+      const endpoints = endsOf(itemsOf(fx, 'crack'));
       const h4 = center({ file: 7, rank: 4 });
       const a4 = center({ file: 0, rank: 4 });
       const d8 = center({ file: 3, rank: 8 });
@@ -101,11 +97,7 @@ describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스�
       const from: Square = { file: 3, rank: 4 }; // d4
       fx.onEvent({ kind: 'attack', pieceType: 'bishop', from, targets: bishopTargets(from) });
 
-      const { ctx, records } = makeStubCtx();
-      fx.draw(ctx as unknown as CanvasRenderingContext2D);
-
-      const lineTos = records.filter(r => r.method === 'lineTo');
-      const endpoints = new Set(lineTos.map(l => `${l.args[0]},${l.args[1]}`));
+      const endpoints = endsOf(itemsOf(fx, 'beam'));
       const h8 = center({ file: 7, rank: 8 });
       const g1 = center({ file: 6, rank: 1 });
       const a7 = center({ file: 0, rank: 7 });
@@ -123,18 +115,12 @@ describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스�
       expect(expectedEnds).toHaveLength(4); // 중앙이므로 대각선 4방향 모두 존재
 
       fx.onEvent({ kind: 'attack', pieceType: 'bishop', from, targets });
-      const { ctx, records } = makeStubCtx();
-      fx.draw(ctx as unknown as CanvasRenderingContext2D);
 
-      // crack과 같이 v1.15에서 세 겹이 됐다(금빛 잔광 → 어두운 테두리 → 밝은 코어).
-      const PASSES = 3;
-      const moveTos = records.filter(r => r.method === 'moveTo');
-      expect(moveTos).toHaveLength(expectedEnds.length * PASSES);
-
-      const lineTos = records.filter(r => r.method === 'lineTo');
-      const endpoints = new Set(lineTos.map(l => `${l.args[0]},${l.args[1]}`));
-      const expectedEndpoints = new Set(expectedEnds.map(sq => { const c = center(sq); return `${c.x},${c.y}`; }));
-      expect(endpoints).toEqual(expectedEndpoints);
+      const beams = itemsOf(fx, 'beam');
+      expect(beams).toHaveLength(expectedEnds.length);
+      const fromC = center(from);
+      for (const b of beams) expect({ x: b.x, y: b.y }).toEqual(fromC);
+      expect(endsOf(beams)).toEqual(squareSet(expectedEnds));
     });
 
     it('★ 히트스톱 — 룩 계열 타격에만 걸리고, 벽시계로 풀린다 (v1.15)', () => {
@@ -195,22 +181,22 @@ describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스�
     // (fillRect 14)를 세던 테스트가 대상을 잃었다. 다만 그 테스트가 지키던 불변식 —
     // "나이트가 한 일이 화면에 즉시 드러난다" — 은 그대로 유효하고, 이제 그 역할을 감속 진입
     // 라벨이 물려받는다. 그래서 삭제가 아니라 frostTag 판본으로 다시 쓴다.
-    it('enemySlowed(T1): 감속에 걸린 적 위로 "−30%" 라벨 1개 (테두리 + 채움)', () => {
+    it('enemySlowed(T1): 감속에 걸린 적 위로 "−30%" 라벨 1개', () => {
       const fx = new Effects();
       const file = 2, y = 300;
       fx.onEvent({ kind: 'enemySlowed', enemyId: 'e1', file, y, tier: 1 });
 
-      const { ctx, records } = makeStubCtx();
-      fx.draw(ctx as unknown as CanvasRenderingContext2D);
-
-      const texts = records.filter(r => r.method === 'strokeText' || r.method === 'fillText');
-      expect(texts).toHaveLength(2);                       // 밝은 칸 위에서도 읽히도록 테두리 1 + 채움 1
-      // 테두리와 채움이 **같은** 문구여야 한다 — 둘이 갈라지면 "−30%" 위에 "−40%"가 겹쳐 찍힌다.
-      expect(texts.every(r => r.args[0] === `−${slowPercent(1)}%`)).toBe(true);
-      expect(texts.every(r => r.args[1] === fileCenterX(file))).toBe(true);
+      const tags = itemsOf(fx, 'frostTag');
+      expect(tags).toHaveLength(1);
+      expect(tags[0].label).toBe(`−${slowPercent(1)}%`);
+      expect(tags[0].x).toBe(fileCenterX(file));
       // 좌표가 칸 중심이 아니라 적의 실제 픽셀 y에서 유도되는지 — 적은 칸 사이를 연속으로
       // 움직이므로 rankToTopY로 스냅하면 최대 한 칸만큼 어긋난 자리에 라벨이 뜬다.
-      expect(texts.every(r => (r.args[2] as number) < y)).toBe(true);  // 적의 "머리 위"
+      //
+      // ★ **v1.24부터 "머리 위로 42px" 보정이 여기 없다.** 그것은 화면 공간 결정인데,
+      //   원근 쿼터뷰에서 보드 y를 줄이면 위로 뜨는 게 아니라 판 위에서 뒤로 물러난다.
+      //   목록은 **일어난 자리**만 담고, 띄우는 일은 overlay.test.ts가 검증한다.
+      expect(tags[0].y).toBe(y);
     });
 
     it('★ 티어가 다르면 다른 문구가 그려지고(T1 −30% · T3 −40%), 그래도 겹친 감속은 합산되지 않는다', () => {
@@ -227,10 +213,7 @@ describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스�
       const drawLabels = (tiers: readonly number[]): string[] => {
         const fx = new Effects();
         for (const tier of tiers) fx.onEvent({ kind: 'enemySlowed', enemyId: 'e1', file: 3, y: 240, tier });
-        const { ctx, records } = makeStubCtx();
-        fx.draw(ctx as unknown as CanvasRenderingContext2D);
-        // 채움만 센다 — 테두리와 짝을 이룬다는 것은 위 테스트가 지킨다.
-        return records.filter(r => r.method === 'fillText').map(r => String(r.args[0]));
+        return labelsOf(fx);
       };
 
       // ① 숫자는 리터럴이 아니라 slowPercent(tier)에서 유도된다. 계수를 조정했을 때 화면 문구만
@@ -246,7 +229,7 @@ describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스�
       expect(stacked).toEqual([`−${slowPercent(1)}%`, `−${slowPercent(3)}%`]);
       expect(stacked).not.toContain(`−${slowPercent(1) + slowPercent(3)}%`);   // −70%: 합산 회귀
       // 배수(×0.6)가 아니라 감산량으로 적는다: '×'로 시작하는 fillText는 퀸 버프 배지라는
-      // 규칙이 renderer.test.ts에 못박혀 있어, 같은 문법을 쓰면 두 연출이 서로를 오검출한다.
+      // 규칙이 overlay.test.ts에 못박혀 있어, 같은 문법을 쓰면 두 연출이 서로를 오검출한다.
       expect(stacked.some(s => s.startsWith('×'))).toBe(false);
     });
 
@@ -265,30 +248,12 @@ describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스�
       expected.forEach((_, i) =>
         fx.onEvent({ kind: 'enemySlowed', enemyId: `e${i}`, file: i, y: 240, tier: i + 1 }));
 
-      const { ctx, records } = makeStubCtx();
-      fx.draw(ctx as unknown as CanvasRenderingContext2D);
-      expect(records.filter(r => r.method === 'fillText').map(r => r.args[0])).toEqual(expected);
-    });
-
-    it('스폰 구역(8랭크) 최상단에서 감속돼도 라벨이 화면 위로 잘려나가지 않는다', () => {
-      // 감속 범위는 배치 가능 칸과 달리 8랭크를 포함하므로, 갓 스폰된 적(y가 0에 가까움)이
-      // 곧바로 걸리는 경우가 실제로 생긴다. 라벨은 적보다 위에 뜨는데 그대로 두면 y가 음수가 돼
-      // 플레이어에게는 "아무 일도 안 일어난" 것으로 보인다.
-      // 티어를 3으로 두는 것은 이 가드가 문구 길이·티어와 무관하다는 뜻이다 — 잘림은 좌표 문제다.
-      const fx = new Effects();
-      fx.onEvent({ kind: 'enemySlowed', enemyId: 'e1', file: 0, y: 0, tier: 3 });
-
-      const { ctx, records } = makeStubCtx();
-      fx.draw(ctx as unknown as CanvasRenderingContext2D);
-
-      const texts = records.filter(r => r.method === 'strokeText' || r.method === 'fillText');
-      expect(texts).toHaveLength(2);
-      expect(texts.every(r => (r.args[2] as number) > 0)).toBe(true);
+      expect(labelsOf(fx)).toEqual(expected);
     });
 
     it('감속 라벨은 ttl 0.7초 뒤 사라진다 — 감속은 지속 상태지만 라벨은 진입 순간의 사건이다', () => {
-      // 지속 상태 쪽(오라 범위·감속된 적의 고리)은 renderer.ts가 매 프레임 state를 직접 읽어
-      // 그린다. 여기 라벨까지 계속 떠 있으면 적이 오라 안에 머무는 내내 감속 수치가 박혀서,
+      // 지속 상태 쪽(오라 범위는 바닥 데칼, 감속된 적의 고리는 3D 메시)은 매 프레임 state를
+      // 직접 읽어 그린다. 여기 라벨까지 계속 떠 있으면 적이 오라 안에 머무는 내내 감속 수치가 박혀서,
       // 방금 걸린 적과 이미 걸려 있던 적을 구분할 수 없게 된다. v1.13에서는 더 나쁘다 —
       // 더 센 오라로 넘어갈 때만 새 수치가 뜨는데, 옛 라벨이 안 사라지면 −30%와 −40%가 한
       // 적의 머리 위에 동시에 박혀 어느 쪽이 지금 걸린 값인지 알 수 없게 된다.
@@ -296,30 +261,22 @@ describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스�
       fx.onEvent({ kind: 'enemySlowed', enemyId: 'e1', file: 2, y: 300, tier: 1 });
 
       fx.update(0.69);
-      const before = makeStubCtx();
-      fx.draw(before.ctx as unknown as CanvasRenderingContext2D);
-      expect(before.records.filter(r => r.method === 'fillText')).toHaveLength(1);
+      expect(itemsOf(fx, 'frostTag')).toHaveLength(1);
 
       fx.update(0.02);                                     // 누적 0.71 > ttl 0.7
-      const after = makeStubCtx();
-      fx.draw(after.ctx as unknown as CanvasRenderingContext2D);
-      expect(after.records).toHaveLength(0);
+      expect(fx.items()).toHaveLength(0);
     });
 
     it('enemyDied: 처치 연출(puff) 1개 + 파편 (v1.15)', () => {
       const fx = new Effects();
       fx.onEvent({ kind: 'enemyDied', enemyId: 'e1', square: { file: 3, rank: 2 }, isBoss: false, reward: 10 });
 
-      const { ctx, records } = makeStubCtx();
-      fx.draw(ctx as unknown as CanvasRenderingContext2D);
-
-      expect(records.filter(r => r.method === 'arc')).toHaveLength(1);
-      expect(records.filter(r => r.method === 'fill')).toHaveLength(1);
+      expect(itemsOf(fx, 'puff')).toHaveLength(1);
       // ⚠️ v1.15에서 파편이 붙었다. 예전 이 자리의 단언은 "처치 연출이 파티클로 번지지
       // 않는다"(fillRect 0)였고 그 근거는 "후반에는 초당 수십 마리가 죽는다"였다 — 그 근거는
       // 여전히 유효하므로 파티클을 **넣되 개수를 조인다.** 일반 적 5개는 그 타협점이고,
       // 상한을 못박아 두지 않으면 다음 사람이 8·12로 올려도 아무 신호가 없다.
-      expect(records.filter(r => r.method === 'fillRect')).toHaveLength(5);
+      expect(itemsOf(fx, 'shard')).toHaveLength(5);
     });
 
     it('★ 보스는 파편이 더 많다 — 그리고 일반 적의 개수가 상한이다', () => {
@@ -328,9 +285,7 @@ describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스�
       const count = (isBoss: boolean): number => {
         const fx = new Effects();
         fx.onEvent({ kind: 'enemyDied', enemyId: 'x', square: { file: 3, rank: 2 }, isBoss, reward: 10 });
-        const { ctx, records } = makeStubCtx();
-        fx.draw(ctx as unknown as CanvasRenderingContext2D);
-        return records.filter(r => r.method === 'fillRect').length;
+        return itemsOf(fx, 'shard').length;
       };
       expect(count(false)).toBeLessThanOrEqual(6);
       expect(count(true)).toBeGreaterThan(count(false));
@@ -341,44 +296,28 @@ describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스�
       // (0,0)으로 날리면 화면 왼쪽 위로 텍스트가 쏟아지므로, 좌표가 없으면 아예 만들지 않는다.
       const fx = new Effects();
       fx.onEvent({ kind: 'enemyDied', enemyId: 'e1', square: { file: 3, rank: 2 }, isBoss: false, reward: 42 });
-      const bare = makeStubCtx();
-      fx.draw(bare.ctx as unknown as CanvasRenderingContext2D);
-      expect(bare.records.filter(r => r.method === 'fillText')).toHaveLength(0);
+      expect(itemsOf(fx, 'goldFly')).toHaveLength(0);
 
       const fx2 = new Effects();
       fx2.setGoldTarget({ x: 100, y: 20 });
       fx2.onEvent({ kind: 'enemyDied', enemyId: 'e1', square: { file: 3, rank: 2 }, isBoss: false, reward: 42 });
-      const withT = makeStubCtx();
-      fx2.draw(withT.ctx as unknown as CanvasRenderingContext2D);
-      const texts = withT.records.filter(r => r.method === 'fillText');
-      expect(texts).toHaveLength(1);
-      expect(texts[0].args[0]).toBe('+42');       // 보상 액수를 그대로 실어 보낸다
+      const flights = itemsOf(fx2, 'goldFly');
+      expect(flights).toHaveLength(1);
+      expect(flights[0].amount).toBe(42);         // 보상 액수를 그대로 실어 보낸다
+      expect({ x: flights[0].tx, y: flights[0].ty }).toEqual({ x: 100, y: 20 });
     });
 
-    it('goldGained: 해당 칸에서 위로 떠오르는 "+N G" 1개 (테두리 + 채움)', () => {
+    it('goldGained: 해당 칸에서 "+N G" 1개가 칸 중앙에 생긴다', () => {
+      // ⚠️ "떠오른다"는 **그리는 쪽**의 일이다(오버레이가 진행률로 y를 밀어 올린다) — 목록의
+      // 좌표는 칸 중앙에 그대로 머문다. 그 상승은 overlay.test.ts가 따로 지킨다.
       const fx = new Effects();
       const square: Square = { file: 3, rank: 4 };
       fx.onEvent({ kind: 'goldGained', square, amount: 10 });
 
-      const { ctx, records } = makeStubCtx();
-      fx.draw(ctx as unknown as CanvasRenderingContext2D);
-
-      const texts = records.filter(r => r.method === 'strokeText' || r.method === 'fillText');
-      expect(texts).toHaveLength(2);                       // 가독성용 테두리 1 + 채움 1
-      expect(texts.every(r => r.args[0] === '+10G')).toBe(true);
-      const c = center(square);
-      expect(texts.every(r => r.args[1] === c.x)).toBe(true);
-      // 갓 생성된 이펙트는 아직 떠오르지 않았다 — 칸 중앙에서 출발한다.
-      expect(texts.every(r => r.args[2] === c.y)).toBe(true);
-
-      // 시간이 지나면 같은 x에서 위(y 감소)로 이동한다.
-      fx.update(0.5);
-      const later = makeStubCtx();
-      fx.draw(later.ctx as unknown as CanvasRenderingContext2D);
-      const moved = later.records.filter(r => r.method === 'fillText');
-      expect(moved).toHaveLength(1);
-      expect(moved[0].args[1]).toBe(c.x);
-      expect(moved[0].args[2]).toBeLessThan(c.y);
+      const coins = itemsOf(fx, 'coin');
+      expect(coins).toHaveLength(1);
+      expect(coins[0].amount).toBe(10);
+      expect({ x: coins[0].x, y: coins[0].y }).toEqual(center(square));
     });
 
     it('pattern이 \'none\'인 기물(퀸·나이트)은 attack 이벤트를 받아도 이펙트를 만들지 않는다', () => {
@@ -391,16 +330,13 @@ describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스�
         const ev: GameEvent = { kind: 'attack', pieceType, from, targets: [{ file: 4, rank: 5 }] };
         fx.onEvent(ev);
 
-        const { ctx, records } = makeStubCtx();
-        fx.draw(ctx as unknown as CanvasRenderingContext2D);
-
-        expect(records).toHaveLength(0);
+        expect(fx.items()).toHaveLength(0);
       }
     });
   });
 
   describe('수명 관리 — 장기 웨이브에서 무한정 누적되지 않는다', () => {
-    it('충분한 시간이 지나면 모든 이펙트가 소멸해 draw()가 아무것도 그리지 않는다 (save 호출 0회)', () => {
+    it('충분한 시간이 지나면 모든 이펙트가 소멸해 목록이 완전히 빈다', () => {
       const fx = new Effects();
       const from: Square = { file: 4, rank: 4 };
       fx.onEvent({ kind: 'attack', pieceType: 'pawn', from, targets: pawnTargets(from) });
@@ -415,9 +351,7 @@ describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스�
       // 감속 라벨(0.7s)도 여기 포함된다 — 감속은 상태로 남아도 라벨은 반드시 회수돼야 한다.
       for (let i = 0; i < 20; i++) fx.update(0.1);
 
-      const { ctx, records } = makeStubCtx();
-      fx.draw(ctx as unknown as CanvasRenderingContext2D);
-      expect(records.filter(r => r.method === 'save')).toHaveLength(0);
+      expect(fx.items()).toHaveLength(0);
     });
   });
 
@@ -519,25 +453,45 @@ describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스�
     });
   });
 
-  describe('캔버스 변환 스택 안전성', () => {
-    it('여러 종류의 이펙트가 동시에 살아있어도 draw()는 예외 없이 동작하고 save/restore 호출 수가 일치한다', () => {
+  /**
+   * ★ v1.21 신설 — 계층 분담의 **전수성**을 못박는다.
+   *
+   * 목록은 이제 두 소비자가 나눠 가진다: 판 위의 사건은 3D 씬(render3d/effects3d.ts), 글자와
+   * 표식은 화면 오버레이(render3d/overlay.ts). 이 분담이 깨지는 방식은 둘 다 조용하다 —
+   * 양쪽 다 가져가면 이중으로 그려지고, 양쪽 다 안 가져가면 **아무 에러 없이 그냥 안 보인다.**
+   * 새 이펙트 종류를 추가하면서 한쪽 switch만 늘리는 것이 정확히 그 함정이라, 여기서 두 표의
+   * 합집합이 전체와 같고 교집합이 비어 있음을 확인한다.
+   */
+  describe('계층 분담 — 모든 이펙트 종류는 정확히 한 계층의 몫이다', () => {
+    // 3D 씬이 그리는 것 (render3d/effects3d.ts의 switch)
+    const SCENE: Fx['kind'][] = ['shock', 'crack', 'beam', 'puff', 'mergeBurst', 'spawnMark', 'splitArrow', 'shard'];
+    // 화면 오버레이가 그리는 것 (render3d/overlay.ts의 switch)
+    const OVERLAY: Fx['kind'][] = ['frostTag', 'dmgNum', 'blockMark', 'goldFly', 'coin'];
+
+    it('두 표는 겹치지 않는다 (이중 렌더 방지)', () => {
+      expect(SCENE.filter(k => (OVERLAY as string[]).includes(k))).toEqual([]);
+    });
+
+    it('실제로 만들어지는 모든 종류가 두 표 중 정확히 한 곳에 들어 있다', () => {
       const fx = new Effects();
       const from: Square = { file: 4, rank: 4 };
+      fx.setGoldTarget({ x: 100, y: 20 });
       fx.onEvent({ kind: 'attack', pieceType: 'pawn', from, targets: pawnTargets(from) });
       fx.onEvent({ kind: 'attack', pieceType: 'rook', from, targets: rookTargets(from) });
       fx.onEvent({ kind: 'attack', pieceType: 'bishop', from, targets: bishopTargets(from) });
       fx.onEvent({ kind: 'enemySlowed', enemyId: 'e1', file: 5, y: 260, tier: 2 });
       fx.onEvent({ kind: 'goldGained', square: { file: 2, rank: 3 }, amount: 7 });
       fx.onEvent({ kind: 'merged', square: { file: 5, rank: 2 }, pieceType: 'knight', tier: 2 });
-      fx.onEvent({ kind: 'enemyDied', enemyId: 'e', square: { file: 0, rank: 1 }, isBoss: false, reward: 1 });
+      fx.onEvent({ kind: 'pieceSpawned', square: { file: 1, rank: 1 }, pieceType: 'pawn', bought: true });
+      fx.onEvent({ kind: 'enemySplit', square: { file: 4, rank: 5 }, count: 2 });
+      fx.onEvent({ kind: 'enemyHit', enemyId: 'e1', file: 5, y: 260, damage: 12, blocked: false });
+      fx.onEvent({ kind: 'enemyHit', enemyId: 'e2', file: 6, y: 260, damage: 0, blocked: true });
+      fx.onEvent({ kind: 'enemyDied', enemyId: 'e', square: { file: 0, rank: 1 }, isBoss: true, reward: 1 });
 
-      const { ctx, records } = makeStubCtx();
-      expect(() => fx.draw(ctx as unknown as CanvasRenderingContext2D)).not.toThrow();
-
-      const saves = records.filter(r => r.method === 'save').length;
-      const restores = records.filter(r => r.method === 'restore').length;
-      expect(saves).toBeGreaterThan(0);
-      expect(saves).toBe(restores);
+      const produced = new Set(fx.items().map(f => f.kind));
+      expect(produced.size).toBeGreaterThan(8);          // 전제: 실제로 다양하게 만들어졌다
+      const covered = new Set([...SCENE, ...OVERLAY]);
+      for (const kind of produced) expect(covered.has(kind)).toBe(true);
     });
   });
 });
