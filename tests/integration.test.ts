@@ -39,7 +39,7 @@ describe('웨이브 1 엔드투엔드 (스펙 4.5 대조)', () => {
 
   it('전투가 통과보다 먼저 처리된다 (스펙 10.2 순서) — 통과 직전 적도 처치로 집계', () => {
     const s = waveState();
-    s.spawnTimer = CONFIG.wave.spawnInterval;   // 이번 틱에 자동 스폰이 끼어들지 않도록
+    s.spawnTimer = CONFIG.wave.spawnIntervalMax;   // 이번 틱에 자동 스폰이 끼어들지 않도록
     const dt = 1 / 60;
     const rook = boardPiece('rook', 0, 1);
     rook.queenBuffCount = 1;                    // 데미지 5*(1+1)=10 — 적 체력과 같아 1방 처치

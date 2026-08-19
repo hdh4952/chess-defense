@@ -1,4 +1,4 @@
-import { CONFIG, clearBonus, enemyCount, enemyTraits, pickGrantType, waveTotal } from '../config';
+import { clearBonus, CONFIG, enemyCount, enemyTraits, pickGrantType, spawnInterval, waveTotal } from '../config';
 import { grantPiece, sellPrice } from './economy';
 import type { GameEvent, GameState } from '../types';
 import { createEnemy } from './enemy';
@@ -39,7 +39,10 @@ export function updateSpawning(
     );
     state.spawnedCount++;
     if (isBoss) events.push({ kind: 'bossSpawned', file });
-    state.spawnTimer += CONFIG.wave.spawnInterval;
+    // ★ 간격은 고정이 아니라 **마릿수에서 유도한다** (v1.33) — 스폰 구간을 40초로 묶기
+    //   위해서다(config.ts의 `spawnWindowMax`). 루프 안에서 매번 부르는 것은 낭비처럼
+    //   보이지만, 한 웨이브 안에서는 상수라 값이 흔들리지 않고 호출도 한 웨이브에 마릿수만큼뿐이다.
+    state.spawnTimer += spawnInterval(state.wave, state.difficulty);
   }
 }
 

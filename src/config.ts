@@ -27,7 +27,30 @@ export const CONFIG = {
     // 1로 두면(=연동 없음) "체력만 버틸 수 있다면 누수 방치가 이득"이라는 기존 구멍이
     // 곡선 때문에 오히려 커진다(무조건 수입이 w1 기준 300 → 500G로 1.67배).
     clearBonusFloor: 0.5,
-    spawnInterval: 1.0,
+    /**
+     * 적 사이의 **최대** 간격(초). 마릿수가 적어 스폰 창(`spawnWindowMax`)을 다 쓰지 않는
+     * 이른 웨이브에서 실제로 쓰이는 값이다 — 후반에는 창이 이 값을 눌러 내린다.
+     *
+     * ⚠️ v1.32까지 이름이 `spawnInterval`이었고 **고정값**이었다. 상한이 된 지금 옛 이름은
+     * 거짓말이라 함께 바꿨다(§10.2 "이름이 규칙을 말한다").
+     */
+    spawnIntervalMax: 1.0,
+    /**
+     * ★ **한 웨이브의 스폰이 끝나는 데 걸리는 최대 시간(초)** (v1.33, 사용자 결정).
+     *
+     * **문제** — 마릿수는 웨이브마다 늘어나는데 간격이 1초 고정이라 스폰 구간이 그대로
+     * 길어졌다. 하드 w39는 172마리 × 1초 = **스폰만 172초**였고(§6의 판 길이 표가 이미
+     * 이 값을 "가장 직접적인 노브"로 지목해 뒀다), 그 시간의 대부분은 적이 띄엄띄엄 내려오는
+     * 동안 아무 결정도 하지 않고 기다리는 시간이다.
+     *
+     * **해법** — 마릿수가 늘면 **간격을 좁혀** 스폰 구간의 길이를 40초로 묶는다. 마릿수는
+     * 그대로이므로 **총 체력·총 골드 같은 밸런스 총량은 한 톨도 바뀌지 않는다** — 바뀌는 것은
+     * 그것이 도착하는 **밀도**다.
+     *
+     * ⚠️ 밀도는 공짜가 아니다. 같은 마릿수가 짧은 시간에 몰리면 사거리 안에 동시에 서는 적이
+     * 늘어 **요구 DPS가 올라간다.** 이 변경이 후반을 어렵게 만드는 방향인 것은 의도이자 대가다.
+     */
+    spawnWindowMax: 40,
     countBase: 10,
     countPerWave: 2,        // 10 + 2*(w-1)
     bossEvery: 5,
@@ -509,6 +532,21 @@ export function enemyCount(wave: number, difficulty: Difficulty = DEFAULT_DIFFIC
   return Math.round(base * CONFIG.difficulty[difficulty].countMultiplier);
 }
 
+
+/**
+ * 웨이브 w에서 적 사이의 실제 간격(초).
+ *
+ * ★ **`(n − 1)`로 나누는 것이 요점이다.** 첫 적은 t=0에 즉시 나오므로 마지막 적이 나오는
+ * 시각은 `(n−1) × 간격`이다 — `n`으로 나누면 마지막 적이 창보다 한 칸 일찍 나와 창을 다
+ * 쓰지 못한다.
+ *
+ * 보스 웨이브는 단독(n=1)이라 간격이 쓰이지 않지만, 0으로 나누지 않도록 그 경우를 먼저 건다.
+ */
+export function spawnInterval(wave: number, difficulty: Difficulty = DEFAULT_DIFFICULTY): number {
+  const count = enemyCount(wave, difficulty);
+  if (count <= 1) return CONFIG.wave.spawnIntervalMax;
+  return Math.min(CONFIG.wave.spawnIntervalMax, CONFIG.wave.spawnWindowMax / (count - 1));
+}
 
 /**
  * 티어 n 감속 기물의 감속률(백분율 정수). T1 30 · T2 35 · T3 40 … (v1.13).

@@ -169,15 +169,24 @@ describe('N1b — 실측 구매력 ★ (감시: 무작위 지급 · 지급 기�
     // v1.14에서 9,320 → 9,170으로 내려갔다: 장갑형이 문턱 방식이 되면서 비숍(1딜)의 피해가
     // 장갑 적에게 통째로 0이 됐고, 그만큼 처치 골드가 줄었다. 발사 자체는 막히지 않으므로
     // goldPerAttack 수입은 그대로다 — 그래서 감소폭이 150G에 그친다.
-    expect(by.bishop.peakGold - by.pawn.peakGold).toBe(9200);
+    //
+    // ★ **v1.33에서 9,200 → 9,030으로 다시 내려갔다** (스폰 창 40초 상한). 비숍 수입은
+    // "적이 사거리에 있는 동안 3초마다 10G"라 **웨이브가 짧아진 만큼 발사 횟수가 준다.**
+    // 이지에서 줄어든 스폰 시간은 총 16초(w17~w20만 압축된다)이고, 그 사이 판에 서 있는
+    // 비숍 수를 감안하면 −170G는 정확히 그 크기다. **처치 수와 총 체력은 한 톨도 안 바뀐다** —
+    // 마릿수를 건드리지 않았기 때문이다(N6의 kills 단언이 그것을 지킨다).
+    expect(by.bishop.peakGold - by.pawn.peakGold).toBe(9030);
     expect(by.knight.peakGold).toBe(by.pawn.peakGold);   // 나이트는 공격력 0이라 수입에 무관
 
     // 룩은 이미 전멸하는 웨이브라 처치를 늘리지 못한다 — 원가만큼만 구매력이 는다.
     expect(by.rook.peakGold - by.pawn.peakGold).toBeLessThan(1000);
 
     // 실측 구매력 기준선. 가장 낮은 폰과 가장 높은 비숍의 폭이 곧 지급의 분산이다.
+    // ★ v1.33에서 비숍 쪽만 32,160 → 31,990으로 내려갔다(위 −170G와 같은 값). 폰이 그대로인
+    //   것이 이 변경의 성격을 그대로 보여준다 — **스폰 창 상한은 마릿수를 건드리지 않으므로
+    //   처치 골드는 불변이고, 시간에 비례해 버는 수입(비숍)만 짧아진 웨이브만큼 줄어든다.**
     expect(by.pawn.peakGold + by.pawn.grantedValue).toBe(21960);
-    expect(by.bishop.peakGold + by.bishop.grantedValue).toBe(32160);
+    expect(by.bishop.peakGold + by.bishop.grantedValue).toBe(31990);
     expect(by.bishop.peakGold + by.bishop.grantedValue)
       .toBeGreaterThan((by.pawn.peakGold + by.pawn.grantedValue) * 1.4);
   });
@@ -525,15 +534,24 @@ describe('N1b — 실측 구매력 ★ (감시: 무작위 지급 · 지급 기�
     // v1.14에서 9,320 → 9,170으로 내려갔다: 장갑형이 문턱 방식이 되면서 비숍(1딜)의 피해가
     // 장갑 적에게 통째로 0이 됐고, 그만큼 처치 골드가 줄었다. 발사 자체는 막히지 않으므로
     // goldPerAttack 수입은 그대로다 — 그래서 감소폭이 150G에 그친다.
-    expect(by.bishop.peakGold - by.pawn.peakGold).toBe(9200);
+    //
+    // ★ **v1.33에서 9,200 → 9,030으로 다시 내려갔다** (스폰 창 40초 상한). 비숍 수입은
+    // "적이 사거리에 있는 동안 3초마다 10G"라 **웨이브가 짧아진 만큼 발사 횟수가 준다.**
+    // 이지에서 줄어든 스폰 시간은 총 16초(w17~w20만 압축된다)이고, 그 사이 판에 서 있는
+    // 비숍 수를 감안하면 −170G는 정확히 그 크기다. **처치 수와 총 체력은 한 톨도 안 바뀐다** —
+    // 마릿수를 건드리지 않았기 때문이다(N6의 kills 단언이 그것을 지킨다).
+    expect(by.bishop.peakGold - by.pawn.peakGold).toBe(9030);
     expect(by.knight.peakGold).toBe(by.pawn.peakGold);   // 나이트는 공격력 0이라 수입에 무관
 
     // 룩은 이미 전멸하는 웨이브라 처치를 늘리지 못한다 — 원가만큼만 구매력이 는다.
     expect(by.rook.peakGold - by.pawn.peakGold).toBeLessThan(1000);
 
     // 실측 구매력 기준선. 가장 낮은 폰과 가장 높은 비숍의 폭이 곧 지급의 분산이다.
+    // ★ v1.33에서 비숍 쪽만 32,160 → 31,990으로 내려갔다(위 −170G와 같은 값). 폰이 그대로인
+    //   것이 이 변경의 성격을 그대로 보여준다 — **스폰 창 상한은 마릿수를 건드리지 않으므로
+    //   처치 골드는 불변이고, 시간에 비례해 버는 수입(비숍)만 짧아진 웨이브만큼 줄어든다.**
     expect(by.pawn.peakGold + by.pawn.grantedValue).toBe(21960);
-    expect(by.bishop.peakGold + by.bishop.grantedValue).toBe(32160);
+    expect(by.bishop.peakGold + by.bishop.grantedValue).toBe(31990);
     expect(by.bishop.peakGold + by.bishop.grantedValue)
       .toBeGreaterThan((by.pawn.peakGold + by.pawn.grantedValue) * 1.4);
   });
@@ -870,7 +888,12 @@ describe('N6 — 엔진 무결성 풀런 (감시: 전 단계)', () => {
     // (docs/balance-audit.md §5). v1.14에서 9,320 → 9,170으로 내려간 것은 장갑형이 문턱
     // 방식이 되면서 비숍(1딜)의 피해가 장갑 적에게 0이 됐기 때문이다 — 발사는 막히지 않으므로
     // goldPerAttack 수입은 그대로고, 줄어든 것은 처치 골드뿐이라 감소폭이 150G에 그친다.
-    expect(bishops.earned - pawns.earned).toBe(9200);
+    //
+    // ★ **v1.33에서 9,200 → 9,030으로 다시 내려갔다** (스폰 창 40초 상한). 이번에는 반대로
+    // 처치 골드가 아니라 **goldPerAttack 쪽**이 줄었다 — 웨이브가 짧아지면 "적이 사거리에
+    // 있는 3초"가 그만큼 덜 돌아온다. 바로 위 `kills` 단언이 처치 수는 그대로임을 지키므로,
+    // 이 −170G가 전부 발사 횟수에서 왔다는 것이 두 단언의 대조로 드러난다.
+    expect(bishops.earned - pawns.earned).toBe(9030);
     expect((bishops.earned - pawns.earned) / pawns.earned).toBeGreaterThan(0.4);
   });
 });

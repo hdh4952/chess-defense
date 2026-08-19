@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { cleanState } from './helpers';
-import { CONFIG, clearBonus, enemyCount } from '../src/config';
+import { CONFIG, clearBonus, enemyCount, spawnInterval, waveTotal } from '../src/config';
 import {
   checkWaveEnd, remainingEnemies, startWave, updatePrepare, updateSpawning,
 } from '../src/core/wave';
-import type { GameEvent } from '../src/types';
+import type { Difficulty, GameEvent } from '../src/types';
 
 const rngFile = (file: number) => () => file / 8; // floor(rng*8) === file
 
@@ -137,5 +137,85 @@ describe('remainingEnemies (HUD)', () => {
   it('prepare 중: 다음 웨이브 총원', () => {
     const s = cleanState();
     expect(remainingEnemies(s)).toBe(10);
+  });
+});
+
+
+/**
+ * ★★ **스폰 창 상한** (v1.33, 사용자 결정: "1웨이브당 최대 40초 안에는 적들이 다 나오게").
+ *
+ * **문제** — 마릿수는 웨이브마다 늘어나는데 간격이 1초 고정이라 스폰 구간이 그대로 길어졌다.
+ * 하드 w39는 172마리 × 1초 = **스폰만 172초**였고, 그 대부분은 적이 띄엄띄엄 내려오는 동안
+ * 아무 결정도 하지 않고 기다리는 시간이다(§6의 판 길이 표가 이미 이 값을 "가장 직접적인
+ * 노브"로 지목해 뒀다).
+ *
+ * ★ **마릿수는 건드리지 않는다.** 그래서 총 체력·총 처치 골드 같은 밸런스 총량은 불변이고,
+ * 바뀌는 것은 그것이 도착하는 **밀도**뿐이다 — 그 사실을 아래 첫 테스트가 못박는다.
+ */
+describe('스폰 창 상한 — 한 웨이브의 스폰은 40초 안에 끝난다 (v1.33)', () => {
+  /** 실제 루프를 돌려 마지막 적이 나오기까지 걸린 시간(초)을 잰다. */
+  function measureSpawnSeconds(wave: number, difficulty: Difficulty): number {
+    const s = cleanState();
+    s.difficulty = difficulty;
+    s.wave = wave;
+    s.phase = 'prepare';
+    startWave(s);
+    const total = enemyCount(wave, difficulty);
+    const dt = 1 / 60;
+    let t = 0;
+    while (s.spawnedCount < total) {
+      updateSpawning(s, dt, [], () => 0);
+      if (s.spawnedCount >= total) break;
+      t += dt;
+      if (t > 600) throw new Error('스폰이 끝나지 않는다');
+    }
+    return t;
+  }
+
+  it('★ 마릿수는 한 마리도 바뀌지 않는다 — 바뀌는 것은 도착 밀도뿐이다', () => {
+    for (const d of ['easy', 'normal', 'hard'] as Difficulty[]) {
+      for (let w = 1; w <= waveTotal(d); w++) {
+        const s = cleanState();
+        s.difficulty = d;
+        s.wave = w;
+        s.phase = 'prepare';
+        startWave(s);
+        const total = enemyCount(w, d);
+        for (let i = 0; i < 60 * 60 && s.spawnedCount < total; i++) updateSpawning(s, 1 / 60, [], () => 0);
+        expect(s.spawnedCount, `${d} w${w}`).toBe(total);
+      }
+    }
+  });
+
+  it('세 난이도 **모든 웨이브**에서 스폰이 창 안에 끝난다', () => {
+    for (const d of ['easy', 'normal', 'hard'] as Difficulty[]) {
+      for (let w = 1; w <= waveTotal(d); w++) {
+        // dt 한 틱만큼의 오차는 허용한다 — 마지막 적이 틱 경계에 걸린다.
+        expect(measureSpawnSeconds(w, d), `${d} w${w}`)
+          .toBeLessThanOrEqual(CONFIG.wave.spawnWindowMax + 1 / 60);
+      }
+    }
+  });
+
+  it('이른 웨이브는 창을 다 쓰지 않으므로 간격이 그대로다 — 상한이지 고정 배분이 아니다', () => {
+    // 이지 w1은 10마리 → 9초면 끝난다. 40초에 억지로 펴 바르면 오히려 더 느려진다.
+    expect(spawnInterval(1)).toBe(CONFIG.wave.spawnIntervalMax);
+    expect(measureSpawnSeconds(1, 'easy')).toBeCloseTo(9, 1);
+  });
+
+  it('가장 붐비는 웨이브가 예전에는 창을 크게 넘었다 — 그 사실이 이 상한의 존재 이유다', () => {
+    // 하드 마지막 비보스 웨이브. 옛 규칙(간격 1초 고정)이었다면 (n−1)초가 걸렸다.
+    const worst = waveTotal('hard') - 1;                 // w39 — 보스가 아닌 마지막 웨이브
+    const n = enemyCount(worst, 'hard');
+    expect(n).toBeGreaterThan(CONFIG.wave.spawnWindowMax);   // 옛 규칙이면 40초를 넘는다
+    expect(measureSpawnSeconds(worst, 'hard')).toBeLessThanOrEqual(CONFIG.wave.spawnWindowMax + 1 / 60);
+  });
+
+  it('보스 웨이브(1마리)에서 0으로 나누지 않는다', () => {
+    for (const d of ['easy', 'normal', 'hard'] as Difficulty[]) {
+      expect(enemyCount(CONFIG.wave.bossEvery, d)).toBe(1);
+      expect(Number.isFinite(spawnInterval(CONFIG.wave.bossEvery, d))).toBe(true);
+      expect(measureSpawnSeconds(CONFIG.wave.bossEvery, d)).toBe(0);
+    }
   });
 });
