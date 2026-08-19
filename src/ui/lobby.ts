@@ -2,6 +2,8 @@ import { DIFFICULTIES } from '../config';
 import { selectedDifficulty, setDifficulty } from '../difficulty';
 import type { Difficulty } from '../types';
 import { CREDIT_HTML } from './layout';
+// 로고는 Vite가 URL로 바꿔 준다(기물 스프라이트와 같은 방식 — render/skins.ts).
+import logoUrl from '../assets/logo.png';
 
 /**
  * 로비 — 난이도 셋과 BATTLE, 그게 전부다 (v1.37, 사용자 결정).
@@ -27,6 +29,12 @@ export function createLobby(app: HTMLElement, onBattle: (difficulty: Difficulty)
 
   app.innerHTML = `
     <div id="lobby">
+      <!-- ★ 로고 (v1.37.1). alt는 그림 안의 글자를 그대로 옮긴다 — 그림이 뜨지 않거나
+           화면 낭독기로 읽을 때 이 화면에 남는 유일한 이름이다. 크기를 속성으로 함께
+           적어 두면 로고가 늦게 도착해도 아래 버튼들이 밀려 올라갔다 내려오지 않는다.
+           ⚠️ 이 문자열은 템플릿 리터럴 안이라 역따옴표를 쓸 수 없다. -->
+      <img id="lobby-logo" src="${logoUrl}" alt="CHESS RANDOM DEFENSE"
+           width="2172" height="724" decoding="async" draggable="false">
       <div id="lobby-difficulty" role="group" aria-label="난이도">${buttons}</div>
       <button id="battle" type="button">BATTLE</button>
       ${CREDIT_HTML}

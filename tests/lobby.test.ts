@@ -28,7 +28,7 @@ describe('로비 (v1.37)', () => {
 
   const picks = (app: HTMLElement) => [...app.querySelectorAll<HTMLButtonElement>('.lobby-diff')];
 
-  it('★ 난이도 버튼 셋과 BATTLE, 그리고 그게 전부다', () => {
+  it('★ 로고 · 난이도 버튼 셋 · BATTLE, 그게 전부다', () => {
     const app = mount();
     expect(picks(app).map(b => b.textContent)).toEqual(['EASY', 'NORMAL', 'HARD']);
     expect(app.querySelector('#battle')).toBeTruthy();
@@ -38,6 +38,22 @@ describe('로비 (v1.37)', () => {
       '#title-hint', '#difficulty', '.title-tab', '.panel-facts', '.range-board']) {
       expect(app.querySelector(gone), gone).toBeNull();
     }
+  });
+
+  it('★ 로고가 화면 맨 위에 있다 (v1.37.1)', () => {
+    const app = mount();
+    const logo = app.querySelector<HTMLImageElement>('#lobby-logo')!;
+    expect(logo).toBeTruthy();
+    // 순서 — 로고가 난이도 줄보다 앞이어야 "상단"이다.
+    const kids = [...app.querySelector('#lobby')!.children];
+    expect(kids.indexOf(logo)).toBe(0);
+    expect(kids.indexOf(logo)).toBeLessThan(kids.indexOf(app.querySelector('#lobby-difficulty')!));
+    // ⚠️ alt가 비면 그림이 뜨지 않았을 때 이 화면에 **이름이 하나도 남지 않는다** —
+    //    로비의 글자는 난이도 셋과 BATTLE뿐이라 게임 이름을 말하는 것은 이 그림이 유일하다.
+    expect(logo.alt).toBe('CHESS RANDOM DEFENSE');
+    // 크기를 미리 적어 둬야 로고가 늦게 도착해도 아래 버튼이 밀려 올라갔다 내려오지 않는다.
+    expect(logo.getAttribute('width')).toBeTruthy();
+    expect(logo.getAttribute('height')).toBeTruthy();
   });
 
   it('버튼 목록은 CONFIG에서 유도된다 — 난이도를 하나 더 넣어도 이 화면은 그대로다', () => {
