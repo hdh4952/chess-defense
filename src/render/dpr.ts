@@ -18,9 +18,15 @@ import { BOARD_H, BOARD_W } from '../core/grid';
  * 플레이어 킹이 판 밖에 서면서 화면이 보드보다 넓어졌다(render3d/coords.ts의 `VIEW_W`).
  * 이 모듈이 쓰이는 곳은 이제 오버레이 캔버스 하나뿐이고, 그 크기는 뷰 크기다.
  *
- * ⚠️ **CSS 크기를 못 박는 것이 이 파일에서 가장 중요한 한 줄이다.** 캔버스에 CSS 크기가 없으면
- * 화면 크기가 백킹 스토어 크기를 따라가므로, 배율 2에서 보드가 1280px로 부풀어 3단 레이아웃이
- * 통째로 깨진다(`ui/layout.ts`의 #main).
+ * ★ **v1.31에서 표시 크기의 소유권이 CSS로 넘어갔다.** 예전에는 여기서 인라인 style로 CSS
+ * 크기를 못 박았다 — 캔버스에 CSS 크기가 없으면 화면 크기가 백킹 스토어를 따라가 배율 2에서
+ * 보드가 두 배로 부풀기 때문이다. 그 위험은 여전하지만, **화면 높이에 맞춰 보드가 줄어들어야
+ * 하므로**(스크롤 금지) 크기를 픽셀로 못 박을 수가 없어졌다. 대신 `style.css`가
+ * `#board-wrap canvas { width:100%; height:100% }`로 소유한다 — 못 박는 주체가 바뀌었을 뿐
+ * 못 박혀 있다는 사실은 같다.
+ *
+ * ⚠️ 그래서 이 함수는 **백킹 스토어와 컨텍스트 변환만** 건드린다. 인라인 style을 다시
+ * 넣으면 CSS가 지고 보드가 화면 밖으로 넘친다.
  */
 
 /**
@@ -54,8 +60,6 @@ export function syncBoardCanvas(
   canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D,
   cssW: number = BOARD_W, cssH: number = BOARD_H, scale: number = pixelScale(),
 ): void {
-  canvas.style.width = `${cssW}px`;
-  canvas.style.height = `${cssH}px`;
   const w = Math.round(cssW * scale);
   const h = Math.round(cssH * scale);
   canvas.width = w;

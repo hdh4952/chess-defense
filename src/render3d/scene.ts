@@ -282,7 +282,9 @@ export function createScene(canvas: HTMLCanvasElement): SceneKit {
   //   투명하게 두면 페이지 배경이 그대로 비쳐, 판이 배경 위에 놓인 물건처럼 보인다.
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setPixelRatio(pixelScale());
-  renderer.setSize(VIEW_W, VIEW_H, true);       // CSS 크기를 못 박는다 — 3단 레이아웃 유지
+  // ★ 세 번째 인자가 false다 (v1.31): 인라인 style을 건드리지 않고 **백킹 스토어만** 맞춘다.
+  //   표시 크기는 CSS가 소유한다 — 화면 높이에 맞춰 보드가 줄어들어야 하기 때문이다(render/dpr.ts).
+  renderer.setSize(VIEW_W, VIEW_H, false);
   // ★ **그림자 맵을 쓰지 않는다** (v1.25). 기물이 카메라 반대쪽으로 눕어 있어서(각도 불일치,
   //   pieces.ts) 실제 그림자를 켜면 **기울어진 그림자**가 찍혀 "서 있다"가 "넘어지고 있다"로
   //   읽힌다. 밑동에 원판 그림자를 따로 깐다(render3d/blob.ts) — 렌더 패스도 하나 줄어든다.
@@ -359,7 +361,7 @@ export function createScene(canvas: HTMLCanvasElement): SceneKit {
   // 시절 render/dpr.ts가 하던 일을 WebGL 렌더러에 그대로 잇는다.
   const offPixelScale = onPixelScaleChange(() => {
     renderer.setPixelRatio(pixelScale());
-    renderer.setSize(VIEW_W, VIEW_H, true);
+    renderer.setSize(VIEW_W, VIEW_H, false);
   });
 
   const projector = createProjector(camera);

@@ -309,6 +309,10 @@ function difficultySelect(): string {
 export function createTitleScreen(
   app: HTMLElement, onBattle: (difficulty: Difficulty) => void,
 ): void {
+  // ★ 시작 화면은 세로로 길다(기물 설명 8탭) — 게임 화면 전용 높이 고정을 반드시 푼다.
+  //   결과 화면의 "다시 시작"이 location.reload()라 실제로는 새 문서지만, 그 사실에 기대지
+  //   않는다: 앞으로 리로드 없이 되돌아오는 경로가 생기면 그때는 조용히 잘린다.
+  app.classList.remove('in-game');
   app.innerHTML = `
     <div id="title">
       <header id="title-head">

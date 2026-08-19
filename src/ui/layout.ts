@@ -152,6 +152,30 @@ export function createLayout(app: HTMLElement): Layout {
     </button>
     <ul id="odds">${odds}</ul>`;
 
+  // ★ 게임 화면만 화면 높이에 맞춘다 (v1.31 — style.css의 `#app.in-game`). 시작 화면은
+  //   기물 설명 8탭이라 세로로 길어서 같은 규칙을 걸면 내용이 잘린다.
+  app.classList.add('in-game');
+  // ★ 보드 래퍼의 비율은 **뷰 크기에서 유도한다.** CSS에 숫자를 박으면 VIEW_W를 바꿨을 때
+  //   조용히 어긋나고, 그 어긋남은 드롭 판정까지 함께 틀어진다(래퍼 rect로 정규화하므로).
+  const wrap = app.querySelector<HTMLElement>('#board-wrap')!;
+  wrap.style.aspectRatio = `${VIEW_W} / ${VIEW_H}`;
+
+  // ★ 아래 조작 줄과 위 상태 줄을 **보드 너비에 맞춘다.**
+  //
+  // 보드 래퍼의 너비는 "남은 높이 × 비율"이라 화면 크기에 따라 달라지고, CSS는 그 값을
+  // 형제 요소에 전달할 방법이 없다 — 그대로 두면 조작 줄이 열 전체로 늘어나 보드보다 넓어진다.
+  // 래퍼를 관찰해 열 너비로 되돌려 주면 그 어긋남이 사라진다.
+  //
+  // ⚠️ 순환처럼 보이지만 아니다: 래퍼 너비는 **높이**에서 나오고 높이는 열 너비와 무관하다.
+  //   그래서 한 번 맞으면 더 움직이지 않는다.
+  const col = app.querySelector<HTMLElement>('#board-col')!;
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(() => {
+      const w = wrap.getBoundingClientRect().width;
+      if (w > 0) col.style.width = `${w}px`;
+    }).observe(wrap);
+  }
+
   const q = <T extends HTMLElement>(sel: string) => app.querySelector<T>(sel)!;
   return {
     canvas: q<HTMLCanvasElement>('#board'),

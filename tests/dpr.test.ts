@@ -6,7 +6,7 @@ import { MAX_PIXEL_SCALE, onPixelScaleChange, pixelScale, syncBoardCanvas } from
 /**
  * DPR 대응 (v1.19). 여기서 지키는 것은 셋이다.
  *   ① 백킹 스토어는 배율만큼 커진다        — 커지지 않으면 흐린 채로 남는다
- *   ② CSS 크기는 배율과 무관하게 640px      — 안 박으면 레이아웃이 깨진다
+ *   ② 표시 크기를 인라인 style로 박지 않는다 — ★ v1.31에서 그 소유권이 CSS로 넘어갔다
  *   ③ 배율은 크기 대입 **뒤에** 걸린다      — 순서가 뒤집히면 조용히 사라진다
  * happy-dom은 2D 컨텍스트를 주지 않으므로(getContext가 null) 컨텍스트는 스텁을 쓴다 —
  * renderer.test.ts가 makeStubCtx를 쓰는 것과 같은 이유다.
@@ -61,15 +61,18 @@ describe('syncBoardCanvas', () => {
     expect(canvas.height).toBe(BOARD_H * 2);
   });
 
-  it('★ CSS 크기는 배율과 무관하게 항상 보드 크기다', () => {
+  it('★ 표시 크기를 인라인 style로 박지 않는다 — 그 소유권은 CSS에 있다 (v1.31)', () => {
     // 이걸 놓치면 배율 2에서 보드가 1280px로 부풀어 3단 레이아웃(#main)이 통째로 깨진다.
     // 백킹 스토어만 키우고 CSS를 안 박는 것이 이 작업에서 가장 흔한 실수다.
     for (const scale of [1, 2, 3]) {
       const canvas = document.createElement('canvas');
       const { ctx } = makeTransformSpy(canvas);
       syncBoardCanvas(canvas, ctx, BOARD_W, BOARD_H, scale);
-      expect(canvas.style.width, String(scale)).toBe(`${BOARD_W}px`);
-      expect(canvas.style.height, String(scale)).toBe(`${BOARD_H}px`);
+      // ⚠️ 예전에는 여기서 `640px`로 못 박았다. 화면 높이에 맞춰 보드가 줄어들어야 하므로
+      //    (스크롤 금지) 픽셀로 박을 수 없게 됐고, `style.css`가 100%/100%로 대신 못 박는다.
+      //    인라인 style이 되살아나면 CSS가 지고 보드가 화면 밖으로 넘친다.
+      expect(canvas.style.width, String(scale)).toBe('');
+      expect(canvas.style.height, String(scale)).toBe('');
     }
   });
 

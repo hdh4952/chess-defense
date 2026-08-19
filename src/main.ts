@@ -60,13 +60,17 @@ function startGame(root: HTMLDivElement, difficulty: Difficulty): void {
   // ★ 판매 영역을 판 오른쪽 스트립(킹이 서 있는 자리)에 맞춘다 (v1.30). 보드가 캔버스에서
   //   차지하는 사각형은 카메라만 아는 값이라 3D 쪽에서 받아 온다 — 카메라가 고정이므로
   //   한 번만 계산하면 되고, 그래서 CSS가 아니라 여기서 넣는다.
+  // ⚠️ **퍼센트로 넣는다** (v1.31). 보드 래퍼가 화면 높이에 맞춰 줄어들므로(style.css) px로
+  //   박으면 창이 작을 때 판매 영역만 원래 크기로 남아 판 밖으로 삐져나온다. 비율로 두면
+  //   래퍼가 어떤 크기가 되든 항상 "판 오른쪽 스트립"에 붙어 있는다.
   const br = board.boardRect();
   const gap = 6;
+  const pct = (v: number, total: number): string => `${(v / total) * 100}%`;
   Object.assign(layout.sellSlot.style, {
-    left: `${br.right + gap}px`,
-    top: `${br.top}px`,
-    width: `${VIEW_W - br.right - gap * 2}px`,
-    height: `${br.bottom - br.top}px`,
+    left: pct(br.right + gap, VIEW_W),
+    top: pct(br.top, VIEW_H),
+    width: pct(VIEW_W - br.right - gap * 2, VIEW_W),
+    height: pct(br.bottom - br.top, VIEW_H),
   });
 
   // 난이도는 여기서 상태에 굳는다 — 판이 시작된 뒤에는 어디서도 바뀌지 않는다(types.ts).

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { drawCost, CONFIG, waveTotal } from '../src/config';
 import { emptySquares } from '../src/core/economy';
 import { squareKey } from '../src/core/grid';
+import { VIEW_H, VIEW_W } from '../src/render3d/coords';
 import { allySpriteUrl } from '../src/render/skins';
 import { createLayout, PIECE_NAME } from '../src/ui/layout';
 import { updateHud } from '../src/ui/hud';
@@ -172,6 +173,21 @@ describe('createLayout (Task 14 — UI 셸)', () => {
     // 재생바는 웨이브 시작 **아래**다.
     const rk = [...run.children];
     expect(rk.indexOf(controls)).toBeGreaterThan(rk.indexOf(run.querySelector('#start-wave')!));
+  });
+
+  /**
+   * ★ v1.31 — 게임 화면은 화면 높이에 딱 맞아 스크롤이 생기지 않는다.
+   *
+   * 두 가지가 함께 성립해야 한다: 게임 화면에만 걸릴 것(시작 화면은 세로로 길어 잘린다)과,
+   * 보드 래퍼가 **뷰 비율을 정확히** 가질 것. 후자를 놓치면 캔버스가 레터박싱되고, 그러면
+   * `getBoundingClientRect`가 여백까지 포함한 상자를 돌려줘 **드롭 판정이 통째로 어긋난다**.
+   */
+  it('★ 게임 화면은 화면 높이에 맞고, 보드 래퍼가 뷰 비율을 갖는다 (v1.31)', () => {
+    const app = makeApp();
+    createLayout(app);
+    expect(app.classList.contains('in-game')).toBe(true);
+    const wrap = app.querySelector<HTMLElement>('#board-wrap')!;
+    expect(wrap.style.aspectRatio.replace(/\s/g, '')).toBe(`${VIEW_W}/${VIEW_H}`);
   });
 
   /**
