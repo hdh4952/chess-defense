@@ -4,7 +4,7 @@ import { drawCost, CONFIG, waveTotal } from '../src/config';
 import { emptySquares } from '../src/core/economy';
 import { squareKey } from '../src/core/grid';
 import { allySpriteUrl } from '../src/render/skins';
-import { CREDIT_HTML, createLayout, PIECE_NAME } from '../src/ui/layout';
+import { createLayout, PIECE_NAME } from '../src/ui/layout';
 import { updateHud } from '../src/ui/hud';
 import { updateShop, wireShop } from '../src/ui/shop';
 import { boardPiece, cleanState, totalDrawCost } from './helpers';
@@ -140,27 +140,55 @@ describe('createLayout (Task 14 — UI 셸)', () => {
    * 위치를 못박는 이유: 이 요소들은 `id`로 잡히므로 **DOM 어디에 있든 코드는 동작한다** —
    * 누가 편의로 되돌려 놓아도 테스트가 아니면 드러나지 않는다.
    */
-  it('★ 상태 표시는 보드 위에, 조작 버튼은 웨이브 시작 아래에 있다 (v1.29)', () => {
+  it('★ 화면이 한 줄기다 — 상태는 보드 위, 조작은 보드 아래 (v1.29 · v1.30)', () => {
     const app = makeApp();
     createLayout(app);
-    expect(app.querySelector('#hud')).toBeNull();          // 맨 위 막대는 사라졌다
+    expect(app.querySelector('#hud')).toBeNull();          // 맨 위 막대(v1.29에 삭제)
+    expect(app.querySelector('#left')).toBeNull();         // 보드 양옆 두 단(v1.30에 삭제)
+    expect(app.querySelector('#right')).toBeNull();
+
+    const col = app.querySelector('#board-col')!;
+    const kids = [...col.children];
+    const at = (sel: string): number => kids.indexOf(app.querySelector(sel)!);
+    // 상태 → 보드 → 조작 순서. 상태가 아래로 내려가면 시선이 다시 오간다.
+    expect(at('#board-status')).toBeLessThan(at('#board-wrap'));
+    expect(at('#board-bottom')).toBeGreaterThan(at('#board-wrap'));
 
     const status = app.querySelector('#board-status')!;
     for (const id of ['hud-wave', 'hud-remaining', 'hud-timer']) {
       expect(status.querySelector(`#${id}`)).toBeTruthy();
     }
-    // 보드 바로 **위**여야 한다 — 아래에 있으면 시선이 여전히 오간다.
-    const col = app.querySelector('#board-col')!;
-    const kids = [...col.children];
-    expect(kids.indexOf(status)).toBeLessThan(kids.indexOf(app.querySelector('#board-wrap')!));
 
-    const right = app.querySelector('#right')!;
-    const controls = right.querySelector('#controls')!;
+    // ★ 아래 줄은 **사는 쪽 / 굴리는 쪽** 두 칸이다.
+    const bottom = app.querySelector('#board-bottom')!;
+    const [buy, run] = [...bottom.children];
+    expect(buy.querySelector('#draw-btn')).toBeTruthy();
+    expect(buy.querySelector('#odds')).toBeTruthy();
+    expect(run.querySelector('#start-wave')).toBeTruthy();
+    const controls = run.querySelector('#controls')!;
     for (const id of ['hud-pause', 'hud-speed', 'hud-mute']) {
       expect(controls.querySelector(`#${id}`)).toBeTruthy();
     }
-    const rk = [...right.children];
-    expect(rk.indexOf(controls)).toBeGreaterThan(rk.indexOf(app.querySelector('#start-wave')!));
+    // 재생바는 웨이브 시작 **아래**다.
+    const rk = [...run.children];
+    expect(rk.indexOf(controls)).toBeGreaterThan(rk.indexOf(run.querySelector('#start-wave')!));
+  });
+
+  /**
+   * ★ v1.30 — 판매 영역이 판 오른쪽 스트립 위에 겹치는 오버레이가 됐고, **드래그 중에만**
+   * 보인다. 평소에는 그 자리에 플레이어 킹이 서 있다.
+   *
+   * ⚠️ 숨기는 방법이 중요하다: `display:none`으로 빼면 `getBoundingClientRect`가 0이 되어
+   * 드롭 판정이 통째로 죽는다(ui/drag.ts가 rect로 판정한다). 그래서 투명도로만 숨긴다.
+   */
+  it('★ 판매 영역은 보드 위 오버레이이고 드래그 중에만 보인다 (v1.30)', () => {
+    const app = makeApp();
+    const layout = createLayout(app);
+    // 보드 래퍼 안에 있어야 판 위에 겹칠 수 있다.
+    expect(layout.sellSlot.closest('#board-wrap')).toBeTruthy();
+    expect(layout.sellSlot.classList.contains('visible')).toBe(false);
+    // 레이아웃에서 빠지지 않는다 — 빠지면 rect가 0이 되어 판매가 죽는다.
+    expect(layout.sellSlot.hasAttribute('hidden')).toBe(false);
   });
 
   it('PIECE_NAME은 5개 기물 종류를 모두 포함한다', () => {
@@ -444,59 +472,15 @@ describe('기물 이미지 — draggable="false" 안전장치 (지난 시도 회
   });
 });
 
-describe('저작자 표시줄 (NOTICE.md — CC BY-SA 이행)', () => {
-  it('결과 화면이 아니라 상시 레이아웃에 크레딧이 있고, 저작자·출처·라이선스 링크를 포함한다', () => {
-    const app = makeApp();
-    createLayout(app);
-
-    const credit = app.querySelector('#credit');
-    expect(credit).not.toBeNull();                 // #main 밖 일회성 오버레이가 아니라 항상 존재하는 요소
-    expect(credit!.textContent).toContain('Cburnett');
-    expect(credit!.textContent).toContain('CC BY-SA 3.0');
-    // ★ 크레딧이 **자기 주장의 범위를 좁혀** 말하는지 (v1.19 — 스킨 도입). 스킨을 켜면 화면의
-    // 그 기물은 위키미디어 저작물이 아니다. "기물 이미지: Cburnett …"이라고 두면 그들이 만들지
-    // 않은 그림을 그들의 것으로 표시하게 된다 — BY 조항은 저작자를 빠뜨리지 않는 것만이 아니라
-    // **엉뚱한 사람을 적지 않는 것**이기도 하다. 이 단언이 없으면 그 회귀는 조용히 배포된다.
-    expect(credit!.textContent).toContain('기본 기물 이미지');
-
-    const links = Array.from(credit!.querySelectorAll('a')) as HTMLAnchorElement[];
-    expect(links.length).toBeGreaterThanOrEqual(3);
-    const licenseLink = links.find(a => a.getAttribute('href') === 'https://creativecommons.org/licenses/by-sa/3.0/');
-    expect(licenseLink).toBeDefined();              // 라이선스 원문 링크
-    const sourceLink = links.find(a => (a.getAttribute('href') ?? '').includes('commons.wikimedia.org'));
-    expect(sourceLink).toBeDefined();                // 출처(Wikimedia Commons) 링크
-    // 재검토 Item 2: NOTICE.md는 dist/에 포함되지 않으므로, 배포된 사이트에서 변경 내역까지
-    // 확인하려면 저장소의 NOTICE.md로 가는 링크가 크레딧 안에 있어야 한다.
-    const noticeLink = links.find(a => (a.getAttribute('href') ?? '').includes('NOTICE.md'));
-    expect(noticeLink).toBeDefined();
-  });
-
-  it('★ 저작자 셋과 라이선스 버전 둘을 모두 표시한다 (v1.10 — 융합 기물 아트워크 교체)', () => {
-    // 아트워크 출처가 갈라지면 BY 이행도 갈라진다. 융합 기물이 직접 만든 합성물에서 위키미디어의
-    // 실제 페어리 기물로 바뀌면서 저작자가 셋(Cburnett / NikNaks93 / Mszulc29)이 됐고, 그중
-    // 아마존만 **CC BY-SA 4.0**이다. 크레딧에 3.0만 적으면 그 파일의 BY 이행이 틀린 것이 된다.
-    //
-    // 이 단언이 없으면 다음에 아트워크를 바꿀 때 크레딧이 조용히 뒤처진다 — 라이선스 위반은
-    // 테스트가 실패하지 않는 종류의 결함이라 사람이 알아채기 전까지 배포된 채로 남는다.
-    const app = makeApp();
-    createLayout(app);
-    const credit = app.querySelector('#credit')!;
-
-    for (const author of ['Cburnett', 'NikNaks93', 'Mszulc29']) {
-      expect(credit.textContent, author).toContain(author);
-    }
-    const hrefs = Array.from(credit.querySelectorAll('a')).map(a => a.getAttribute('href') ?? '');
-    for (const v of ['3.0', '4.0']) {
-      expect(hrefs, v).toContain(`https://creativecommons.org/licenses/by-sa/${v}/`);
-    }
-    expect(credit.textContent).toContain('CC BY-SA 4.0');
-  });
-
-  it('★ 시작 화면도 같은 크레딧을 띄운다 — 두 화면이 상수 하나를 공유한다', () => {
-    // 화면마다 문구를 따로 적으면 한쪽만 갱신되는 사고가 난다. 실제로 지금 그 위험이 커졌다 —
-    // 저작자가 셋이 되면서 문구가 길어졌기 때문이다.
-    expect(CREDIT_HTML).toContain('Cburnett');
-    expect(CREDIT_HTML).toContain('Mszulc29');
-    expect(CREDIT_HTML).toContain('by-sa/4.0');
-  });
-});
+/**
+ * ⚠️ **저작자 표시(CC BY-SA) 검증은 `tests/titleScreen.test.ts`로 옮겼다** (v1.30).
+ *
+ * 게임 화면 하단의 크레딧 줄이 사라졌기 때문이다(사용자 결정: "이 내용은 로비 화면만 표시되면
+ * 될 것 같다"). 표시 의무 자체가 없어진 것이 아니라 **표시하는 화면이 시작 화면 하나로
+ * 좁아진 것**이므로, 그 화면을 검증하는 스위트가 보증을 이어받는다.
+ *
+ * ⚠️ 게임 화면에도 위키미디어 저작물이 **여전히 남아 있다** — 뽑기 확률표의 기물 아이콘과
+ * 드래그 고스트가 `allySpriteUrl`(Cburnett SVG)을 띄운다. 보드 자체는 v1.21부터 절차적
+ * 지오메트리라 저작물이 아니지만, 그 둘은 아니다. 크레딧이 시작 화면에만 있는 지금 구성은
+ * "게임의 크레딧은 타이틀 화면에 둔다"는 관행에 기대는 것이고, 그 판단은 사용자의 것이다.
+ */

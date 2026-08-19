@@ -7,7 +7,7 @@ import { recordWaveCleared, resetProgressForTest } from '../src/progress';
 import {
   allySpriteUrl, DEFAULT_SKIN_ID, resetSkinsForTest, selectedSkinId, SKINS, skinsFor, unlockLabel,
 } from '../src/render/skins';
-import { createLayout, PIECE_NAME } from '../src/ui/layout';
+import { CREDIT_HTML, createLayout, PIECE_NAME } from '../src/ui/layout';
 import { createTitleScreen, RANGE_CENTER, RANGE_RADIUS } from '../src/ui/titleScreen';
 
 const TYPES: PieceType[] = ['pawn', 'knight', 'bishop', 'rook', 'queen'];
@@ -389,5 +389,80 @@ describe('스킨 해금 조건 (panel-head)', () => {
 
     btn.click();
     expect(selectedSkinId(skinnable)).toBe(lockedSkin.id);
+  });
+});
+
+/**
+ * ★ v1.30에서 `tests/ui.test.ts`에서 이리로 옮겨 왔다. 게임 화면 하단의 크레딧 줄이
+ * 사라지면서(사용자 결정) **시작 화면이 저작자 표시의 유일한 자리**가 됐기 때문이다.
+ * 라이선스 위반은 테스트가 저절로 실패하지 않는 종류의 결함이라, 보증이 딸려 있던 스위트가
+ * 지워질 때 함께 사라지면 안 된다.
+ */
+describe('저작자 표시줄 (NOTICE.md — CC BY-SA 이행)', () => {
+  it('결과 화면이 아니라 상시 레이아웃에 크레딧이 있고, 저작자·출처·라이선스 링크를 포함한다', () => {
+    const app = mount();
+    const credit = app.querySelector('#credit');
+    expect(credit).not.toBeNull();                 // #main 밖 일회성 오버레이가 아니라 항상 존재하는 요소
+    expect(credit!.textContent).toContain('Cburnett');
+    expect(credit!.textContent).toContain('CC BY-SA 3.0');
+    // ★ 크레딧이 **자기 주장의 범위를 좁혀** 말하는지 (v1.19 — 스킨 도입). 스킨을 켜면 화면의
+    // 그 기물은 위키미디어 저작물이 아니다. "기물 이미지: Cburnett …"이라고 두면 그들이 만들지
+    // 않은 그림을 그들의 것으로 표시하게 된다 — BY 조항은 저작자를 빠뜨리지 않는 것만이 아니라
+    // **엉뚱한 사람을 적지 않는 것**이기도 하다. 이 단언이 없으면 그 회귀는 조용히 배포된다.
+    expect(credit!.textContent).toContain('기본 기물 이미지');
+
+    const links = [...credit!.querySelectorAll('a')] as HTMLAnchorElement[];
+    expect(links.length).toBeGreaterThanOrEqual(3);
+    const licenseLink = links.find(a => a.getAttribute('href') === 'https://creativecommons.org/licenses/by-sa/3.0/');
+    expect(licenseLink).toBeDefined();              // 라이선스 원문 링크
+    const sourceLink = links.find(a => (a.getAttribute('href') ?? '').includes('commons.wikimedia.org'));
+    expect(sourceLink).toBeDefined();                // 출처(Wikimedia Commons) 링크
+    // 재검토 Item 2: NOTICE.md는 dist/에 포함되지 않으므로, 배포된 사이트에서 변경 내역까지
+    // 확인하려면 저장소의 NOTICE.md로 가는 링크가 크레딧 안에 있어야 한다.
+    const noticeLink = links.find(a => (a.getAttribute('href') ?? '').includes('NOTICE.md'));
+    expect(noticeLink).toBeDefined();
+  });
+
+  it('★ 저작자 셋과 라이선스 버전 둘을 모두 표시한다 (v1.10 — 융합 기물 아트워크 교체)', () => {
+    // 아트워크 출처가 갈라지면 BY 이행도 갈라진다. 융합 기물이 직접 만든 합성물에서 위키미디어의
+    // 실제 페어리 기물로 바뀌면서 저작자가 셋(Cburnett / NikNaks93 / Mszulc29)이 됐고, 그중
+    // 아마존만 **CC BY-SA 4.0**이다. 크레딧에 3.0만 적으면 그 파일의 BY 이행이 틀린 것이 된다.
+    //
+    // 이 단언이 없으면 다음에 아트워크를 바꿀 때 크레딧이 조용히 뒤처진다 — 라이선스 위반은
+    // 테스트가 실패하지 않는 종류의 결함이라 사람이 알아채기 전까지 배포된 채로 남는다.
+    const app = mount();
+    const credit = app.querySelector('#credit')!;
+
+    for (const author of ['Cburnett', 'NikNaks93', 'Mszulc29']) {
+      expect(credit.textContent, author).toContain(author);
+    }
+    const hrefs = Array.from(credit.querySelectorAll('a')).map(a => a.getAttribute('href') ?? '');
+    for (const v of ['3.0', '4.0']) {
+      expect(hrefs, v).toContain(`https://creativecommons.org/licenses/by-sa/${v}/`);
+    }
+    expect(credit.textContent).toContain('CC BY-SA 4.0');
+  });
+
+  /**
+   * ⚠️ **게임 화면에는 더 이상 크레딧이 없다** (v1.30). 그런데 게임 화면에도 위키미디어
+   * 저작물은 남아 있다 — 뽑기 확률표의 기물 아이콘과 드래그 고스트가 `allySpriteUrl`을
+   * 띄운다. 이 단언은 그 사실을 **기록으로 남긴다**: 표시가 시작 화면 하나로 좁아진 지금
+   * 구성이 "게임의 크레딧은 타이틀 화면에 둔다"는 관행에 기대고 있다는 것.
+   */
+  it('★ 게임 화면에는 크레딧이 없지만 위키미디어 아트워크는 남아 있다 (v1.30 — 표시는 시작 화면이 전담)', () => {
+    const app = document.createElement('div');
+    document.body.appendChild(app);
+    createLayout(app);
+    expect(app.querySelector('#credit')).toBeNull();
+    // 확률표 아이콘이 여전히 Cburnett SVG다.
+    const icons = Array.from(app.querySelectorAll('#odds img')) as HTMLImageElement[];
+    expect(icons.length).toBeGreaterThan(0);
+    expect(icons[0].getAttribute('src')).toBe(allySpriteUrl('pawn'));
+  });
+
+  it('문구는 상수 하나에서 온다 — 화면마다 따로 적으면 한쪽만 갱신되는 사고가 난다', () => {
+    expect(CREDIT_HTML).toContain('Cburnett');
+    expect(CREDIT_HTML).toContain('Mszulc29');
+    expect(CREDIT_HTML).toContain('by-sa/4.0');
   });
 });

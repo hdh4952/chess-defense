@@ -6,9 +6,14 @@ body {
 /* ⚠️ v1.29에서 `#hud`(화면 맨 위 상태 막대)가 통째로 사라졌다. 값들은 없어진 게 아니라
    자기가 말하는 것 옆으로 옮겨 갔다 — 상태 표시는 보드 위(#board-status), 조작 버튼은
    웨이브 시작 아래(#controls). ui/layout.ts의 Layout.hud 주석 참고. */
-#main { display: flex; gap: 12px; padding: 12px; justify-content: center; align-items: flex-start; }
-#left, #right { width: 210px; display: flex; flex-direction: column; gap: 12px; }
+/* ⚠️ v1.30에서 보드 양옆의 두 단(#left · #right)이 사라졌다. 조작 UI가 전부 보드 아래
+   한 줄(#board-bottom)로 모였고, 판매 영역은 판 위에 겹쳐 놓인다. */
+#main { display: flex; padding: 12px; justify-content: center; }
 #board-col { display: flex; flex-direction: column; }
+
+/* 보드 아래 조작 줄 — 왼쪽은 사는 것(뽑기 + 확률표), 오른쪽은 굴리는 것(시작 + 재생바). */
+#board-bottom { display: flex; gap: 12px; margin-top: 10px; align-items: flex-start; }
+.bottom-col { flex: 1; display: flex; flex-direction: column; gap: 8px; }
 
 /* ── 카툰 UI 공통 (v1.27 뽑기 버튼 → v1.29 전체로) ─────────────────────────
    3D 쪽과 같은 어휘를 CSS로 옮긴 것이다: **두꺼운 어두운 테두리**(기물 윤곽선과 같은 잉크
@@ -68,7 +73,6 @@ body {
 }
 /* 뽑기 UI (v1.16). 버튼 하나 + 확률 표 — 확률을 화면에 항상 적어 두는 것이 요점이다.
    가챠에서 확률을 숨기면 플레이어가 자기 판단의 근거를 가질 수 없다. */
-#shop { display: flex; flex-direction: column; gap: 10px; }
 
 /* ★ 뽑기 버튼 — 카툰 렌더링 (v1.27).
    보드가 툰이 된 뒤 이 버튼만 브라우저 기본 위젯으로 남아 있었다. 3D 쪽과 같은 어휘를 쓴다:
@@ -111,20 +115,37 @@ body {
 #board-wrap { position: relative; }   /* 툴팁/고스트/오버레이 캔버스 기준점 */
 /* 3D 보드 위에 정확히 겹치는 정보 계층. pointer-events를 끊어야 드래그가 아래 캔버스에 닿는다. */
 #board-overlay { position: absolute; left: 0; top: 0; pointer-events: none; }
-/* 판매 슬롯은 **점선을 유지한다** — 점선이 "여기 놓아라"라는 뜻이라, 채운 테두리로 바꾸면
-   드롭 대상이 아니라 버튼처럼 보인다. 잉크 색만 나머지와 맞춘다. */
+/* ★ 판매 영역 — v1.30에서 **판 오른쪽 스트립 위에 겹치는 오버레이**가 됐다.
+   자리(left/top/width/height)는 CSS가 아니라 main.ts가 넣는다: 보드가 캔버스에서 차지하는
+   사각형은 카메라만 아는 값이기 때문이다(render3d/index.ts의 boardRect).
+
+   ★ **드래그 중에만 보인다.** 평소에는 그 자리에 플레이어 킹이 서 있고, 판매는 드래그를
+   시작한 뒤에야 의미가 생기는 선택지다 — 늘 떠 있으면 킹을 가린 채 아무 일도 하지 않는다.
+
+   ⚠️ **`display:none`이 아니라 투명도로 숨긴다.** 드롭 판정이 `getBoundingClientRect`로
+   이뤄지는데(ui/drag.ts) 레이아웃에서 빼 버리면 rect가 0이 되어 판매가 통째로 죽는다.
+   포인터 이벤트는 document에서 받으므로 `pointer-events: none`으로 캔버스를 막지 않는다.
+
+   점선은 유지한다 — 점선이 "여기 놓아라"라는 뜻이라, 채운 테두리로 바꾸면 드롭 대상이
+   아니라 버튼처럼 보인다. */
 #sell-slot {
-  min-height: 110px; border: 3px dashed #6E4C52; border-radius: 11px;
-  text-align: center; padding: 12px 4px; font-size: 26px; color: #caa;
-  background: rgba(42, 32, 40, 0.35);
+  position: absolute; pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  border: 3px dashed #B4636B; border-radius: 12px;
+  text-align: center; font-size: 34px; color: #E8C0B4;
+  background: rgba(46, 24, 30, 0.62);
+  opacity: 0; transition: opacity 110ms;
 }
-#sell-slot small { font-size: 11px; }
-#sell-slot.armed { background: rgba(200, 80, 60, 0.25); }
-#sell-preview { font-size: 14px; color: #ffd54a; min-height: 18px; }
+#sell-slot.visible { opacity: 1; }
+#sell-slot small { font-size: 12px; line-height: 1.5; color: #E2B5AC; }
+#sell-slot.armed {
+  background: rgba(190, 62, 52, 0.72); border-color: #FF9A86; color: #FFF0E8;
+}
+#sell-preview { font-size: 16px; font-weight: 800; color: #ffd54a; min-height: 20px; }
 /* 웨이브 시작 — 뽑기(초록)와 색을 나눈다. 둘 다 초록이면 "돈 쓰기"와 "판 시작"이 같은
    무게로 보이는데, 되돌릴 수 없다는 점에서 후자가 더 무겁다. */
 #start-wave {
-  padding: 13px; font-size: 17px; color: #3A2408;
+  padding: 13px; font-size: 17px; color: #3A2408; width: 100%;
   background: linear-gradient(#F5C24E, #DE9A2C 52%, #BE7B16);
   text-shadow: 0 2px 0 rgba(255, 255, 255, 0.3);
 }

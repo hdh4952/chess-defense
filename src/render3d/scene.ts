@@ -178,6 +178,14 @@ export interface Projector {
    * 아니다** — 네 귀퉁이는 판 밖이다. null이 그 경우를 말한다.
    */
   squareAt(x: number, y: number): Square | null;
+  /**
+   * 판이 화면에서 차지하는 사각형(뷰 px). **DOM 요소를 판에 맞춰 놓을 때 쓴다** — v1.30에서
+   * 판매 영역이 "보드 오른쪽 스트립, 보드 전체 높이"가 되면서 그 자리를 아는 곳이 필요해졌다.
+   *
+   * ★ 원근에서 판은 사다리꼴이라 정확한 사각형이 아니다 — 네 귀를 투영한 **경계 상자**다.
+   * DOM은 사각형밖에 못 놓으므로 그 이상은 필요하지도 않다.
+   */
+  boardScreenRect(): { left: number; top: number; right: number; bottom: number };
 }
 
 /**
@@ -206,6 +214,18 @@ export function createProjector(camera: THREE.Camera): Projector {
     toScreen(x, y, z) {
       vec.set(x, y, z).project(camera);
       return { x: (vec.x * 0.5 + 0.5) * VIEW_W, y: (-vec.y * 0.5 + 0.5) * VIEW_H };
+    },
+    boardScreenRect() {
+      let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+      for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+          vec.set(sx * HALF_W, 0, sz * HALF_D).project(camera);
+          const x = (vec.x * 0.5 + 0.5) * VIEW_W, y = (-vec.y * 0.5 + 0.5) * VIEW_H;
+          left = Math.min(left, x); right = Math.max(right, x);
+          top = Math.min(top, y); bottom = Math.max(bottom, y);
+        }
+      }
+      return { left, top, right, bottom };
     },
     squareAt(px, py) {
       ndc.set((px / VIEW_W) * 2 - 1, -((py / VIEW_H) * 2 - 1));
@@ -349,6 +369,7 @@ export function createScene(canvas: HTMLCanvasElement): SceneKit {
     scene, camera, renderer,
     toScreen: projector.toScreen,
     squareAt: projector.squareAt,
+    boardScreenRect: projector.boardScreenRect,
     decalCtx: decalCanvas.getContext('2d')!,
     decalDirty: () => { decalTex.needsUpdate = true; },
 

@@ -57,6 +57,17 @@ function startGame(root: HTMLDivElement, difficulty: Difficulty): void {
   // 그리는 좌표계는 여전히 0~640이다 — 그래서 아래 프레임 루프도, highlights/effects/enemyFx도,
   // 드롭 판정(ui/drag.ts)도 이 변경을 전혀 모른다(render3d/scene.ts의 투영 주석).
   const board = new Board3D(layout.canvas, layout.overlay);
+  // ★ 판매 영역을 판 오른쪽 스트립(킹이 서 있는 자리)에 맞춘다 (v1.30). 보드가 캔버스에서
+  //   차지하는 사각형은 카메라만 아는 값이라 3D 쪽에서 받아 온다 — 카메라가 고정이므로
+  //   한 번만 계산하면 되고, 그래서 CSS가 아니라 여기서 넣는다.
+  const br = board.boardRect();
+  const gap = 6;
+  Object.assign(layout.sellSlot.style, {
+    left: `${br.right + gap}px`,
+    top: `${br.top}px`,
+    width: `${VIEW_W - br.right - gap * 2}px`,
+    height: `${br.bottom - br.top}px`,
+  });
 
   // 난이도는 여기서 상태에 굳는다 — 판이 시작된 뒤에는 어디서도 바뀌지 않는다(types.ts).
   const state = createInitialState(difficulty);

@@ -94,9 +94,6 @@ export const CREDIT_HTML = `
 export function createLayout(app: HTMLElement): Layout {
   app.innerHTML = `
     <main id="main">
-      <aside id="left">
-        <div id="shop"></div>
-      </aside>
       <div id="board-col">
         <!-- ★ 판에서 벌어지는 일은 판 바로 위에 적는다 (v1.29). 화면 맨 위 막대에 있을 때는
              시선이 보드와 HUD 사이를 오갔다 — 웨이브 번호도 남은 적 수도 타이머도 전부
@@ -113,20 +110,28 @@ export function createLayout(app: HTMLElement): Layout {
                (render/dpr.ts)가 맡는다. -->
           <canvas id="board" width="${VIEW_W}" height="${VIEW_H}"></canvas>
           <canvas id="board-overlay" width="${VIEW_W}" height="${VIEW_H}"></canvas>
+          <!-- ★ 판매 영역은 **판 오른쪽 스트립에 겹쳐 놓인다** (v1.30). 자리는 코드가 정한다 —
+               보드가 캔버스에서 차지하는 사각형은 카메라만 아는 값이라(render3d/index.ts의
+               boardRect) main.ts가 그 값을 받아 여기 style로 밀어 넣는다.
+               드래그 중에만 보이므로 평소에는 킹이 그 자리에 그대로 서 있다. -->
+          <div id="sell-slot">🗑<br><small>여기에 놓으면<br>즉시 판매 (50%)</small><div id="sell-preview"></div></div>
+        </div>
+        <!-- ★ 조작 UI를 보드 아래 한 줄로 모았다 (v1.30). 왼쪽은 **사는 것**(뽑기 버튼 + 확률표),
+             오른쪽은 **굴리는 것**(웨이브 시작 + 재생바). 예전에는 보드 양옆에 갈라져 있어
+             시선이 좌우로 벌어졌다. -->
+        <div id="board-bottom">
+          <div class="bottom-col" id="shop"></div>
+          <div class="bottom-col">
+            <button id="start-wave">웨이브 시작</button>
+            <div id="controls">
+              <button id="hud-pause" class="ctl-btn" title="일시정지">⏸</button>
+              <button id="hud-speed" class="ctl-btn" title="배속">▶▶1x</button>
+              <button id="hud-mute" class="ctl-btn" aria-pressed="false" title="음소거">🔊</button>
+            </div>
+          </div>
         </div>
       </div>
-      <aside id="right">
-        <div id="sell-slot">🗑<br><small>드래그 = 즉시 판매 (50%)</small><div id="sell-preview"></div></div>
-        <button id="start-wave">웨이브 시작</button>
-        <!-- ★ 판을 조작하는 버튼은 판을 시작하는 버튼 아래에 모은다 (v1.29). -->
-        <div id="controls">
-          <button id="hud-pause" class="ctl-btn" title="일시정지">⏸</button>
-          <button id="hud-speed" class="ctl-btn" title="배속">▶▶1x</button>
-          <button id="hud-mute" class="ctl-btn" aria-pressed="false" title="음소거">🔊</button>
-        </div>
-      </aside>
     </main>
-${CREDIT_HTML}
     <div id="banner-root"></div>
   `;
 

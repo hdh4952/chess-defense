@@ -157,7 +157,9 @@ export class DragController {
     return null;
   }
 
+  /** 드래그가 끝나는 모든 경로가 지나는 곳 — 고스트와 판매 영역을 함께 걷는다. */
   private hideGhost(): void {
+    this.layout.sellSlot.classList.remove('visible');
     this.ghost.style.display = 'none';
   }
 
@@ -188,6 +190,9 @@ export class DragController {
     // L자가 아닌 칸에 떨어뜨리면 dropAction의 moveOnBoard가 false를 돌려주어 기존 uiInvalid
     // 경로로 자연히 흡수된다 — 새로 만들 처리가 없다.
     this.interaction.dragging = hit;
+    // ★ 판매 영역은 드래그를 시작한 뒤에야 의미가 생긴다 (v1.30). 평소에는 그 자리에
+    //   플레이어 킹이 서 있으므로 늘 띄워 두면 킹을 가린 채 아무 일도 하지 않는다.
+    this.layout.sellSlot.classList.add('visible');
     this.ghostImg.src = allySpriteUrl(piece.type);
     this.ghostImg.alt = PIECE_NAME[piece.type];
     this.moveGhost(e);

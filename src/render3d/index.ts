@@ -83,6 +83,14 @@ export class Board3D {
     return this.kit.squareAt(u * VIEW_W, v * VIEW_H);
   }
 
+  /**
+   * 판이 캔버스에서 차지하는 사각형(CSS px — 캔버스 CSS 크기가 곧 뷰 크기다).
+   * 판매 영역을 판 오른쪽 스트립에 정확히 맞추는 데 쓴다(v1.30).
+   */
+  boardRect(): { left: number; top: number; right: number; bottom: number } {
+    return this.kit.boardScreenRect();
+  }
+
   dispose(): void {
     this.pieces.dispose();
     this.enemies.dispose();
