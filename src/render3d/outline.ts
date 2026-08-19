@@ -101,7 +101,8 @@ export const OUTLINE_MATERIAL = new THREE.ShaderMaterial({
     outlineWidth: { value: OUTLINE_WIDTH },
     outlineColor: { value: new THREE.Color(OUTLINE_INK) },
     // 캔버스 CSS 크기로 고정이다 — 화면 밀도가 바뀌어도 NDC ↔ CSS 픽셀 관계는 같으므로
-    // (백킹 스토어만 커진다) 이 유니폼은 한 번 넣고 다시 건드리지 않는다.
+    // (백킹 스토어만 커진다). ★ v1.36에서 뷰가 둘이 되면서 **씬을 세울 때 한 번** 맞춘다
+    // (setOutlineResolution) — 여기 적힌 값은 넓은 뷰의 기본값이다.
     resolution: { value: new THREE.Vector2(VIEW_W, VIEW_H) },
   },
   vertexShader: `
@@ -129,6 +130,20 @@ export const OUTLINE_MATERIAL = new THREE.ShaderMaterial({
   `,
   side: THREE.BackSide,
 });
+
+/**
+ * 윤곽선 두께의 기준이 되는 뷰 크기를 맞춘다 (v1.36 — 뷰가 둘이 됐다).
+ *
+ * ⚠️ 이 값이 실제 뷰보다 크면 윤곽선이 **가늘어진다**(밀어내는 양이 NDC 기준이라 뷰가 좁을수록
+ * 화면 픽셀로는 더 커야 한다). 좁은 뷰에서 그냥 두면 판만 커진 화면에서 선이 홀로 얇아져
+ * 툰 화풍이 흐려진다 — 굵기는 "화면에서 몇 px"이지 "월드에서 몇"이 아니다.
+ *
+ * 재질이 모듈 싱글턴인 것은 그대로 둔다: 한 페이지에 씬은 하나뿐이고, 재질을 인스턴스마다
+ * 만들면 기물 하나하나가 자기 셰이더 프로그램을 갖게 된다.
+ */
+export function setOutlineResolution(w: number, h: number): void {
+  (OUTLINE_MATERIAL.uniforms.resolution.value as THREE.Vector2).set(w, h);
+}
 
 /**
  * 한 조각의 윤곽선 메시. **그림자를 드리우지도 받지도 않는다** — 헐은 실제 물체보다 조금

@@ -922,7 +922,7 @@ describe('DragController — 터치 (v1.35)', () => {
 
     document.dispatchEvent(touch('pointerdown', at.x, at.y));
     document.dispatchEvent(touch('pointermove', at.x + 30, at.y - 30));
-    expect(ghostEl().style.transform).toBe('translate(-50%, -140%)');
+    expect(ghostEl().style.transform).toBe('translate(-50%, -100%)');
     document.dispatchEvent(touch('pointerup', at.x + 30, at.y - 30));
 
     document.dispatchEvent(pointer('pointerdown', at.x, at.y));

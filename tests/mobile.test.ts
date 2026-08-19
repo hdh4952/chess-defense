@@ -3,7 +3,12 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createLayout, fitBoardSize } from '../src/ui/layout';
-import { VIEW_H, VIEW_W } from '../src/render3d/coords';
+import { COMPACT_VIEW, VIEW_H, VIEW_W, WIDE_VIEW } from '../src/render3d/coords';
+import { COMPACT_MEDIA, pickBoardView } from '../src/render3d/view';
+import { updateHud } from '../src/ui/hud';
+import { kingHpFill } from '../src/render/palette';
+import { CONFIG } from '../src/config';
+import { cleanState } from './helpers';
 
 const RATIO = VIEW_W / VIEW_H;
 
@@ -134,5 +139,107 @@ describe('터치 잠금 — 게임 화면에서만 (v1.35)', () => {
     // 글이 많은 시작 화면에서는 확대할 수 있어야 한다.
     expect(viewport()).not.toContain('user-scalable=no');
     expect(viewport()).not.toContain('maximum-scale');
+  });
+});
+
+
+/**
+ * ★★ v1.36 — **좁은 화면은 판만 담는다** (사용자 요청: "보드 크기가 작아서 모바일 화면
+ * 너비에 거의 꽉채워서 보여줘야할거같아 … 기물 판매 영역을 보드 화면 아래 버튼이 모여있는
+ * 영역으로 바꿔야할거같고 킹이 놓인 우측 공간을 없애고 체력바를 보드 바로 하단에 배치").
+ *
+ * v1.28의 "가로만 넓히면 보드가 한 픽셀도 줄지 않는다"는 **화면이 가로로 넉넉할 때만** 참인
+ * 논리였다. 폰에서는 폭이 먼저 동나므로 킹 자리 180px이 판에서 그대로 떼어 낸 몫이 된다 —
+ * 실측 390px 폭에서 판이 257px(화면의 66%)였다.
+ */
+describe('좁은 화면의 뷰 선택 (v1.36)', () => {
+  function withMedia(matches: boolean, run: () => void): void {
+    const original = window.matchMedia;
+    (window as unknown as { matchMedia: unknown }).matchMedia =
+      (q: string) => ({ matches: q === COMPACT_MEDIA ? matches : false });
+    try { run(); } finally {
+      (window as unknown as { matchMedia: unknown }).matchMedia = original;
+    }
+  }
+
+  it('좁으면 판만 담는 뷰, 넓으면 킹이 서는 뷰', () => {
+    withMedia(true, () => expect(pickBoardView()).toBe(COMPACT_VIEW));
+    withMedia(false, () => expect(pickBoardView()).toBe(WIDE_VIEW));
+  });
+
+  it('⚠️ matchMedia가 없는 환경은 **넓은 뷰**로 떨어진다', () => {
+    // 이 저장소의 기존 측정·테스트가 전부 넓은 뷰의 기하 위에 서 있다 — 모르는 환경에서
+    // 조용히 다른 것을 재게 두면, 헤드리스 신호가 재는 대상이 소리 없이 바뀐다.
+    const original = window.matchMedia;
+    (window as unknown as { matchMedia: unknown }).matchMedia = undefined;
+    try { expect(pickBoardView()).toBe(WIDE_VIEW); } finally {
+      (window as unknown as { matchMedia: unknown }).matchMedia = original;
+    }
+  });
+
+  it('★ 뷰를 가르는 문턱이 CSS의 좁은 화면 판정과 **같다**', () => {
+    // 두 문턱이 어긋나면 그 사이 폭에서 "여백은 빽빽한데 킹은 그대로"인 화면이 나온다.
+    const css = readFileSync(resolve(process.cwd(), 'src/style.css'), 'utf8');
+    for (const q of COMPACT_MEDIA.split(',').map(t => t.trim())) {
+      expect(css, `${q}가 style.css에 없다`).toContain(q);
+    }
+  });
+});
+
+describe('좁은 화면의 배치 (v1.36)', () => {
+  function mount(view: typeof WIDE_VIEW): { app: HTMLElement; layout: ReturnType<typeof createLayout> } {
+    document.body.innerHTML = '';
+    const app = document.createElement('div');
+    document.body.appendChild(app);
+    return { app, layout: createLayout(app, view) };
+  }
+
+  it('★ 캔버스가 정사각이다 — 킹 자리가 판으로 넘어왔다', () => {
+    const { app } = mount(COMPACT_VIEW);
+    const canvas = app.querySelector<HTMLCanvasElement>('#board')!;
+    expect(canvas.width).toBe(COMPACT_VIEW.w);
+    expect(canvas.height).toBe(COMPACT_VIEW.h);
+    expect(app.querySelector<HTMLElement>('#board-wrap')!.style.aspectRatio.replace(/\s/g, ''))
+      .toBe(`${COMPACT_VIEW.w}/${COMPACT_VIEW.h}`);
+  });
+
+  it('★ 판매 영역이 판 오른쪽 스트립 → **아래 조작 줄**로 옮겨 간다', () => {
+    expect(mount(COMPACT_VIEW).layout.sellSlot.closest('#board-bottom')).toBeTruthy();
+    expect(mount(WIDE_VIEW).layout.sellSlot.closest('#board-wrap')).toBeTruthy();
+    // 어느 쪽이든 **하나뿐**이다 — 둘 다 그리면 드롭 판정이 먼저 잡히는 쪽으로만 간다.
+    expect(document.querySelectorAll('#sell-slot')).toHaveLength(1);
+  });
+
+  it('★ 체력 막대가 판 **바로 아래**에 생긴다 (넓은 화면에는 없다)', () => {
+    const { app, layout } = mount(COMPACT_VIEW);
+    expect(layout.hp).not.toBeNull();
+    const kids = [...app.querySelector('#board-col')!.children];
+    const at = (sel: string): number => kids.indexOf(app.querySelector(sel)!);
+    expect(at('#board-hp')).toBeGreaterThan(at('#board-slot'));   // 판 아래
+    expect(at('#board-hp')).toBeLessThan(at('#board-bottom'));    // 조작 줄 위
+
+    const wide = mount(WIDE_VIEW);
+    expect(wide.layout.hp).toBeNull();
+    expect(wide.app.querySelector('#board-hp')).toBeNull();
+  });
+
+  it('★ 그 막대가 캔버스 킹 막대와 **같은 색 규칙**을 쓴다', () => {
+    const { layout } = mount(COMPACT_VIEW);
+    const state = cleanState();
+    for (const hp of [CONFIG.player.startHp, 4, 1]) {
+      state.hp = hp;
+      updateHud(layout, state);
+      const ratio = hp / CONFIG.player.startHp;
+      expect(layout.hp!.text.textContent).toBe(`${hp}/${CONFIG.player.startHp}`);
+      expect(layout.hp!.fill.style.width).toBe(`${ratio * 100}%`);
+      // ⚠️ 색을 리터럴로 적지 않는다 — 그러면 팔레트를 바꿨을 때 이 테스트만 옛 색으로 남아
+      //    "두 계층이 같은 색을 쓴다"는 주장 자체가 거짓이 된다.
+      expect(layout.hp!.fill.style.background).toBe(kingHpFill(ratio));
+    }
+  });
+
+  it('넓은 화면에서 updateHud는 체력 막대를 찾지 않는다 — 없어도 죽지 않는다', () => {
+    const { layout } = mount(WIDE_VIEW);
+    expect(() => updateHud(layout, cleanState())).not.toThrow();
   });
 });

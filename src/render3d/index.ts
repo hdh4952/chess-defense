@@ -10,7 +10,7 @@ import { drawOverlay } from './overlay';
 import { Pieces3D } from './pieces';
 import { createScene } from './scene';
 import { createPlayerKing } from './playerKing';
-import { VIEW_H, VIEW_W } from './coords';
+import { type BoardView, WIDE_VIEW } from './coords';
 
 /**
  * 보드 3D 렌더러 — 한 프레임을 그리는 단일 진입점 (v1.21).
@@ -37,15 +37,19 @@ export class Board3D {
    *  굽게 하려는 것이다(빈 문자열로 두면 "빈 보드"와 구분되지 않아 첫 프레임을 건너뛴다). */
   private lastDecal: string | null = null;
 
-  constructor(canvas: HTMLCanvasElement, overlay: HTMLCanvasElement) {
-    this.kit = createScene(canvas);
+  /**
+   * @param view 판이 시작될 때 정해진 뷰 (v1.36). 좁은 화면은 판만 담는 정사각 뷰를 받고,
+   *   그 뷰에는 플레이어 킹이 없다 — 체력은 판 아래 DOM 막대가 말한다(ui/layout.ts).
+   */
+  constructor(canvas: HTMLCanvasElement, overlay: HTMLCanvasElement, view: BoardView = WIDE_VIEW) {
+    this.kit = createScene(canvas, view);
     this.pieces = new Pieces3D(this.kit.scene);
     this.enemies = new Enemies3D(this.kit.scene);
     this.effects = new Effects3D(this.kit.scene);
     // ★ 플레이어 킹은 **한 번 세우고 끝**이다 — 판 위 기물과 달리 생기거나 사라지지 않고
     //   움직이지도 않는다. 바뀌는 것은 머리 위 체력바뿐이고, 그건 오버레이가 그린다.
-    this.kit.scene.add(createPlayerKing());
-    this.overlayCtx = createBoardContext(overlay, VIEW_W, VIEW_H);
+    if (view.king) this.kit.scene.add(createPlayerKing());
+    this.overlayCtx = createBoardContext(overlay, view.w, view.h);
   }
 
   render(
@@ -68,7 +72,7 @@ export class Board3D {
     this.effects.sync(fxItems);
     this.kit.draw();
 
-    drawOverlay(this.overlayCtx, state, fxItems, this.kit, enemyFx);
+    drawOverlay(this.overlayCtx, state, fxItems, this.kit, enemyFx, this.kit.view);
   }
 
   /**
@@ -80,7 +84,7 @@ export class Board3D {
    * 알면 되고 뷰 크기는 이쪽 계층에 남는다.
    */
   squareAt(u: number, v: number) {
-    return this.kit.squareAt(u * VIEW_W, v * VIEW_H);
+    return this.kit.squareAt(u * this.kit.view.w, v * this.kit.view.h);
   }
 
   /**

@@ -3,10 +3,10 @@ import { rankToTopY } from '../core/grid';
 import type { Fx } from '../render/effects';
 import type { EnemyFx } from '../render/enemyFx';
 import { prefersReducedMotion } from '../render/enemyFx';
-import { SLOW_INK, TRAIT_COLOR } from '../render/palette';
+import { HP_TRACK_INK, kingHpFill, SLOW_INK, TRAIT_COLOR } from '../render/palette';
 import { OUTLINE_INK } from './outline';
 import { pieceTop } from './geometry';
-import { enemyWorld, squareWorld, VIEW_H, VIEW_W, worldX, worldZ } from './coords';
+import { type BoardView, enemyWorld, squareWorld, WIDE_VIEW, worldX, worldZ } from './coords';
 import { Enemies3D } from './enemies';
 import { leanedApex } from './pose';
 import { playerKingApex } from './playerKing';
@@ -57,15 +57,12 @@ const HP_OUTLINE = 2;
 const COLOR = {
   /** 빈 구간. 순회색이 아니라 적 몸통(#2B2836)과 같은 계열의 어두운 자주 — 막대가 적에게
    *  달린 물건으로 읽힌다. */
-  hpTrack: '#3A2F3B',
+  hpTrack: HP_TRACK_INK,
   /** 남은 체력. 2D 시절(#e04b3a)보다 채도를 올렸다 — 툰은 중간톤이 사라지므로 원래 색이
    *  어중간하면 탁해 보인다(materials.ts의 아군 상아색과 같은 사정). */
   hpFill: '#F0483C',
   /** 위쪽 광택. 캐주얼 UI가 막대를 **원통**으로 보이게 하는 거의 유일한 수단이다. */
   gloss: 'rgba(255,255,255,0.30)',
-  // 플레이어 킹 — 세 단계. 적 막대가 언제나 붉으므로 **색이 변한다는 것 자체**가
-  // "이건 내 것"이라는 신호를 겸한다.
-  kingHigh: '#5FD24A', kingMid: '#F0B429', kingLow: '#F0483C',
 };
 
 /** 플레이어 킹의 막대는 적보다 크다 — 킹 자체가 크고(KING_SCALE), 무엇보다 이 값이
@@ -90,21 +87,27 @@ const TEXT_LIFT: Partial<Record<Fx['kind'], number>> = {
 /** 화면 위쪽 하한 — 8랭크에 갓 스폰한 적의 글자가 캔버스 밖으로 잘리지 않게 한다. */
 const TEXT_TOP_MARGIN = 12;
 
+/**
+ * @param view 이 캔버스의 좌표계 (v1.36). 지우는 범위와 화면 전체 연출(보스 비네트)이 뷰
+ *   크기를 알아야 하고, **플레이어 킹 체력바는 킹이 있는 뷰에서만** 그린다 — 좁은 화면에서는
+ *   킹이 3D에 없고 체력은 판 아래 DOM 막대가 말한다(ui/layout.ts의 `#board-hp`).
+ */
 export function drawOverlay(
   ctx: CanvasRenderingContext2D, state: GameState,
   fxItems: readonly Fx[], projector: Projector, enemyFx?: EnemyFx,
+  view: BoardView = WIDE_VIEW,
 ): void {
   ctx.save();
   try {
-    ctx.clearRect(0, 0, VIEW_W, VIEW_H);
+    ctx.clearRect(0, 0, view.w, view.h);
     for (const p of state.pieces) drawQueenBadge(ctx, state, p.id, projector);
     // 적은 화면 아래쪽(큰 y)부터 그려야 앞의 체력바가 뒤의 것을 덮는다 — 3D 씬의 깊이 정렬과
     // 같은 순서다. 3D는 z버퍼가 알아서 하지만 이 계층은 나중에 그린 것이 이긴다.
     const sorted = [...state.enemies].sort((a, b) => a.y - b.y);
     for (const e of sorted) drawEnemyInfo(ctx, e, projector, enemyFx);
-    drawPlayerKingHp(ctx, state, projector);
+    if (view.king) drawPlayerKingHp(ctx, state, projector);
     drawTextFx(ctx, fxItems, projector);
-    drawBossVignette(ctx, state);
+    drawBossVignette(ctx, state, view);
   } finally {
     ctx.restore();
   }
@@ -165,7 +168,8 @@ function drawPlayerKingHp(
   const top = Math.max(HP_OUTLINE, head.y - HP_GAP - h);
   const ratio = Math.max(0, Math.min(1, state.hp / CONFIG.player.startHp));
 
-  const fill = ratio > 0.6 ? COLOR.kingHigh : ratio > 0.3 ? COLOR.kingMid : COLOR.kingLow;
+  // ★ 색과 문턱은 팔레트가 소유한다 (v1.36) — 좁은 화면에서는 같은 막대를 DOM이 그린다.
+  const fill = kingHpFill(ratio);
   drawToonBar(ctx, left, top, w, h, ratio, fill);
 
   ctx.font = 'bold 13px system-ui';
@@ -345,16 +349,18 @@ function drawTextFx(ctx: CanvasRenderingContext2D, items: readonly Fx[], project
 
 /** 보스가 2랭크 진입 시 화면 가장자리 붉은 비네트 (스펙 7.9). 화면 전체에 거는 연출이라
  *  3D 씬이 아니라 여기가 맞다 — 카메라가 어디를 보든 "위험이 가깝다"는 화면의 말이다. */
-function drawBossVignette(ctx: CanvasRenderingContext2D, state: GameState): void {
+function drawBossVignette(
+  ctx: CanvasRenderingContext2D, state: GameState, view: BoardView,
+): void {
   const near = state.enemies.some(e => e.isBoss && e.y >= rankToTopY(2));
   if (!near) return;
   const g = ctx.createRadialGradient(
-    VIEW_W / 2, VIEW_H / 2, VIEW_H * 0.45,
-    VIEW_W / 2, VIEW_H / 2, VIEW_H * 0.72,
+    view.w / 2, view.h / 2, view.h * 0.45,
+    view.w / 2, view.h / 2, view.h * 0.72,
   );
   g.addColorStop(0, 'rgba(200, 30, 30, 0)');
   g.addColorStop(1, 'rgba(200, 30, 30, 0.35)');
   ctx.fillStyle = g;
-  ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+  ctx.fillRect(0, 0, view.w, view.h);
 }
 

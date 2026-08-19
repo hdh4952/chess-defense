@@ -1,5 +1,6 @@
 import { CONFIG, waveTotal } from '../config';
 import { remainingEnemies } from '../core/wave';
+import { kingHpFill } from '../render/palette';
 import type { GameState } from '../types';
 import type { Layout } from './layout';
 
@@ -10,6 +11,16 @@ export function updateHud(layout: Layout, state: GameState): void {
   //   같은 값이 두 곳에 있으면 하나는 반드시 조용히 낡는다.
   //   ⚠️ `♚ 여유 N`(보스를 몇 번 더 놓쳐도 버티는가)도 함께 사라졌다 — 킹 막대 위의 숫자에서
   //   여전히 셀 수 있지만, 그 계산을 화면이 대신 해 주지는 않는다.
+  // ★ **좁은 화면에서는 체력이 여기로 돌아온다** (v1.36). 판 밖 킹이 사라진 화면에서만
+  //   `layout.hp`가 있고, 그때는 이 막대가 유일한 체력 표시다(ui/layout.ts).
+  //   ⚠️ 색은 캔버스 막대와 **같은 함수**에서 온다 — 문턱이 갈리면 같은 체력에서 두 화면의
+  //   색이 달라지고, 그 어긋남은 두 기기를 나란히 놓기 전에는 드러나지 않는다.
+  if (layout.hp) {
+    const ratio = Math.max(0, Math.min(1, state.hp / CONFIG.player.startHp));
+    layout.hp.fill.style.width = `${ratio * 100}%`;
+    layout.hp.fill.style.background = kingHpFill(ratio);
+    layout.hp.text.textContent = `${Math.max(0, state.hp)}/${CONFIG.player.startHp}`;
+  }
   h.wave.textContent = `${state.wave}/${waveTotal(state.difficulty)}`;
   // remainingEnemies()는 phase !== 'wave'일 때 웨이브 전체 수를 반환한다.
   // victory/defeat 화면 뒤에 "남은 적 N"이 그대로 남는 것을 막기 위해 여기서 0으로 덮어쓴다.

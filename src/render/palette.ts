@@ -38,3 +38,25 @@ export const TRAIT_COLOR = {
   splitter: '#7BD16B',   // 연녹 — 분열(증식). 아군 티어 2단계 초록(#3BA55C)보다 밝게 띄웠다
   aura: '#FFB454',       // 주황 — 오라. 골드 텍스트(#ffd34d)와 겹치지 않도록 채도를 올렸다
 } as const satisfies Record<string, string>;
+
+/**
+ * ★ **플레이어 체력바의 색** — v1.36에서 이리로 옮겼다.
+ *
+ * 여태 `render3d/overlay.ts` 안에 있었는데, 좁은 화면에서 이 막대가 캔버스를 떠나 판 아래
+ * DOM 요소가 되면서(ui/layout.ts의 `#board-hp`) 소비처가 둘이 됐다. 그리고 `ui/`는
+ * `render3d/`를 의존하면 안 된다 — 그 방향은 드롭 판정의 `SquarePicker`가 주입으로 피해 온
+ * 바로 그 역전이다(ui/drag.ts). 값만 있는 잎 모듈에 두면 둘 다 아래로만 의존한다.
+ *
+ * ★ **세 단계로 갈리는 것 자체가 신호다.** 적 막대는 언제나 붉으므로, 색이 변한다는 사실이
+ * "이건 내 것"이라고 말한다.
+ */
+export const KING_HP_COLOR = { high: '#5FD24A', mid: '#F0B429', low: '#F0483C' } as const;
+
+/** 빈 구간의 잉크. 캔버스 막대와 DOM 막대가 같은 물건으로 읽히려면 이것도 함께 공유해야 한다. */
+export const HP_TRACK_INK = '#3A2F3B';
+
+/** 남은 비율 → 채움 색. 문턱(0.6 / 0.3)까지 한곳에 둔다 — 두 계층이 다른 문턱을 쓰면
+ *  같은 체력에서 캔버스와 DOM의 색이 갈린다. */
+export function kingHpFill(ratio: number): string {
+  return ratio > 0.6 ? KING_HP_COLOR.high : ratio > 0.3 ? KING_HP_COLOR.mid : KING_HP_COLOR.low;
+}

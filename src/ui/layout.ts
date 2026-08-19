@@ -1,5 +1,5 @@
 import { CONFIG } from '../config';
-import { VIEW_H, VIEW_W } from '../render3d/coords';
+import { type BoardView, WIDE_VIEW } from '../render3d/coords';
 import { allySpriteUrl } from '../render/skins';
 import type { PieceType } from '../types';
 
@@ -37,6 +37,15 @@ export interface Layout {
   /** 뽑기 버튼 안의 `보유 / 필요` 줄. 매 프레임 텍스트만 갈아 끼우려고 따로 잡아 둔다 —
    *  버튼 전체를 innerHTML로 다시 쓰면 골드가 오를 때마다 DOM을 재파싱한다. */
   drawCost: HTMLElement;
+  /**
+   * ★ **판 아래 체력 막대 — 좁은 화면에만 있다** (v1.36, 사용자 요청: "킹이 놓인 우측 공간을
+   * 없애고 체력바를 보드 바로 하단에 배치").
+   *
+   * 넓은 화면에서는 이 값을 판 밖에 선 킹이 말한다(render3d/overlay.ts). 좁은 화면에서는
+   * 그 킹 자리가 곧 판 크기라 자리를 없앴고, 값은 없앨 수 없으므로 DOM으로 내려왔다.
+   * ⚠️ 그래서 `null`일 수 있다 — 있는 쪽이 기본이 아니다.
+   */
+  hp: { fill: HTMLElement; text: HTMLElement } | null;
   sellSlot: HTMLElement;
   startBtn: HTMLButtonElement;
   bannerRoot: HTMLElement;
@@ -109,7 +118,7 @@ export const CREDIT_HTML = `
  * 검증할 수 있어야 한다(tests/mobile.test.ts).
  */
 export function fitBoardSize(
-  availW: number, availH: number, ratio = VIEW_W / VIEW_H,
+  availW: number, availH: number, ratio = WIDE_VIEW.w / WIDE_VIEW.h,
 ): { width: number; height: number } {
   const width = Math.max(0, Math.min(availW, availH * ratio));
   return { width, height: width / ratio };
@@ -127,14 +136,14 @@ export function fitBoardSize(
  * 아무것도 쓰지 않고 끝낸다 — 브라우저가 "ResizeObserver loop" 경고를 뱉는 무한 왕복을 막는
  * 가장 값싼 방법이다.
  */
-function wireBoardFit(app: HTMLElement): void {
+function wireBoardFit(app: HTMLElement, view: BoardView): void {
   const slot = app.querySelector<HTMLElement>('#board-slot')!;
   const wrap = app.querySelector<HTMLElement>('#board-wrap')!;
   const col = app.querySelector<HTMLElement>('#board-col')!;
   let lastW = -1;
   const fit = (): void => {
     const r = slot.getBoundingClientRect();
-    const { width, height } = fitBoardSize(r.width, r.height);
+    const { width, height } = fitBoardSize(r.width, r.height, view.w / view.h);
     // 아직 레이아웃이 없거나(테스트 환경) 화면 밖이면 그냥 둔다 — CSS 폴백이 자리를 지킨다.
     if (width <= 0 || Math.abs(width - lastW) < 0.5) return;
     lastW = width;
@@ -150,7 +159,27 @@ function wireBoardFit(app: HTMLElement): void {
   window.visualViewport?.addEventListener('resize', fit);
 }
 
-export function createLayout(app: HTMLElement): Layout {
+/**
+ * @param view 이 판의 뷰 (v1.36). 캔버스 비율·판매 영역의 자리·체력 막대의 유무가 전부
+ *   여기서 갈린다 — 좁은 화면은 판만 담는 정사각 뷰를 받는다(render3d/coords.ts).
+ */
+/** 판매 영역의 마크업. 자리(판 오른쪽 스트립 / 아래 조작 줄)만 뷰에 따라 갈리고 내용은 같다 —
+ *  같은 물건이 옮겨 다니는 것이지 다른 물건이 둘 있는 게 아니다. */
+const SELL_HTML =
+  '<div id="sell-slot">🗑<br><small>여기에 놓으면<br>즉시 판매 (50%)</small>'
+  + '<div id="sell-preview"></div></div>';
+
+/**
+ * 판 바로 아래 체력 막대 (v1.36 — 좁은 화면). 킹 글리프를 앞에 두는 것이 요점이다:
+ * v1.28이 세운 "킹 = 플레이어"를 문자 하나로 이어받는다. 숫자를 함께 적는 이유도 그때와
+ * 같다 — 보스 누수는 5, 일반은 1을 깎으므로 **남은 수**가 판단에 필요하다.
+ */
+const HP_HTML =
+  '<div id="board-hp"><span class="hp-king">♚</span>'
+  + '<span class="hp-track"><span id="hp-fill"></span></span>'
+  + '<b id="hp-text"></b></div>';
+
+export function createLayout(app: HTMLElement, view: BoardView = WIDE_VIEW): Layout {
   app.innerHTML = `
     <main id="main">
       <div id="board-col">
@@ -171,19 +200,24 @@ export function createLayout(app: HTMLElement): Layout {
                  화면 픽셀 밀도에 맞춰 다시 정해지고 CSS 크기는 뷰 크기로 못박힌다 — 3D 쪽은
                  WebGLRenderer.setPixelRatio(render3d/scene.ts), 오버레이는 createBoardContext
                  (render/dpr.ts)가 맡는다. -->
-            <canvas id="board" width="${VIEW_W}" height="${VIEW_H}"></canvas>
-            <canvas id="board-overlay" width="${VIEW_W}" height="${VIEW_H}"></canvas>
+            <canvas id="board" width="${view.w}" height="${view.h}"></canvas>
+            <canvas id="board-overlay" width="${view.w}" height="${view.h}"></canvas>
             <!-- ★ 판매 영역은 **판 오른쪽 스트립에 겹쳐 놓인다** (v1.30). 자리는 코드가 정한다 —
                  보드가 캔버스에서 차지하는 사각형은 카메라만 아는 값이라(render3d/index.ts의
                  boardRect) main.ts가 그 값을 받아 여기 style로 밀어 넣는다.
                  드래그 중에만 보이므로 평소에는 킹이 그 자리에 그대로 서 있다. -->
-            <div id="sell-slot">🗑<br><small>여기에 놓으면<br>즉시 판매 (50%)</small><div id="sell-preview"></div></div>
+            ${view.king ? SELL_HTML : ''}
           </div>
         </div>
+        ${view.king ? '' : HP_HTML}
         <!-- ★ 조작 UI를 보드 아래 한 줄로 모았다 (v1.30). 왼쪽은 **사는 것**(뽑기 버튼 + 확률표),
              오른쪽은 **굴리는 것**(웨이브 시작 + 재생바). 예전에는 보드 양옆에 갈라져 있어
              시선이 좌우로 벌어졌다. -->
         <div id="board-bottom">
+          <!-- ★ 좁은 화면에서는 판매 영역이 **여기로** 온다 (v1.36, 사용자 요청). 판 오른쪽
+               스트립은 킹이 사라지면서 함께 없어졌고, 남은 자리 중 드래그로 닿기 쉬운 곳은
+               버튼이 모인 이 줄이다. 드래그 중에만 덮으므로 버튼을 가리지 않는다. -->
+          ${view.king ? '' : SELL_HTML}
           <div class="bottom-col" id="shop"></div>
           <div class="bottom-col">
             <button id="start-wave">웨이브 시작</button>
@@ -224,8 +258,8 @@ export function createLayout(app: HTMLElement): Layout {
   //   fitBoard가 픽셀을 직접 넣은 뒤에도 남겨 둔다 — 스크립트가 재기 전의 폴백이자, 이 파일이
   //   비율을 소유한다는 표시다.
   const wrap = app.querySelector<HTMLElement>('#board-wrap')!;
-  wrap.style.aspectRatio = `${VIEW_W} / ${VIEW_H}`;
-  wireBoardFit(app);
+  wrap.style.aspectRatio = `${view.w} / ${view.h}`;
+  wireBoardFit(app, view);
 
   const q = <T extends HTMLElement>(sel: string) => app.querySelector<T>(sel)!;
   return {
@@ -239,6 +273,7 @@ export function createLayout(app: HTMLElement): Layout {
     },
     drawBtn: q<HTMLButtonElement>('#draw-btn'),
     drawCost: q('#draw-cost'),
+    hp: view.king ? null : { fill: q('#hp-fill'), text: q('#hp-text') },
     sellSlot: q('#sell-slot'),
     startBtn: q<HTMLButtonElement>('#start-wave'),
     bannerRoot: q('#banner-root'),

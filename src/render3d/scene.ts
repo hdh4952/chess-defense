@@ -4,13 +4,15 @@ import { drawBoardBase } from '../render/renderer';
 import { onPixelScaleChange, pixelScale } from '../render/dpr';
 import { CONFIG } from '../config';
 import {
-  boardXFromWorld, boardYFromWorld, DECAL_Y, HALF_D, HALF_W, KING_SCALE, KING_WORLD,
-  SLAB_THICKNESS, VIEW_H, VIEW_W,
+  boardXFromWorld, boardYFromWorld, type BoardView, DECAL_Y, HALF_D, HALF_W, KING_SCALE, KING_WORLD,
+  WIDE_VIEW,
+  SLAB_THICKNESS,
 } from './coords';
 import { playerKingRadius, playerKingTop } from './geometry';
 import { STRETCH_Y } from './pose';
 import type { Square } from '../types';
 import { SLAB_SIDE } from './materials';
+import { setOutlineResolution } from './outline';
 import { toonGradient } from './toon';
 
 /**
@@ -62,8 +64,8 @@ export const TILT = THREE.MathUtils.degToRad(0);
  */
 const FOV_DEG = 28;
 
-/** 프레이밍 여유. 판 네 귀·기물 꼭대기·플레이어 킹이 이 비율 안에 들어오도록 거리를 맞춘다. */
-const FIT_MARGIN = 0.94;
+/* ⚠️ 프레이밍 여유(`FIT_MARGIN`)는 v1.36에서 **뷰가 소유한다**(coords.ts의 `BoardView.margin`).
+   좁은 화면에서는 여백 1%가 곧 판 크기라 넓은 뷰와 같은 값을 쓸 수 없다. */
 
 /** 프레이밍에 포함시킬 기물 높이 — 먼 랭크의 기물이 화면 위로 잘리지 않게 한다.
  *  ★ v1.25에서 세로 늘림(`STRETCH_Y`, pieces.ts)만큼 함께 키웠다. */
@@ -99,7 +101,7 @@ const KEY_INTENSITY = 2.17;
  *
  * @returns 화면 흔들림에 **더해질** 기준 뷰 오프셋(px).
  */
-function fitCamera(camera: THREE.PerspectiveCamera): { x: number; y: number } {
+function fitCamera(camera: THREE.PerspectiveCamera, view: BoardView): { x: number; y: number } {
   const probes: THREE.Vector3[] = [];
   for (const sx of [-1, 1]) {
     for (const sz of [-1, 1]) {
@@ -109,12 +111,16 @@ function fitCamera(camera: THREE.PerspectiveCamera): { x: number; y: number } {
   }
   // ★ 플레이어 킹은 판 **밖**에 서므로 프레이밍에 반드시 넣어야 한다 — 빼면 화면 오른쪽에서
   //   잘린다. 눕힘까지 정확히 계산하지 않고 늘린 높이를 상한으로 쓴다(눕히면 낮아지므로 안전).
-  const kr = playerKingRadius() * KING_SCALE;
-  const kh = playerKingTop() * KING_SCALE * STRETCH_Y;
-  for (const dx of [-kr, kr]) {
-    for (const dz of [-kr, kr]) {
-      probes.push(new THREE.Vector3(KING_WORLD.x + dx, 0, KING_WORLD.z + dz));
-      probes.push(new THREE.Vector3(KING_WORLD.x + dx, kh, KING_WORLD.z + dz));
+  // ⚠️ 좁은 뷰에는 킹이 아예 없다(v1.36). 그래도 이 프로브를 남겨 두면 **없는 것을 담느라
+  //    판이 작아진다** — 킹 자리를 뗀 이유가 통째로 사라진다.
+  if (view.king) {
+    const kr = playerKingRadius() * KING_SCALE;
+    const kh = playerKingTop() * KING_SCALE * STRETCH_Y;
+    for (const dx of [-kr, kr]) {
+      for (const dz of [-kr, kr]) {
+        probes.push(new THREE.Vector3(KING_WORLD.x + dx, 0, KING_WORLD.z + dz));
+        probes.push(new THREE.Vector3(KING_WORLD.x + dx, kh, KING_WORLD.z + dz));
+      }
     }
   }
 
@@ -123,24 +129,24 @@ function fitCamera(camera: THREE.PerspectiveCamera): { x: number; y: number } {
 
   for (let i = 0; i < 10; i++) {
     placeCamera(camera, dist);
-    camera.setViewOffset(VIEW_W, VIEW_H, ox, oy, VIEW_W, VIEW_H);
+    camera.setViewOffset(view.w, view.h, ox, oy, view.w, view.h);
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (const p of probes) {
       v.copy(p).project(camera);
-      const sx = (v.x * 0.5 + 0.5) * VIEW_W, sy = (-v.y * 0.5 + 0.5) * VIEW_H;
+      const sx = (v.x * 0.5 + 0.5) * view.w, sy = (-v.y * 0.5 + 0.5) * view.h;
       minX = Math.min(minX, sx); maxX = Math.max(maxX, sx);
       minY = Math.min(minY, sy); maxY = Math.max(maxY, sy);
     }
     // 뷰 오프셋을 +d 하면 화면이 보여 주는 창이 아래로 내려가 **내용은 위로** 올라간다.
     // 그래서 "중심이 화면 중앙보다 아래에 있다"면 오프셋을 그만큼 더한다.
-    ox += (minX + maxX) / 2 - VIEW_W / 2;
-    oy += (minY + maxY) / 2 - VIEW_H / 2;
+    ox += (minX + maxX) / 2 - view.w / 2;
+    oy += (minY + maxY) / 2 - view.h / 2;
     // ⚠️ **축마다 따로 재고 더 빡빡한 쪽을 따른다.** 뷰가 정사각이 아니게 되면서(VIEW_W는
     //    킹 자리만큼 넓다) 한 축만 보고 맞추면 다른 축이 넘친다. 지금 구성에서는 세로가
     //    binding이고, 그래서 가로를 넓힌 것이 **보드 크기를 한 픽셀도 줄이지 않는다.**
     const need = Math.max(
-      ((maxX - minX) / 2) / (VIEW_W / 2 * FIT_MARGIN),
-      ((maxY - minY) / 2) / (VIEW_H / 2 * FIT_MARGIN),
+      ((maxX - minX) / 2) / (view.w / 2 * view.margin),
+      ((maxY - minY) / 2) / (view.h / 2 * view.margin),
     );
     dist *= need;
   }
@@ -149,7 +155,7 @@ function fitCamera(camera: THREE.PerspectiveCamera): { x: number; y: number } {
   // 그 손해는 판 위에 눕힌 데칼처럼 얇게 겹친 면에서 z-fighting으로 나타난다.
   camera.near = dist * 0.35;
   camera.far = dist * 2.2;
-  camera.setViewOffset(VIEW_W, VIEW_H, ox, oy, VIEW_W, VIEW_H);
+  camera.setViewOffset(view.w, view.h, ox, oy, view.w, view.h);
   return { x: ox, y: oy };
 }
 
@@ -193,9 +199,11 @@ export interface Projector {
  * 연산이라 렌더러가 필요 없고, 덕분에 역투영의 정확성(칸 → 화면 → 칸 왕복)을 브라우저 없이
  * 테스트할 수 있다. 원근 전환에서 가장 조용히 틀릴 수 있는 곳이 그 왕복이다.
  */
-export function createBoardCamera(): { camera: THREE.PerspectiveCamera; baseOffset: { x: number; y: number } } {
-  const camera = new THREE.PerspectiveCamera(FOV_DEG, VIEW_W / VIEW_H, 100, 4000);
-  const baseOffset = fitCamera(camera);
+export function createBoardCamera(
+  view: BoardView = WIDE_VIEW,
+): { camera: THREE.PerspectiveCamera; baseOffset: { x: number; y: number } } {
+  const camera = new THREE.PerspectiveCamera(FOV_DEG, view.w / view.h, 100, 4000);
+  const baseOffset = fitCamera(camera, view);
   return { camera, baseOffset };
 }
 
@@ -203,7 +211,7 @@ export function createBoardCamera(): { camera: THREE.PerspectiveCamera; baseOffs
  * 카메라 하나에 묶인 투영/역투영. 카메라의 **현재** 행렬을 읽으므로 화면 흔들림(뷰 오프셋)이
  * 자동으로 반영된다.
  */
-export function createProjector(camera: THREE.Camera): Projector {
+export function createProjector(camera: THREE.Camera, view: BoardView = WIDE_VIEW): Projector {
   const vec = new THREE.Vector3();
   const ray = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
@@ -213,14 +221,14 @@ export function createProjector(camera: THREE.Camera): Projector {
   return {
     toScreen(x, y, z) {
       vec.set(x, y, z).project(camera);
-      return { x: (vec.x * 0.5 + 0.5) * VIEW_W, y: (-vec.y * 0.5 + 0.5) * VIEW_H };
+      return { x: (vec.x * 0.5 + 0.5) * view.w, y: (-vec.y * 0.5 + 0.5) * view.h };
     },
     boardScreenRect() {
       let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
       for (const sx of [-1, 1]) {
         for (const sz of [-1, 1]) {
           vec.set(sx * HALF_W, 0, sz * HALF_D).project(camera);
-          const x = (vec.x * 0.5 + 0.5) * VIEW_W, y = (-vec.y * 0.5 + 0.5) * VIEW_H;
+          const x = (vec.x * 0.5 + 0.5) * view.w, y = (-vec.y * 0.5 + 0.5) * view.h;
           left = Math.min(left, x); right = Math.max(right, x);
           top = Math.min(top, y); bottom = Math.max(bottom, y);
         }
@@ -228,7 +236,7 @@ export function createProjector(camera: THREE.Camera): Projector {
       return { left, top, right, bottom };
     },
     squareAt(px, py) {
-      ndc.set((px / VIEW_W) * 2 - 1, -((py / VIEW_H) * 2 - 1));
+      ndc.set((px / view.w) * 2 - 1, -((py / view.h) * 2 - 1));
       ray.setFromCamera(ndc, camera);
       if (!ray.ray.intersectPlane(groundPlane, hit)) return null;
       const bx = boardXFromWorld(hit.x), by = boardYFromWorld(hit.z);
@@ -242,6 +250,9 @@ export function createProjector(camera: THREE.Camera): Projector {
 }
 
 export interface SceneKit extends Projector {
+  /** 이 씬이 쓰는 뷰 (v1.36). 오버레이가 자기 좌표계를 여기서 읽는다 — 뷰를 별도 인자로
+   *  또 넘기면 씬과 오버레이가 서로 다른 뷰를 볼 수 있는 여지가 생긴다. */
+  view: BoardView;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   renderer: THREE.WebGLRenderer;
@@ -277,20 +288,23 @@ function bakedCanvas(scale: number, paint: (ctx: CanvasRenderingContext2D) => vo
   return c;
 }
 
-export function createScene(canvas: HTMLCanvasElement): SceneKit {
+export function createScene(canvas: HTMLCanvasElement, view: BoardView = WIDE_VIEW): SceneKit {
   // ★ `alpha: true` — 쿼터뷰에서는 판이 사다리꼴이라 캔버스 네 귀퉁이가 **비어 있다.**
   //   투명하게 두면 페이지 배경이 그대로 비쳐, 판이 배경 위에 놓인 물건처럼 보인다.
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setPixelRatio(pixelScale());
   // ★ 세 번째 인자가 false다 (v1.31): 인라인 style을 건드리지 않고 **백킹 스토어만** 맞춘다.
   //   표시 크기는 CSS가 소유한다 — 화면 높이에 맞춰 보드가 줄어들어야 하기 때문이다(render/dpr.ts).
-  renderer.setSize(VIEW_W, VIEW_H, false);
+  renderer.setSize(view.w, view.h, false);
+  // ★ 윤곽선은 화면 픽셀 고정 두께라 **뷰 크기를 알아야 한다**(outline.ts). 재질이 모듈
+  //   싱글턴이므로 여기서 한 번 맞춰 준다 — 뷰는 판마다 하나뿐이다.
+  setOutlineResolution(view.w, view.h);
   // ★ **그림자 맵을 쓰지 않는다** (v1.25). 기물이 카메라 반대쪽으로 눕어 있어서(각도 불일치,
   //   pieces.ts) 실제 그림자를 켜면 **기울어진 그림자**가 찍혀 "서 있다"가 "넘어지고 있다"로
   //   읽힌다. 밑동에 원판 그림자를 따로 깐다(render3d/blob.ts) — 렌더 패스도 하나 줄어든다.
 
   const scene = new THREE.Scene();
-  const { camera, baseOffset } = createBoardCamera();
+  const { camera, baseOffset } = createBoardCamera(view);
 
   // ── 조명 ───────────────────────────────────────────────────────────────────
   // ★ **조명이 곧 입체감이다.** 키 라이트를 한쪽으로 크게 치우쳐 세운다 — 정면에서 비추면
@@ -361,14 +375,14 @@ export function createScene(canvas: HTMLCanvasElement): SceneKit {
   // 시절 render/dpr.ts가 하던 일을 WebGL 렌더러에 그대로 잇는다.
   const offPixelScale = onPixelScaleChange(() => {
     renderer.setPixelRatio(pixelScale());
-    renderer.setSize(VIEW_W, VIEW_H, false);
+    renderer.setSize(view.w, view.h, false);
   });
 
-  const projector = createProjector(camera);
+  const projector = createProjector(camera, view);
   let shakeX = 0, shakeY = 0;
 
   return {
-    scene, camera, renderer,
+    view, scene, camera, renderer,
     toScreen: projector.toScreen,
     squareAt: projector.squareAt,
     boardScreenRect: projector.boardScreenRect,
@@ -386,7 +400,7 @@ export function createScene(canvas: HTMLCanvasElement): SceneKit {
       //   ⚠️ 기준 오프셋(프레이밍 중심 정렬)에 **더한다** — 덮어쓰면 흔들릴 때마다 판이
       //   원래 자리에서 튀어 오른다.
       camera.setViewOffset(
-        VIEW_W, VIEW_H, baseOffset.x - shakeX, baseOffset.y - shakeY, VIEW_W, VIEW_H,
+        view.w, view.h, baseOffset.x - shakeX, baseOffset.y - shakeY, view.w, view.h,
       );
     },
 

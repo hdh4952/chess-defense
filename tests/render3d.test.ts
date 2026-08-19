@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { boardPiece, cleanState } from './helpers';
 import { CONFIG } from '../src/config';
-import { squareWorld } from '../src/render3d/coords';
+import { COMPACT_VIEW, squareWorld, WIDE_VIEW } from '../src/render3d/coords';
 import { pieceParts, pieceTop } from '../src/render3d/geometry';
 import { Enemies3D } from '../src/render3d/enemies';
 import { Pieces3D } from '../src/render3d/pieces';
@@ -403,5 +403,54 @@ describe('각도 불일치 — 기물을 눕혀 낮은 각도를 흉내낸다', 
     expect(apex.y).toBeCloseTo(h * STRETCH_Y * Math.cos(LEAN), 6);
     expect(apex.z).toBeCloseTo(-h * STRETCH_Y * Math.sin(LEAN), 6);
     expect(apex.z).toBeLessThan(0);                     // 눕힌 방향과 같은 쪽(−Z)으로 물러난다
+  });
+});
+
+
+/**
+ * ══════════════════════════════════════════════════════════════════════════════
+ * ★ v1.36 — **좁은 화면용 뷰** (사용자 요청: "보드 크기가 작아서 모바일 화면 너비에 거의
+ * 꽉채워서 보여줘야할거같아 … 킹이 놓인 우측 공간을 없애고")
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * 카메라 프레이밍이 통째로 다시 수렴하는 변경이다. 그래서 **가장 하중이 큰 단언**(칸 → 화면 →
+ * 칸 왕복)을 새 뷰에서도 그대로 돌린다 — 여기가 어긋나면 화면은 멀쩡한데 기물이 엉뚱한 칸에
+ * 놓이고, 그 사실은 손으로 끌어 보기 전에는 드러나지 않는다.
+ */
+describe('좁은 뷰 (v1.36)', () => {
+  const { camera } = createBoardCamera(COMPACT_VIEW);
+  const projector = createProjector(camera, COMPACT_VIEW);
+
+  it('★ 칸 → 화면 → 칸 왕복이 64칸 전수 통과한다', () => {
+    for (let file = 0; file < CONFIG.board.files; file++) {
+      for (let rank = 1; rank <= CONFIG.board.ranks; rank++) {
+        const w = squareWorld({ file, rank });
+        const p = projector.toScreen(w.x, 0, w.z);
+        expect(projector.squareAt(p.x, p.y), `${file},${rank}`).toEqual({ file, rank });
+      }
+    }
+  });
+
+  it('★ 판이 화면 폭을 거의 다 쓴다 — 넓은 뷰보다 확실히 크다', () => {
+    const compact = projector.boardScreenRect();
+    const wide = createProjector(createBoardCamera(WIDE_VIEW).camera, WIDE_VIEW).boardScreenRect();
+    const share = (r: { left: number; right: number }, viewW: number) => (r.right - r.left) / viewW;
+    // 넓은 뷰에서는 킹 자리(180px)만큼을 판이 못 쓴다 — 그것이 이 변경의 이유다.
+    expect(share(wide, WIDE_VIEW.w)).toBeLessThan(0.75);
+    expect(share(compact, COMPACT_VIEW.w)).toBeGreaterThan(0.88);
+  });
+
+  it('⚠️ 판이 화면 밖으로 나가지 않는다 — 여유를 줄인 만큼 잘릴 위험이 커졌다', () => {
+    const r = projector.boardScreenRect();
+    expect(r.left).toBeGreaterThanOrEqual(0);
+    expect(r.top).toBeGreaterThanOrEqual(0);
+    expect(r.right).toBeLessThanOrEqual(COMPACT_VIEW.w);
+    expect(r.bottom).toBeLessThanOrEqual(COMPACT_VIEW.h);
+  });
+
+  it('킹이 없다 — 그 자리를 판에 준 것이 이 뷰의 전부다', () => {
+    expect(COMPACT_VIEW.king).toBe(false);
+    expect(WIDE_VIEW.king).toBe(true);
+    expect(COMPACT_VIEW.w).toBeLessThan(WIDE_VIEW.w);
   });
 });

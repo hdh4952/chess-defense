@@ -6,7 +6,8 @@ import { createTicker } from './core/ticker';
 import { startWave } from './core/wave';
 import { createAudioController } from './audio';
 import { recordWaveCleared } from './progress';
-import { VIEW_H, VIEW_W } from './render3d/coords';
+import { type BoardView } from './render3d/coords';
+import { pickBoardView } from './render3d/view';
 import { Effects } from './render/effects';
 import { EnemyFx } from './render/enemyFx';
 import { PieceFx } from './render/pieceFx';
@@ -52,26 +53,38 @@ function logFrameError(err: unknown): void {
 }
 
 function startGame(root: HTMLDivElement, difficulty: Difficulty): void {
-  const layout = createLayout(root);   // innerHTML을 덮어써 시작 화면을 통째로 치운다
+  // ★ **뷰를 가장 먼저 정한다** (v1.36 — 모바일). 좁은 화면은 판만 담는 정사각 뷰를 받고,
+  //   그러면 판 밖 킹이 사라지는 대신 판이 화면 폭을 거의 다 쓴다(render3d/coords.ts).
+  //   레이아웃·3D 씬·오버레이가 **같은 값 하나**를 보아야 한다 — 각자 물어보면 그 사이에
+  //   창 크기가 바뀌었을 때 캔버스와 카메라가 다른 기하를 쓰고, 그건 드롭 판정이 조용히
+  //   어긋난다는 뜻이다.
+  // (프레임 루프 안의 `view`는 ViewState라 이름이 겹친다 — 이쪽은 boardView로 둔다.)
+  const boardView: BoardView = pickBoardView();
+  const layout = createLayout(root, boardView);   // innerHTML을 덮어써 시작 화면을 통째로 치운다
   // ★ 보드는 Three.js 씬이다 (v1.21). 카메라가 직교 투영이고 프러스텀이 보드에 맞춰져 있어
   // 그리는 좌표계는 여전히 0~640이다 — 그래서 아래 프레임 루프도, highlights/effects/enemyFx도,
   // 드롭 판정(ui/drag.ts)도 이 변경을 전혀 모른다(render3d/scene.ts의 투영 주석).
-  const board = new Board3D(layout.canvas, layout.overlay);
+  const board = new Board3D(layout.canvas, layout.overlay, boardView);
   // ★ 판매 영역을 판 오른쪽 스트립(킹이 서 있는 자리)에 맞춘다 (v1.30). 보드가 캔버스에서
   //   차지하는 사각형은 카메라만 아는 값이라 3D 쪽에서 받아 온다 — 카메라가 고정이므로
   //   한 번만 계산하면 되고, 그래서 CSS가 아니라 여기서 넣는다.
   // ⚠️ **퍼센트로 넣는다** (v1.31). 보드 래퍼가 화면 높이에 맞춰 줄어들므로(style.css) px로
   //   박으면 창이 작을 때 판매 영역만 원래 크기로 남아 판 밖으로 삐져나온다. 비율로 두면
   //   래퍼가 어떤 크기가 되든 항상 "판 오른쪽 스트립"에 붙어 있는다.
-  const br = board.boardRect();
-  const gap = 6;
-  const pct = (v: number, total: number): string => `${(v / total) * 100}%`;
-  Object.assign(layout.sellSlot.style, {
-    left: pct(br.right + gap, VIEW_W),
-    top: pct(br.top, VIEW_H),
-    width: pct(VIEW_W - br.right - gap * 2, VIEW_W),
-    height: pct(br.bottom - br.top, VIEW_H),
-  });
+  // ⚠️ **좁은 뷰에는 그 스트립이 없다** (v1.36). 판매 영역은 아래 조작 줄을 덮는 자리로
+  //   옮겨 갔고(ui/layout.ts), 자리는 CSS가 정한다 — 여기서 인라인 style을 넣으면 그 CSS를
+  //   이겨 버려 판매 영역이 화면 어딘가에 0크기로 남는다.
+  if (boardView.king) {
+    const br = board.boardRect();
+    const gap = 6;
+    const pct = (v: number, total: number): string => `${(v / total) * 100}%`;
+    Object.assign(layout.sellSlot.style, {
+      left: pct(br.right + gap, boardView.w),
+      top: pct(br.top, boardView.h),
+      width: pct(boardView.w - br.right - gap * 2, boardView.w),
+      height: pct(br.bottom - br.top, boardView.h),
+    });
+  }
 
   // 난이도는 여기서 상태에 굳는다 — 판이 시작된 뒤에는 어디서도 바뀌지 않는다(types.ts).
   const state = createInitialState(difficulty);
@@ -188,8 +201,8 @@ function startGame(root: HTMLDivElement, difficulty: Difficulty): void {
       const cRect = layout.canvas.getBoundingClientRect();
       fx.setGoldTarget(cRect.width > 0
         ? {
-          x: (gRect.left + gRect.width / 2 - cRect.left) * (VIEW_W / cRect.width),
-          y: (gRect.top + gRect.height / 2 - cRect.top) * (VIEW_H / cRect.height),
+          x: (gRect.left + gRect.width / 2 - cRect.left) * (boardView.w / cRect.width),
+          y: (gRect.top + gRect.height / 2 - cRect.top) * (boardView.h / cRect.height),
         }
         : null);
 
