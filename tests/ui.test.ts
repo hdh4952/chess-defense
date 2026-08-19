@@ -152,8 +152,11 @@ describe('createLayout (Task 14 — UI 셸)', () => {
     const kids = [...col.children];
     const at = (sel: string): number => kids.indexOf(app.querySelector(sel)!);
     // 상태 → 보드 → 조작 순서. 상태가 아래로 내려가면 시선이 다시 오간다.
-    expect(at('#board-status')).toBeLessThan(at('#board-wrap'));
-    expect(at('#board-bottom')).toBeGreaterThan(at('#board-wrap'));
+    // ★ v1.35에서 보드가 한 겹 깊어졌다 — 열의 직계 자식은 래퍼가 아니라 **슬롯**이다
+    //   (`#board-slot > #board-wrap`, ui/layout.ts의 wireBoardFit). 순서의 뜻은 그대로다.
+    expect(at('#board-status')).toBeLessThan(at('#board-slot'));
+    expect(at('#board-bottom')).toBeGreaterThan(at('#board-slot'));
+    expect(app.querySelector('#board-wrap')!.closest('#board-slot')).toBeTruthy();
 
     const status = app.querySelector('#board-status')!;
     for (const id of ['hud-wave', 'hud-remaining', 'hud-timer']) {

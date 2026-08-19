@@ -72,6 +72,13 @@ export function dropAction(
 }
 
 const CLICK_DIST = 6;      // px 미만 이동이면 클릭으로 간주
+/**
+ * ★ 손가락은 더 많이 흔들린다 (v1.35). 마우스의 6px를 그대로 쓰면 **탭이 탭으로 인식되지
+ * 않는다** — 살짝 밀린 탭이 "드래그해서 같은 칸에 놓기"가 되고, 같은 칸 이동은 규칙상
+ * 실패라(core/pieces.ts의 sameSquare) 기물을 고르려 했을 뿐인데 거절음이 난다.
+ * 12px는 안드로이드(8dp)와 iOS(약 10pt)의 터치 슬롭 사이에 있는 값이다.
+ */
+const CLICK_DIST_TOUCH = 12;
 
 export class DragController {
   readonly interaction: Interaction = { dragging: null, selectedPieceId: null, hoverSquare: null };
@@ -177,7 +184,21 @@ export class DragController {
     this.layout.sellSlot.querySelector('#sell-preview')!.textContent = '';
   }
 
+  /**
+   * ★ **두 번째 손가락은 없는 셈 친다** (v1.35 — 모바일). 터치는 마우스와 달리 포인터가
+   * 여럿이라, 한 손가락으로 기물을 끄는 중에 다른 손가락이 화면에 닿으면 그 pointerdown이
+   * 새 드래그를 시작해 **끌던 기물을 놓아 버린다.**
+   *
+   * ⚠️ 조건에 `pointerType === 'touch'`를 함께 건 것이 중요하다. `isPrimary`만 보면 이 저장소의
+   * 테스트가 통째로 죽는다 — `new PointerEvent(...)`의 `isPrimary` 기본값이 명세상 false라
+   * 합성 이벤트가 전부 걸러진다. 마우스·펜은 애초에 이 문제가 없으므로 터치에만 건다.
+   */
+  private isSecondaryTouch(e: PointerEvent): boolean {
+    return e.pointerType === 'touch' && e.isPrimary === false;
+  }
+
   private onDown = (e: PointerEvent): void => {
+    if (this.isSecondaryTouch(e)) return;
     if (this.state.paused || e.button !== 0) return;   // 일시정지 중 조작 불가 (스펙 7.7)
     this.zonesCache = null;                             // 드래그 시작 시점의 최신 레이아웃으로 갱신
     this.downAt = { x: e.clientX, y: e.clientY };
@@ -201,6 +222,7 @@ export class DragController {
   };
 
   private onMove = (e: PointerEvent): void => {
+    if (this.isSecondaryTouch(e)) return;
     const t = pickDropTarget(e.clientX, e.clientY, this.zones(), this.pickSquare);
     this.interaction.hoverSquare = t?.kind === 'square' ? { file: t.file, rank: t.rank } : null;
     const d = this.interaction.dragging;
@@ -217,9 +239,14 @@ export class DragController {
   };
 
   private onUp = (e: PointerEvent): void => {
+    if (this.isSecondaryTouch(e)) return;
     if (e.button !== 0) return;                        // 좌클릭 해제만 드롭으로 취급 (검토 Finding 4)
+    // ★ 터치에는 **hover가 없다** (v1.35). 손가락을 떼면 그 자리를 "가리키고 있는" 상태가
+    //   아닌데, 마우스처럼 남겨 두면 마지막으로 짚은 기물의 툴팁이 판 위에 붙박이로 남는다.
+    if (e.pointerType === 'touch') this.interaction.hoverSquare = null;
+    const slop = e.pointerType === 'touch' ? CLICK_DIST_TOUCH : CLICK_DIST;
     const wasClick = this.downAt
-      && Math.hypot(e.clientX - this.downAt.x, e.clientY - this.downAt.y) < CLICK_DIST;
+      && Math.hypot(e.clientX - this.downAt.x, e.clientY - this.downAt.y) < slop;
     this.downAt = null;
     const d = this.interaction.dragging;
     this.interaction.dragging = null;
@@ -300,6 +327,14 @@ export class DragController {
     this.ghost.style.display = 'block';
     this.ghost.style.left = `${e.clientX}px`;
     this.ghost.style.top = `${e.clientY}px`;
+    // ★ 터치에서는 고스트를 손가락 **위쪽**으로 올린다 (v1.35). 마우스 커서는 화살표 끝
+    //   하나지만 손가락은 자기가 가리키는 것을 통째로 덮는다 — 집은 기물이 손가락 밑에
+    //   깔리면 어디에 놓고 있는지가 보이지 않는다.
+    //   ⚠️ 판정점은 옮기지 않는다. `pickDropTarget`은 그대로 clientX/clientY를 쓰므로
+    //   "놓이는 곳"은 손가락 위치 그대로고, 위로 뜬 것은 그림뿐이다.
+    this.ghost.style.transform = e.pointerType === 'touch'
+      ? 'translate(-50%, -140%)'
+      : 'translate(-50%, -50%)';
   }
 
 }

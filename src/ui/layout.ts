@@ -91,6 +91,65 @@ export const CREDIT_HTML = `
       <a href="https://github.com/hdh4952/chess-defense/blob/main/NOTICE.md" target="_blank" rel="noopener noreferrer">변경 내역(NOTICE.md)</a>
     </footer>`;
 
+/**
+ * 보드가 들어갈 자리(availW × availH)에 **뷰 비율을 지킨 채** 넣을 수 있는 최대 크기 (v1.35).
+ *
+ * ★ **두 축을 함께 본다**는 것이 전부다. v1.31~v1.34에서는 높이 하나만 봤다(CSS의
+ * `aspect-ratio`가 남는 높이에서 너비를 유도했다) — 데스크톱에서는 늘 높이가 먼저 동나므로
+ * 맞는 답이었지만, 세로로 긴 폰에서는 그 너비가 **화면 폭을 넘고** `overflow: hidden`이
+ * 넘친 만큼을 스크롤도 없이 잘라 냈다(실측 iPhone 13: 판 484px / 화면 390px — 킹과 판매
+ * 영역이 통째로 화면 밖).
+ *
+ * ⚠️ **레터박싱은 답이 될 수 없다.** 캔버스를 `object-fit: contain`으로 넣어 남는 여백을
+ * 두면 `getBoundingClientRect`가 여백까지 포함한 상자를 돌려주고, 드롭 판정은 그 rect로
+ * 정규화하므로(ui/drag.ts) **판정이 통째로 어긋난다.** 그래서 여백이 생길 수 없는 쪽 —
+ * 상자 자체를 비율대로 깎는 쪽 — 을 택했다.
+ *
+ * 순수 함수로 떼어 둔 이유도 같다: 틀리면 드롭이 조용히 어긋나는 계산이라 브라우저 없이
+ * 검증할 수 있어야 한다(tests/mobile.test.ts).
+ */
+export function fitBoardSize(
+  availW: number, availH: number, ratio = VIEW_W / VIEW_H,
+): { width: number; height: number } {
+  const width = Math.max(0, Math.min(availW, availH * ratio));
+  return { width, height: width / ratio };
+}
+
+/**
+ * 보드 크기를 자리에 맞춘다 — 리사이즈·회전·주소창 접힘을 전부 따라간다 (v1.35).
+ *
+ * ★ 관찰 대상은 래퍼가 아니라 **슬롯**이다. 래퍼는 슬롯 안에 절대 배치라 슬롯 크기에 전혀
+ * 기여하지 않으므로, "재는 것"과 "바꾸는 것"이 서로 다른 상자다 — 예전 구조(래퍼가 흐름에
+ * 있고 자기 크기를 관찰)에서는 그 둘이 같아 되먹임 고리가 있었다.
+ *
+ * ⚠️ 그래도 고리가 완전히 없지는 않다: `--board-w`가 상태 줄·조작 줄의 너비를 바꾸고, 그
+ * 줄들의 **높이**가 달라지면 슬롯 높이가 다시 달라질 수 있다. 그래서 값이 실질적으로 같으면
+ * 아무것도 쓰지 않고 끝낸다 — 브라우저가 "ResizeObserver loop" 경고를 뱉는 무한 왕복을 막는
+ * 가장 값싼 방법이다.
+ */
+function wireBoardFit(app: HTMLElement): void {
+  const slot = app.querySelector<HTMLElement>('#board-slot')!;
+  const wrap = app.querySelector<HTMLElement>('#board-wrap')!;
+  const col = app.querySelector<HTMLElement>('#board-col')!;
+  let lastW = -1;
+  const fit = (): void => {
+    const r = slot.getBoundingClientRect();
+    const { width, height } = fitBoardSize(r.width, r.height);
+    // 아직 레이아웃이 없거나(테스트 환경) 화면 밖이면 그냥 둔다 — CSS 폴백이 자리를 지킨다.
+    if (width <= 0 || Math.abs(width - lastW) < 0.5) return;
+    lastW = width;
+    wrap.style.width = `${width}px`;
+    wrap.style.height = `${height}px`;
+    col.style.setProperty('--board-w', `${width}px`);
+  };
+  fit();
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(fit).observe(slot);
+  // resize는 회전(orientationchange)까지 함께 커버한다. visualViewport는 모바일에서 주소창이
+  // 접히거나 키보드가 올라올 때 **resize 없이** 보이는 높이만 바뀌는 경우를 잡는다.
+  window.addEventListener('resize', fit);
+  window.visualViewport?.addEventListener('resize', fit);
+}
+
 export function createLayout(app: HTMLElement): Layout {
   app.innerHTML = `
     <main id="main">
@@ -103,18 +162,23 @@ export function createLayout(app: HTMLElement): Layout {
           <span class="stat-pill">남은 적 <b id="hud-remaining"></b></span>
           <span class="stat-pill" id="timer-pill">⏱<b id="hud-timer"></b><b id="hud-boss-icon" hidden> ♚보스!</b></span>
         </div>
-        <div id="board-wrap">
-          <!-- width/height는 배율 1일 때의 값이자 폴백이다. 실제 해상도는 두 캔버스 모두
-               화면 픽셀 밀도에 맞춰 다시 정해지고 CSS 크기는 뷰 크기로 못박힌다 — 3D 쪽은
-               WebGLRenderer.setPixelRatio(render3d/scene.ts), 오버레이는 createBoardContext
-               (render/dpr.ts)가 맡는다. -->
-          <canvas id="board" width="${VIEW_W}" height="${VIEW_H}"></canvas>
-          <canvas id="board-overlay" width="${VIEW_W}" height="${VIEW_H}"></canvas>
-          <!-- ★ 판매 영역은 **판 오른쪽 스트립에 겹쳐 놓인다** (v1.30). 자리는 코드가 정한다 —
-               보드가 캔버스에서 차지하는 사각형은 카메라만 아는 값이라(render3d/index.ts의
-               boardRect) main.ts가 그 값을 받아 여기 style로 밀어 넣는다.
-               드래그 중에만 보이므로 평소에는 킹이 그 자리에 그대로 서 있다. -->
-          <div id="sell-slot">🗑<br><small>여기에 놓으면<br>즉시 판매 (50%)</small><div id="sell-preview"></div></div>
+        <!-- ★ 슬롯은 **남는 자리**를 차지하는 빈 상자고, 래퍼는 그 안에 절대 배치로 떠 있다
+             (v1.35). 이렇게 나눠야 "자리가 얼마나 남았나"를 재는 일이 "보드를 얼마로 할까"에
+             영향을 받지 않는다 — 아래 fitBoard 주석. -->
+        <div id="board-slot">
+          <div id="board-wrap">
+            <!-- width/height는 배율 1일 때의 값이자 폴백이다. 실제 해상도는 두 캔버스 모두
+                 화면 픽셀 밀도에 맞춰 다시 정해지고 CSS 크기는 뷰 크기로 못박힌다 — 3D 쪽은
+                 WebGLRenderer.setPixelRatio(render3d/scene.ts), 오버레이는 createBoardContext
+                 (render/dpr.ts)가 맡는다. -->
+            <canvas id="board" width="${VIEW_W}" height="${VIEW_H}"></canvas>
+            <canvas id="board-overlay" width="${VIEW_W}" height="${VIEW_H}"></canvas>
+            <!-- ★ 판매 영역은 **판 오른쪽 스트립에 겹쳐 놓인다** (v1.30). 자리는 코드가 정한다 —
+                 보드가 캔버스에서 차지하는 사각형은 카메라만 아는 값이라(render3d/index.ts의
+                 boardRect) main.ts가 그 값을 받아 여기 style로 밀어 넣는다.
+                 드래그 중에만 보이므로 평소에는 킹이 그 자리에 그대로 서 있다. -->
+            <div id="sell-slot">🗑<br><small>여기에 놓으면<br>즉시 판매 (50%)</small><div id="sell-preview"></div></div>
+          </div>
         </div>
         <!-- ★ 조작 UI를 보드 아래 한 줄로 모았다 (v1.30). 왼쪽은 **사는 것**(뽑기 버튼 + 확률표),
              오른쪽은 **굴리는 것**(웨이브 시작 + 재생바). 예전에는 보드 양옆에 갈라져 있어
@@ -157,24 +221,11 @@ export function createLayout(app: HTMLElement): Layout {
   app.classList.add('in-game');
   // ★ 보드 래퍼의 비율은 **뷰 크기에서 유도한다.** CSS에 숫자를 박으면 VIEW_W를 바꿨을 때
   //   조용히 어긋나고, 그 어긋남은 드롭 판정까지 함께 틀어진다(래퍼 rect로 정규화하므로).
+  //   fitBoard가 픽셀을 직접 넣은 뒤에도 남겨 둔다 — 스크립트가 재기 전의 폴백이자, 이 파일이
+  //   비율을 소유한다는 표시다.
   const wrap = app.querySelector<HTMLElement>('#board-wrap')!;
   wrap.style.aspectRatio = `${VIEW_W} / ${VIEW_H}`;
-
-  // ★ 아래 조작 줄과 위 상태 줄을 **보드 너비에 맞춘다.**
-  //
-  // 보드 래퍼의 너비는 "남은 높이 × 비율"이라 화면 크기에 따라 달라지고, CSS는 그 값을
-  // 형제 요소에 전달할 방법이 없다 — 그대로 두면 조작 줄이 열 전체로 늘어나 보드보다 넓어진다.
-  // 래퍼를 관찰해 열 너비로 되돌려 주면 그 어긋남이 사라진다.
-  //
-  // ⚠️ 순환처럼 보이지만 아니다: 래퍼 너비는 **높이**에서 나오고 높이는 열 너비와 무관하다.
-  //   그래서 한 번 맞으면 더 움직이지 않는다.
-  const col = app.querySelector<HTMLElement>('#board-col')!;
-  if (typeof ResizeObserver !== 'undefined') {
-    new ResizeObserver(() => {
-      const w = wrap.getBoundingClientRect().width;
-      if (w > 0) col.style.width = `${w}px`;
-    }).observe(wrap);
-  }
+  wireBoardFit(app);
 
   const q = <T extends HTMLElement>(sel: string) => app.querySelector<T>(sel)!;
   return {

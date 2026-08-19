@@ -894,3 +894,104 @@ describe('DragController — UI 제스처 사운드 (스펙 §10.1 v1.3/v1.4)', 
     expect(audio.played).toEqual([]);
   });
 });
+
+/**
+ * ★ v1.35 — **손가락으로 하는 드래그** (사용자 요청: "모바일 플레이도 가능하게").
+ *
+ * 마우스와 다른 것이 셋이고, 셋 다 조용히 틀어진다:
+ *   ① 포인터가 **여럿**이다 — 두 번째 손가락이 끌던 기물을 놓아 버린다.
+ *   ② hover가 **없다** — 손가락을 떼면 가리키는 곳이 사라지는데 마지막 칸을 남기면
+ *      그 자리의 툴팁이 판 위에 붙박이로 남는다(치울 방법이 없다).
+ *   ③ 손끝이 **자기가 가리키는 것을 덮는다** — 고스트가 손가락 밑에 깔리면 어디에 놓고
+ *      있는지 보이지 않고, 흔들림이 커서 탭이 탭으로 인식되지 않는다.
+ *
+ * ⚠️ `pointerType`을 붙이지 않은 합성 이벤트는 마우스로 취급돼야 한다 — 이 스위트 위쪽의
+ * 기존 테스트 전부가 그 가정 위에 서 있다.
+ */
+describe('DragController — 터치 (v1.35)', () => {
+  function touch(type: string, x: number, y: number, isPrimary = true): PointerEvent {
+    return new PointerEvent(type, {
+      clientX: x, clientY: y, button: 0, bubbles: true, pointerType: 'touch', isPrimary,
+    });
+  }
+
+  it('고스트를 손가락 위로 올린다 — 마우스는 그대로 커서 중앙', () => {
+    const { state } = setup();
+    state.pieces.push(boardPiece('pawn', 1, 1));
+    const at = squareCenter(1, 1);
+
+    document.dispatchEvent(touch('pointerdown', at.x, at.y));
+    document.dispatchEvent(touch('pointermove', at.x + 30, at.y - 30));
+    expect(ghostEl().style.transform).toBe('translate(-50%, -140%)');
+    document.dispatchEvent(touch('pointerup', at.x + 30, at.y - 30));
+
+    document.dispatchEvent(pointer('pointerdown', at.x, at.y));
+    document.dispatchEvent(pointer('pointermove', at.x + 30, at.y - 30));
+    expect(ghostEl().style.transform).toBe('translate(-50%, -50%)');
+  });
+
+  it('★ 판정점은 손가락 그대로다 — 고스트만 떠 있고 놓이는 칸은 손끝이 정한다', () => {
+    const { state } = setup();
+    const p = boardPiece('pawn', 1, 1);
+    state.pieces.push(p);
+    const to = squareCenter(4, 4);
+    document.dispatchEvent(touch('pointerdown', squareCenter(1, 1).x, squareCenter(1, 1).y));
+    document.dispatchEvent(touch('pointermove', to.x, to.y));
+    document.dispatchEvent(touch('pointerup', to.x, to.y));
+    // 고스트를 140% 올렸다고 한 칸 위에 놓이면, 화면에서 손끝이 가리킨 칸과 실제 착지가
+    // 어긋난다 — 눈으로는 절대 못 잡고 "가끔 엉뚱한 데 놓인다"로만 드러나는 종류의 버그다.
+    expect(p.square).toEqual({ file: 4, rank: 4 });
+  });
+
+  it('★ 두 번째 손가락은 끌던 기물을 놓지 못한다', () => {
+    const { state } = setup();
+    const p = boardPiece('pawn', 1, 1);
+    state.pieces.push(p);
+    const from = squareCenter(1, 1);
+    const to = squareCenter(4, 4);
+
+    document.dispatchEvent(touch('pointerdown', from.x, from.y));
+    document.dispatchEvent(touch('pointermove', to.x, to.y));
+    // 다른 손가락이 판의 엉뚱한 곳에 닿았다 뗀다 (isPrimary=false)
+    const other = squareCenter(6, 6);
+    document.dispatchEvent(touch('pointerdown', other.x, other.y, false));
+    document.dispatchEvent(touch('pointerup', other.x, other.y, false));
+    // 끌던 기물은 여전히 손에 있다
+    expect(currentRig!.drag.interaction.dragging?.pieceId).toBe(p.id);
+    document.dispatchEvent(touch('pointerup', to.x, to.y));
+    expect(p.square).toEqual({ file: 4, rank: 4 });
+  });
+
+  it('★ 손가락을 떼면 hover가 남지 않는다 (마우스는 남는다)', () => {
+    const { state, drag } = setup();
+    state.pieces.push(boardPiece('pawn', 1, 1));
+    const at = squareCenter(1, 1);
+
+    document.dispatchEvent(touch('pointerdown', at.x, at.y));
+    // ⚠️ pointermove를 반드시 거친다 — hoverSquare를 세우는 것은 이동뿐이라, 이 줄이 없으면
+    //    처음부터 null인 값을 확인하는 셈이라 **지워도 통과하는 테스트**가 된다(실제로 그랬다).
+    document.dispatchEvent(touch('pointermove', at.x, at.y));
+    expect(drag.interaction.hoverSquare).toEqual({ file: 1, rank: 1 });
+    document.dispatchEvent(touch('pointerup', at.x, at.y));
+    expect(drag.interaction.hoverSquare).toBeNull();
+
+    // 마우스에서는 손을 떼도 커서가 그 자리를 계속 가리키고 있다 — 지우면 안 된다.
+    document.dispatchEvent(pointer('pointermove', at.x, at.y));
+    document.dispatchEvent(pointer('pointerup', at.x, at.y));
+    expect(drag.interaction.hoverSquare).toEqual({ file: 1, rank: 1 });
+  });
+
+  it('★ 살짝 밀린 탭은 드래그가 아니라 탭이다 — 거절음이 아니라 선택', () => {
+    const { state, drag, audio } = setup();
+    const p = boardPiece('pawn', 1, 1);
+    state.pieces.push(p);
+    const at = squareCenter(1, 1);
+    // 8px — 마우스 기준(6px)은 넘지만 손가락 기준(12px)에는 못 미친다. 같은 칸 안이다.
+    document.dispatchEvent(touch('pointerdown', at.x, at.y));
+    document.dispatchEvent(touch('pointermove', at.x + 8, at.y));
+    document.dispatchEvent(touch('pointerup', at.x + 8, at.y));
+
+    expect(drag.interaction.selectedPieceId).toBe(p.id);    // 골랐다
+    expect(audio.played).not.toContain('uiInvalid');       // 거절음이 나지 않았다
+  });
+});

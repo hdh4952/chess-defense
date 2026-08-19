@@ -107,6 +107,15 @@ function startGame(root: HTMLDivElement, difficulty: Difficulty): void {
   document.body.appendChild(tooltip);
   let mousePos: { x: number; y: number } | null = null;
   document.addEventListener('pointermove', e => { mousePos = { x: e.clientX, y: e.clientY }; });
+  // ★ 터치에서는 손가락을 떼는 순간 **가리키는 곳이 없어진다** (v1.35). 마우스처럼 마지막
+  //   좌표를 남겨 두면 그 자리의 툴팁이 판 위에 붙박이로 떠 있게 된다 — 손가락으로는 그것을
+  //   치울 방법이 없다(hover를 벗어나는 동작 자체가 없다). ui/drag.ts가 같은 이유로
+  //   hoverSquare를 지우고, 툴팁은 둘 중 하나만 없어도 사라진다(ui/tooltip.ts).
+  const clearTouchPointer = (e: PointerEvent): void => {
+    if (e.pointerType === 'touch') mousePos = null;
+  };
+  document.addEventListener('pointerup', clearTouchPointer);
+  document.addEventListener('pointercancel', clearTouchPointer);
 
   if (import.meta.env.DEV) {
     (window as unknown as Record<string, unknown>).__game = state;

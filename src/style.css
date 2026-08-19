@@ -2,6 +2,17 @@
 body {
   margin: 0; background: #23221f; color: #e8e8e8;
   font-family: system-ui, sans-serif; user-select: none;
+  /* ★ 모바일 기본기 (v1.35 — 사용자 요청: "드래그시에 화면이 움직이지 않도록").
+     · overscroll-behavior — 끝에서 당겼을 때의 **당겨서 새로고침**과 고무줄 스크롤을 끊는다.
+       드래그로 기물을 위쪽 랭크에 놓으려는 동작이 정확히 그 제스처다.
+     · -webkit-touch-callout — iOS의 길게 누르기 메뉴(복사/공유)를 끈다. 이 게임에서 **드래그는
+       곧 길게 누르기**라 그냥 두면 기물을 집을 때마다 시스템 메뉴가 뜬다.
+     · touch-action: manipulation — 더블탭 확대와 거기 딸린 300ms 클릭 지연을 없앤다.
+       게임 화면은 아래에서 `none`으로 한 겹 더 좁힌다. 여기를 처음부터 none으로 두면
+       시작 화면이 스크롤되지 않는다 — 기물 설명 8탭이라 세로로 길다. */
+  overscroll-behavior: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
 }
 
 /* ★ 게임 화면은 **화면 높이에 딱 맞는다** — 스크롤이 생기지 않는다 (v1.31).
@@ -12,9 +23,27 @@ body {
    `100dvh`는 모바일 브라우저의 주소창이 접히고 펴질 때 따라오는 단위다(`vh`는 고정값이라
    주소창이 보일 때 아래가 잘린다). */
 html { height: 100%; }
+/* ★ **게임 화면에서는 창이 고정된다** (v1.35, 사용자 요청). 세 겹이 함께 걸린다:
+     ① `touch-action: none` — 판 위에서 시작한 터치를 브라우저가 스크롤·핀치로 **해석하지
+        않는다.** 이것이 없으면 브라우저가 제스처를 가로채는 순간 `pointercancel`이 날아와
+        드래그가 **조용히 끊긴다**(ui/drag.ts의 onCancel). 화면이 흔들리는 것보다 이쪽이 더
+        치명적이다 — 기물이 손가락을 따라오다 사라진다.
+     ② 문서가 스크롤될 여지 자체를 없앤다(아래 `overflow: hidden`).
+     ③ body의 `overscroll-behavior: none`(위) — 화면 끝에서 당겼을 때.
+   ⚠️ `position: fixed`로 body를 못 박는 흔한 처방은 **쓰지 않았다.** iOS에서 fixed의 기준
+   높이(주소창이 접힌 상태)와 `100dvh`(접히는 중의 실제 높이)가 어긋나 오히려 아래가 잘린다.
+   위 세 겹으로 이미 어떤 터치도 스크롤을 시작시키지 못한다. */
+html:has(#app.in-game), body:has(#app.in-game) { overflow: hidden; }
 #app.in-game {
   height: 100dvh; overflow: hidden;
   display: flex; flex-direction: column;
+  touch-action: none;
+  /* 노치·홈 인디케이터를 피한다(index.html의 viewport-fit=cover와 짝이다). 가로 모드에서
+     노치는 **옆**에 있으므로 좌우 여백이 특히 중요하다 — 없으면 보드가 노치에 먹힌다. */
+  padding:
+    env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+  box-sizing: border-box;
 }
 /* ⚠️ v1.29에서 `#hud`(화면 맨 위 상태 막대)가 통째로 사라졌다. 값들은 없어진 게 아니라
    자기가 말하는 것 옆으로 옮겨 갔다 — 상태 표시는 보드 위(#board-status), 조작 버튼은
@@ -25,8 +54,19 @@ html { height: 100%; }
    (`flex: 0 0 auto`), 보드만 늘었다 줄었다 한다. `min-height: 0`이 없으면 flex 자식이
    내용 크기 아래로 줄지 못해 그대로 넘친다 — 스크롤이 생기는 가장 흔한 원인이다. */
 #main { display: flex; padding: 12px; justify-content: center; flex: 1; min-height: 0; }
-#board-col { display: flex; flex-direction: column; min-height: 0; }
-#board-status, #board-bottom { flex: 0 0 auto; }
+#board-col {
+  display: flex; flex-direction: column; align-items: center;
+  flex: 1; min-height: 0; min-width: 0;
+}
+/* ★ 상태 줄과 조작 줄의 **너비는 보드가 정한다** (v1.35). 예전에는 열 자체를 보드 너비로
+   줄여서 맞췄는데(ResizeObserver가 `#board-col`의 width를 썼다), 그러면 열 너비 → 줄 높이 →
+   남는 높이 → 보드 너비 → 다시 열 너비로 도는 고리가 생긴다. 열은 화면을 다 쓰게 두고
+   **변수 하나만** 내려보내면 고리가 끊어진다 — `--board-w`는 ui/layout.ts의 fitBoard가 쓴다.
+   폴백이 `100%`인 것이 중요하다: 스크립트가 아직 재기 전에도 줄이 제자리에 보인다. */
+#board-status, #board-bottom {
+  flex: 0 0 auto;
+  width: var(--board-w, 100%); max-width: 100%;
+}
 
 /* 보드 아래 조작 줄 — 왼쪽은 사는 것(뽑기 + 확률표), 오른쪽은 굴리는 것(시작 + 재생바). */
 #board-bottom { display: flex; gap: 12px; margin-top: 10px; align-items: flex-start; }
@@ -35,7 +75,9 @@ html { height: 100%; }
    (§8.1). 대신 보드가 양보한다 — 다만 보드가 무한정 줄면 게임이 불가능해지므로 하한을 둔다.
    그보다 짧은 화면에서는 **정직하게 스크롤이 생긴다**: 내용이 진짜로 안 들어가는 것이다. */
 #odds { flex: 0 0 auto; }
-#board-wrap { min-height: 200px; }
+/* ⚠️ 여기 있던 `#board-wrap { min-height: 200px }`를 v1.35에서 지웠다 — **이미 죽은 규칙이었다.**
+   아래(v1.31)에서 같은 선택자가 `min-height: 0`으로 덮어쓰고 있었으므로 하한은 존재한 적이
+   없다. 하한이 필요하면 이제 자리는 CSS가 아니라 fitBoard다(ui/layout.ts). */
 .bottom-col { flex: 1; display: flex; flex-direction: column; gap: 8px; }
 
 /* ── 카툰 UI 공통 (v1.27 뽑기 버튼 → v1.29 전체로) ─────────────────────────
@@ -68,6 +110,10 @@ html { height: 100%; }
 .stat-pill {
   display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; font-size: 15px;
   background: linear-gradient(#5A5668, #413D4E 52%, #35313F);
+  /* ★ 알약 안에서는 줄을 접지 않는다 (v1.35). 좁은 자리(가로 모드의 옆 단)에서 접히면
+     "웨이 / 브 1/20"처럼 낱말이 쪼개져 알약 모양 자체가 무너진다 — 접을 것은 글자가 아니라
+     알약 줄이다(#board-status의 flex-wrap). */
+  white-space: nowrap;
 }
 .stat-pill b { color: #FFD34D; font-variant-numeric: tabular-nums; }
 /* ★ 보스 웨이브 준비 중에는 타이머 알약 자체가 붉어진다 — 아이콘 하나보다 훨씬 먼저 읽힌다.
@@ -143,10 +189,16 @@ html { height: 100%; }
    `getBoundingClientRect`가 여백까지 포함한 상자를 돌려주는데, 드롭 판정은 그 rect로
    정규화하므로(ui/drag.ts) 여백만큼 통째로 어긋난다. 래퍼가 비율을 갖고 캔버스가 그것을
    꽉 채우면 여백 자체가 생기지 않는다. */
+/* ★ **남는 자리**를 그대로 차지하는 빈 상자다 (v1.35). 보드 래퍼는 이 안에 절대 배치로
+   떠 있으므로 슬롯의 크기에 **전혀 영향을 주지 않는다** — 그래서 "보드가 들어갈 자리"를
+   재는 일과 "보드를 그 자리에 맞추는" 일이 서로를 물지 않는다(순환이 구조적으로 불가능하다).
+   예전에는 래퍼가 직접 흐름에 있어서, 높이를 재려면 이미 크기를 정해 둔 자신을 빼야 했다. */
+#board-slot { flex: 1 1 auto; min-height: 0; min-width: 0; position: relative; width: 100%; }
 #board-wrap {
-  position: relative;
-  flex: 1 1 auto; min-height: 0;
-  margin: 0 auto;
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  /* 폴백 — 스크립트가 크기를 넣기 전(또는 ResizeObserver가 없는 환경)에는 **너비 기준**으로
+     비율만 지킨다. 비율 자체는 인라인 `aspect-ratio`로 ui/layout.ts가 넣는다. */
+  width: 100%;
 }
 /* ⚠️ **두 캔버스 모두 흐름에서 뺀다(absolute).** 표시 크기를 CSS가 소유하게 되면서
    (render/dpr.ts) 캔버스의 **고유 너비가 백킹 스토어 크기**가 됐다 — 배율 2인 화면에서는
@@ -211,9 +263,15 @@ canvas { display: block; }
    위: 기물 설명 탭 / 아래: BATTLE. 게임 화면과 같은 팔레트를 쓰되, 보드가 없으므로
    가운데 한 단(min(880px, 화면폭))으로 모아 읽기 좋게 둔다. */
 #title {
-  max-width: 880px; margin: 0 auto; padding: 28px 16px 12px;
-  display: flex; flex-direction: column; justify-content: center; gap: 20px;
-  min-height: 100vh; box-sizing: border-box;
+  max-width: 880px; margin: 0 auto; gap: 20px;
+  display: flex; flex-direction: column; justify-content: center;
+  /* ★ `100vh`가 아니라 `100dvh`다 (v1.35). vh는 **주소창이 접힌 상태의** 높이로 고정이라,
+     주소창이 보이는 동안 화면 하나에 담기지 못하고 BATTLE 버튼이 아래로 밀린다. */
+  min-height: 100dvh; box-sizing: border-box;
+  /* 안전 영역만큼은 반드시 비운다 — 노치 아래에 제목이 깔리면 읽히지 않는다. */
+  padding:
+    max(28px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
 }
 #title-head { text-align: center; }
 #title-head h1 { margin: 0; font-size: 40px; letter-spacing: 2px; }
@@ -368,3 +426,90 @@ canvas { display: block; }
   text-align: center; font-size: 18px;
 }
 .result-box button { margin-top: 16px; padding: 10px 28px; font-size: 16px; }
+
+
+/* ══ 모바일 (v1.35 — 사용자 요청: "모바일 플레이도 가능하게") ════════════════
+   손가락과 좁은 화면, 두 가지가 한꺼번에 달라진다. 터치 쪽(창 고정·길게 누르기 메뉴·고스트
+   위치)은 파일 맨 위와 ui/drag.ts가 맡고, 여기서는 **자리**만 다룬다.
+
+   ⚠️ 고친 것은 "작아서 답답하다"가 아니라 **판이 화면 밖으로 잘려 나가는** 문제였다:
+   보드 너비가 남는 높이에서만 유도되던 탓에(v1.31) 세로로 긴 화면에서는 그 값이 화면 폭을
+   훌쩍 넘었고, `overflow: hidden`이 넘친 부분을 **스크롤도 없이 그냥 잘라 냈다** — 실측
+   iPhone 13 세로에서 판 너비 484px, 화면 390px. 킹과 판매 영역이 통째로 화면 밖이었다.
+   이제 두 축을 함께 본다(ui/layout.ts의 fitBoardSize). */
+
+/* 좁은 화면 — 여백과 글자를 한 단 줄여 판에 높이를 넘긴다. */
+@media (max-width: 560px) {
+  #main { padding: 8px; }
+  #board-status { gap: 6px; margin-bottom: 6px; }
+  .stat-pill { padding: 6px 9px; font-size: 13px; }
+  #board-bottom { gap: 8px; margin-top: 8px; }
+  #draw-btn { padding: 10px 4px 11px; font-size: 15px; }
+  #draw-cost { font-size: 14px; }
+  #start-wave { padding: 11px; font-size: 16px; }
+  /* 버튼은 작아져도 **손가락만큼은** 남긴다 — 44px는 터치 목표의 통상 하한이다. */
+  .ctl-btn { min-height: 44px; font-size: 14px; }
+  #odds { padding: 6px 7px; font-size: 11px; }
+  .odds-icon { width: 14px; height: 14px; }
+
+  /* 시작 화면 — 한 줄에 몰아넣던 머리를 접는다. 접지 않으면 역할 문구가 **글자 하나씩
+     세로로** 흐르고 가격은 화면 밖으로 나간다(실측). */
+  #title-head h1 { font-size: 30px; }
+  #title-tabs { grid-template-columns: repeat(4, 1fr); }
+  .panel-head { flex-wrap: wrap; }
+  .panel-head > div { flex: 1 1 120px; }
+  .panel-price { margin-left: auto; font-size: 17px; }
+  .panel-skins { flex: 1 0 100%; order: 3; }
+  .skin-hint { white-space: normal; }
+  .panel-body { gap: 12px; }
+  .panel-facts { min-width: 0; flex: 1 1 100%; }
+  .range-board { grid-template-columns: repeat(5, 34px); grid-auto-rows: 34px; }
+  #title-panels { min-height: 0; }
+}
+
+/* 가로로 눕힌 폰 — 높이가 극단적으로 짧다. 조작 줄을 보드 **아래**에 그대로 두면 남는 높이가
+   0이 되어 판이 통째로 사라진다(실측 750×342에서 보드 0×0). 그래서 이 형태에서만 조작 줄이
+   보드 **옆**으로 간다 — v1.30에서 아래로 모은 결정을 뒤집는 게 아니라, 세로 공간이 없는
+   화면에서만 예외를 둔다. DOM 순서(상태 → 보드 → 조작)는 그대로 두고 grid로 자리만 바꾼다. */
+@media (orientation: landscape) and (max-height: 560px) {
+  #board-col {
+    display: grid; align-items: stretch;
+    grid-template-columns: minmax(0, 1fr) minmax(150px, 220px);
+    grid-template-rows: auto minmax(0, 1fr);
+    /* ★ 상태 줄은 **가로로 눕혀도 판 위에 남는다.** 옆 단으로 밀어 넣어 봤더니 230px 안에서
+       알약 셋이 두 줄로 접히면서(74px) 조작 단을 그만큼 잡아먹어 재생바가 잘렸다(실측
+       568×320). 위로 빼면 한 줄(약 30px)로 끝나고, "상태는 판 위"라는 v1.29의 규칙도
+       세 배치 모두에서 그대로 성립한다. */
+    grid-template-areas: "status status" "board bottom";
+    column-gap: 10px; width: 100%;
+  }
+  #board-status {
+    grid-area: status; width: auto; margin-bottom: 6px; gap: 5px 6px; flex-wrap: wrap;
+  }
+  #board-slot { grid-area: board; }
+  #board-bottom {
+    grid-area: bottom; width: auto; margin-top: 0;
+    flex-direction: column; gap: 6px; min-height: 0;
+    /* 확률표는 절대 접지 않는다(§8.1) — 정말로 안 들어가는 기기에서는 이 단만 스스로
+       스크롤한다. `touch-action`을 되살려 주지 않으면 게임 화면의 `none` 때문에 손가락으로
+       굴릴 수 없다. */
+    overflow-y: auto; touch-action: pan-y;
+  }
+  .bottom-col { flex: 0 0 auto; gap: 6px; }
+  /* ⚠️ 아래 수치들은 **실측으로 정해졌다.** 처음 값(뽑기 14px / 확률표 11px / 시작 15px)에서는
+     옆 단 내용이 260px 자리에 272px로 넘쳐 재생바 아래가 잘리고 스크롤이 생겼다. 한 단씩
+     줄여 320~342px 높이 기기에서 세 덩이(뽑기·확률표·시작+재생바)가 전부 보이게 맞췄다. */
+  .stat-pill { padding: 4px 7px; font-size: 12px; }
+  #draw-btn { padding: 6px 4px 7px; font-size: 13px; line-height: 1.2; }
+  #draw-cost { font-size: 12px; margin-top: 1px; }
+  #start-wave { padding: 7px; font-size: 14px; }
+  #odds { padding: 4px 6px; font-size: 10px; gap: 0; }
+  .odds-icon { width: 13px; height: 13px; }
+  .ctl-btn { padding: 7px 2px; font-size: 13px; }
+}
+
+/* 손가락으로 하는 조작 — 고스트를 키운다. 48px는 커서 옆에 붙어 있을 때의 크기라 손끝에서는
+   너무 작다. 위로 띄우는 것은 CSS가 아니라 ui/drag.ts가 한다(포인터 종류를 아는 쪽이다). */
+@media (pointer: coarse) {
+  .drag-ghost { width: 64px; height: 64px; }
+}

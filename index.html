@@ -2,7 +2,14 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- ★ viewport-fit=cover (v1.35 — 모바일 지원). 노치가 있는 기기에서 화면 **끝까지** 그리고,
+       안쪽 여백은 style.css가 `env(safe-area-inset-*)`로 준다. cover가 없으면 가로 모드에서
+       노치 쪽에 검은 띠가 남아 그만큼 보드가 작아진다.
+
+       ⚠️ `user-scalable=no`는 **일부러 넣지 않았다.** 확대를 막는 것은 접근성을 깎는 일이고,
+       정작 필요한 곳(게임 화면)은 `touch-action: none`이 이미 핀치·더블탭을 막는다. 시작
+       화면은 글이 많으므로 확대할 수 있어야 한다. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>체스 디펜스</title>
 </head>
 <body>
