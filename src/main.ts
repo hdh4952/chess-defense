@@ -92,7 +92,7 @@ function startGame(root: HTMLDivElement, difficulty: Difficulty): void {
   // 카메라를 아는 render3d/가 "이 화면 좌표 아래는 어느 칸인가"에만 답한다(ui/drag.ts).
   const drag = new DragController(state, layout, events, audio, (x, y) => board.squareAt(x, y));
   const banners = new Banners(layout);
-  const fx = new Effects();        // 속성별 공격 이펙트 + 화면 진동, 렌더 전용 (스펙 8.2, Task 19)
+  const fx = new Effects();        // 공격 이펙트 + 화면 진동, 렌더 전용 (스펙 8.2, Task 19)
   const enemyFx = new EnemyFx();   // 적별 표시 상태(피격 플래시·체력바 보간), 렌더 전용 (v1.15)
   const pieceFx = new PieceFx();   // 기물 공격 모션(찌르기·반동), 렌더 전용 (v1.22)
   wireMuteButton(layout, audio);

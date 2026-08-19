@@ -40,7 +40,7 @@ function farthestPerDirection(from: Square, targets: Square[]): Square[] {
   return [...dirs.values()];
 }
 
-describe('Effects (Task 19 — 속성별 공격 이펙트 + 화면 진동, 스펙 8.2)', () => {
+describe('Effects (Task 19 — 공격 이펙트 + 화면 진동, 스펙 8.2)', () => {
   describe('onEvent → items: 이벤트 종류별 이펙트 생성', () => {
     it('폰 attack: 대상 칸마다 짧은 충격파(shock) 1개씩', () => {
       const fx = new Effects();

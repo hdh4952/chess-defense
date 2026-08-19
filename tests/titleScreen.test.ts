@@ -398,6 +398,54 @@ describe('스킨 해금 조건 (panel-head)', () => {
  * 라이선스 위반은 테스트가 저절로 실패하지 않는 종류의 결함이라, 보증이 딸려 있던 스위트가
  * 지워질 때 함께 사라지면 안 된다.
  */
+/**
+ * ★ v1.34 — 기물 패널에서 **'속성'(노말/얼음/빛/땅/오라)이 사라졌다**(사용자 결정).
+ *
+ * 기계적 효과가 하나도 없는 이름이 공격력·주기와 나란히 앉아 있으면 **읽는 사람이 그것을
+ * 규칙으로 오해한다** — "빛 속성이라 뭔가 다른 게 있나?"를 확인할 방법이 화면에 없다.
+ *
+ * 이 테스트가 필요한 이유: 없앤 것은 코드가 아니라 **결정**이라, 플레이버를 채우려다 슬쩍
+ * 되살아나기 쉽다. 그리고 dl에 한 줄 더 붙는 것은 어떤 기존 테스트도 깨뜨리지 않는다.
+ */
+describe('기물 패널 — 속성 표기는 없다 (v1.34)', () => {
+  /**
+   * 탭을 실제로 누른 뒤 **그 기물의** 규칙표를 돌려준다.
+   *
+   * ⚠️ 여기서 두 번 미끄러졌다. ① 탭 셀렉터를 `[data-tab]`으로 적어 클릭이 아무것도 하지
+   * 않았고, ② 고친 뒤에도 `app.querySelector('.panel-facts dl')`로 받아 **8개 패널이 전부
+   * DOM에 있으므로 늘 첫 패널(폰)만** 검사했다. 둘 다 초록으로 통과했다 — 폰 패널에도 속성
+   * 줄이 있었으니 변이 검증(줄을 되살리면 깨지는가)조차 통과한다. 그래서 **패널까지 타입으로
+   * 좁힌다**: 이 한 줄이 "8종 전수 검사"라는 이 테스트의 주장을 실제로 참으로 만든다.
+   */
+  function openTab(app: HTMLElement, type: PieceType): Element {
+    app.querySelector<HTMLButtonElement>(`.title-tab[data-piece-type="${type}"]`)!.click();
+    return app.querySelector(`.title-panel[data-piece-type="${type}"] .panel-facts dl`)!;
+  }
+
+  it('전 기물 패널 어디에도 "속성" 항목이 없다', () => {
+    const app = mount();
+    for (const type of ALL_TYPES) {
+      const terms = [...openTab(app, type).querySelectorAll('dt')].map(d => d.textContent);
+      expect(terms, type).not.toContain('속성');
+      // 대조군 — 규칙을 말하는 항목은 그대로 있어야 한다(패널 자체가 빈 게 아님을 확인).
+      expect(terms, type).toContain('공격력');
+    }
+  });
+
+  it('노말·얼음·빛·땅·오라 같은 속성 이름이 규칙표에 남아 있지 않다', () => {
+    const app = mount();
+    for (const type of ALL_TYPES) {
+      // ⚠️ 산문 설명(`.panel-detail`)이 아니라 **규칙표(`dl`)만** 본다 — 산문은 "빛나는"처럼
+      //    같은 글자를 자연스럽게 쓸 수 있고, 문제였던 것은 그 이름이 **수치와 나란히
+      //    앉아 규칙처럼 보이는 것**이었다.
+      const facts = openTab(app, type).textContent ?? '';
+      for (const name of ['노말', '얼음', '빛', '땅', '오라']) {
+        expect(facts, `${type} / ${name}`).not.toContain(name);
+      }
+    }
+  });
+});
+
 describe('저작자 표시줄 (NOTICE.md — CC BY-SA 이행)', () => {
   it('결과 화면이 아니라 상시 레이아웃에 크레딧이 있고, 저작자·출처·라이선스 링크를 포함한다', () => {
     const app = mount();
