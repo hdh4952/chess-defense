@@ -265,15 +265,26 @@ describe('updateHud (Task 14)', () => {
     expect(layout.hud.bossIcon.hidden).toBe(false);
   });
 
-  it('웨이브 시작 버튼은 prepare 단계에서 보이고 wave 단계에서 숨겨진다', () => {
+  /**
+   * ★ v1.32 — 웨이브 중에도 버튼을 **숨기지 않고 비활성화한다**(사용자 결정). 사라지면 아래
+   * 조작 줄의 배치가 통째로 움직이고, "지금은 못 누른다"와 "그런 기능이 없다"가 구분되지 않는다.
+   */
+  it('웨이브 시작 버튼은 늘 보이고, prepare가 아니거나 일시정지면 비활성화된다 (v1.32)', () => {
     const { layout, state } = setup();
     state.phase = 'prepare';
     updateHud(layout, state);
     expect(layout.startBtn.hidden).toBe(false);
+    expect(layout.startBtn.disabled).toBe(false);
 
     state.phase = 'wave';
     updateHud(layout, state);
-    expect(layout.startBtn.hidden).toBe(true);
+    expect(layout.startBtn.hidden).toBe(false);          // ★ 사라지지 않는다
+    expect(layout.startBtn.disabled).toBe(true);
+
+    state.phase = 'prepare';
+    state.paused = true;
+    updateHud(layout, state);
+    expect(layout.startBtn.disabled).toBe(true);         // 일시정지도 같은 규칙
   });
 
   it('victory/defeat에서는 remainingEnemies()의 전체 웨이브 수 대신 0을 표시한다 (편차 사항)', () => {

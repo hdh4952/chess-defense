@@ -1,7 +1,6 @@
-import { CONFIG, DEFAULT_DIFFICULTY, waveTotal } from '../config';
+import { waveTotal } from '../config';
 import { fileLabel } from '../core/grid';
-import { PIECE_NAME } from './layout';
-import type { Difficulty, GameEvent, GameState } from '../types';
+import type { GameEvent, GameState } from '../types';
 import type { Layout } from './layout';
 
 export class Banners {
@@ -9,34 +8,28 @@ export class Banners {
   bossFlash: { file: number; t: number } | null = null;
   private resultShown = false;
 
-  /**
-   * 난이도를 생성자로 받는 이유 (v1.20): 아래 "최대 고비" 판정이 **마지막 웨이브 번호**를
-   * 알아야 하는데, `onEvent`는 이벤트만 받고 상태를 보지 못한다. 판이 시작된 뒤 난이도는
-   * 절대 바뀌지 않으므로(types.ts) 한 번 받아 두는 것이 매 이벤트마다 상태를 끌어오는 것보다
-   * 정확하다. 기본값은 테스트 편의가 아니라 이지가 기본 난이도라는 사실의 반영이다.
-   */
-  constructor(private layout: Layout, private difficulty: Difficulty = DEFAULT_DIFFICULTY) {}
+  constructor(private layout: Layout) {}
 
+  /**
+   * ★★ **배너는 보스 등장 하나뿐이다** (v1.32, 사용자 결정: "최대 고비 이런 문구 다 지우고
+   * 보스 출현만 나오도록").
+   *
+   * 예전에는 넷이었다 — 보스 웨이브 예고(`⚠ 최대 고비 — BOSS WAVE`) · 무상 지급 획득 ·
+   * 보드 만석 환급 · 보스 등장. 배너는 화면 한가운데를 2.6초 가리므로 종류가 늘수록 **정작
+   * 급한 하나가 묻힌다.** 이 게임에서 반응이 필요한 순간은 보스가 실제로 내려오는 그 순간
+   * 하나이고, 나머지 셋은 급하지 않다.
+   *
+   * ★ 없앤 셋이 말하던 것은 대부분 다른 곳이 이미 말한다:
+   *   - 보스 웨이브 예고 → **타이머 알약이 붉어진다**(v1.29). 배너보다 먼저 읽히고 사라지지도
+   *     않는다.
+   *   - 무상 지급 → 캔버스의 **스폰 표식**이 어디에 생겼는지 가리킨다.
+   *
+   * ⚠️ **다만 두 가지는 정말로 사라졌다** — 지급받은 기물이 *무엇*인지, 그리고 보드가 가득 차
+   *   지급이 환급으로 바뀌었다는 사실이다. 후자는 예전 주석이 "조용히 버리면 무음 실패가 하나
+   *   더 늘므로 알린다"고 적어 둔 바로 그 경우다. 골드는 늘어나므로 완전한 무음은 아니지만,
+   *   **왜** 늘었는지는 화면이 말하지 않는다.
+   */
   onEvent(ev: GameEvent): void {
-    if (ev.kind === 'prepareStarted' && ev.isBossWave) {
-      // 네 보스가 승패에 기여하는 정도가 전혀 다르다. w5·w10은 표준 빌드로 잡히고, w20은
-      // 놓쳐도 이긴다(체력 10 → −5 → 5 > 0). **실제로 판을 가르는 것은 w15 하나뿐**이라
-      // 그 웨이브만 다른 문구를 준다 — 배너가 네 번 다 같으면 그 사실을 배울 길이 없다.
-      // 마지막에서 두 번째 보스 웨이브다. 이지의 w15가 그랬듯 **마지막 보스는 놓쳐도 이기지만
-      // 그 앞은 아니다** — 판이 길어져도(노멀 w25 · 하드 w35) 그 구조는 같으므로 총 웨이브
-      // 수에서 유도한다.
-      const isPivotal = ev.wave === waveTotal(this.difficulty) - CONFIG.wave.bossEvery;
-      this.showBanner(isPivotal ? '⚠ 최대 고비 — BOSS WAVE' : '⚠ BOSS WAVE');
-    }
-    // 무상 지급만 배너로 알린다. **구매는 알리지 않는다** — 플레이어가 방금 스스로 누른
-    // 버튼이라 무엇을 얻었는지 이미 알고, 배너가 뜨면 후반에 상점을 연타할 때마다 화면을
-    // 가린다. 어디에 생겼는지는 두 경우 모두 캔버스의 스폰 표식이 말한다.
-    if (ev.kind === 'pieceSpawned' && !ev.bought) {
-      this.showBanner(`+ ${PIECE_NAME[ev.pieceType]} 획득`);
-    }
-    if (ev.kind === 'grantDiscarded') {
-      this.showBanner(`보드 가득 참 — ${PIECE_NAME[ev.pieceType]} 대신 ${ev.refund}G`);
-    }
     if (ev.kind === 'bossSpawned') {
       this.bossFlash = { file: ev.file, t: 1.0 };
       this.showBanner(`♚ 보스 등장 — ${fileLabel(ev.file)}파일!`);

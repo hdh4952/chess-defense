@@ -22,6 +22,8 @@ export function updateHud(layout: Layout, state: GameState): void {
   h.bossIcon.hidden = !(state.phase === 'prepare' && state.wave % CONFIG.wave.bossEvery === 0);
   h.pauseBtn.textContent = state.paused ? '▶' : '⏸';
   h.speedBtn.textContent = `▶▶${state.speedMultiplier}x`;
-  layout.startBtn.hidden = state.phase !== 'prepare';
-  layout.startBtn.disabled = state.paused;
+  // ★ **숨기지 않고 비활성화한다** (v1.32, 사용자 결정). 웨이브 중에 버튼이 사라지면 그 자리가
+  //   비어 아래 조작 줄의 배치가 통째로 움직이고, 무엇보다 "지금은 못 누른다"와 "그런 기능이
+  //   없다"가 구분되지 않는다. 회색으로 남겨 두면 둘 다 해결된다(style.css의 :disabled).
+  layout.startBtn.disabled = state.phase !== 'prepare' || state.paused;
 }

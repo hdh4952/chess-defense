@@ -54,19 +54,36 @@ function setup(): { layout: ReturnType<typeof createLayout>; state: GameState; b
   return { layout, state, banners };
 }
 
-describe('Banners.onEvent — prepareStarted 배너 (스펙 7.9 1단계)', () => {
-  it('isBossWave: true면 배너 엘리먼트를 생성한다', () => {
+/**
+ * ★★ v1.32 — **배너는 보스 등장 하나뿐이다** (사용자 결정). 예전에는 넷이었다: 보스 웨이브
+ * 예고 · 무상 지급 획득 · 보드 만석 환급 · 보스 등장.
+ *
+ * 배너는 화면 한가운데를 2.6초 가리므로 종류가 늘수록 정작 급한 하나가 묻힌다. 이 스위트가
+ * **나머지 셋이 배너를 만들지 않는다**를 명시적으로 단언하는 이유는, 그것이 지워진 코드가
+ * 아니라 **결정**이기 때문이다 — 편의로 하나씩 되살아나면 원래대로 돌아간다.
+ */
+describe('Banners.onEvent — 배너는 보스 등장 하나뿐이다 (v1.32)', () => {
+  it('보스 웨이브 예고(prepareStarted)는 배너를 만들지 않는다 — 타이머 알약이 붉어지는 것으로 충분하다', () => {
     const { layout, banners } = setup();
     banners.onEvent({ kind: 'prepareStarted', wave: 5, isBossWave: true });
-    const els = layout.bannerRoot.querySelectorAll('.banner');
-    expect(els).toHaveLength(1);
-    expect(els[0].textContent).toContain('BOSS WAVE');
+    banners.onEvent({ kind: 'prepareStarted', wave: 15, isBossWave: true });
+    expect(layout.bannerRoot.querySelectorAll('.banner')).toHaveLength(0);
   });
 
-  it('isBossWave: false면 배너를 생성하지 않는다', () => {
+  it('무상 지급·보드 만석 환급도 배너를 만들지 않는다', () => {
     const { layout, banners } = setup();
-    banners.onEvent({ kind: 'prepareStarted', wave: 2, isBossWave: false });
+    banners.onEvent({ kind: 'pieceSpawned', square: { file: 1, rank: 1 }, pieceType: 'rook', bought: false });
+    banners.onEvent({ kind: 'grantDiscarded', pieceType: 'queen', refund: 450 });
     expect(layout.bannerRoot.querySelectorAll('.banner')).toHaveLength(0);
+  });
+
+  it('보스가 실제로 내려오는 순간에만 뜬다 — 이 게임에서 반응이 필요한 유일한 순간이다', () => {
+    const { layout, banners } = setup();
+    banners.onEvent({ kind: 'prepareStarted', wave: 5, isBossWave: true });
+    banners.onEvent({ kind: 'pieceSpawned', square: { file: 1, rank: 1 }, pieceType: 'pawn', bought: false });
+    expect(layout.bannerRoot.querySelectorAll('.banner')).toHaveLength(0);
+    banners.onEvent({ kind: 'bossSpawned', file: 3 });
+    expect(layout.bannerRoot.querySelectorAll('.banner')).toHaveLength(1);
   });
 });
 
