@@ -18,7 +18,7 @@ body {
 /* ★ 게임 화면은 **화면 높이에 딱 맞는다** — 스크롤이 생기지 않는다 (v1.31).
    `in-game` 클래스로 범위를 좁히는 것이 요점이다: 시작 화면은 기물 설명 8탭이라 세로로 길고,
    거기까지 `overflow:hidden`을 걸면 내용이 잘린다. `createLayout`이 붙이고
-   `createTitleScreen`이 뗀다.
+   `createLobby`가 뗀다(v1.37 — 보관된 `createTitleScreen`도 같은 일을 한다).
 
    `100dvh`는 모바일 브라우저의 주소창이 접히고 펴질 때 따라오는 단위다(`vh`는 고정값이라
    주소창이 보일 때 아래가 잘린다). */
@@ -301,7 +301,42 @@ canvas { display: block; }
 .drag-ghost { width: 48px; height: 48px; overflow: hidden; }
 .drag-ghost-icon { width: 100%; height: 100%; object-fit: contain; }
 
-/* ── 시작 화면 (ui/titleScreen.ts) ────────────────────────────────────────────
+/* ── 로비 (ui/lobby.ts) ───────────────────────────────────────────────────────
+   ★ v1.37 — 빈 화면 가운데 난이도 셋, 그 아래 BATTLE. 그게 전부다(사용자 결정).
+   ⚠️ 아래 `#title-*` 규칙은 **보관된** 예전 시작 화면(ui/titleScreen.ts)의 것이다 — 지금은
+   아무것도 그리지 않지만, 그 화면을 되살릴 때 함께 살아나야 하므로 남겨 둔다. */
+#lobby {
+  position: relative;
+  min-height: 100dvh; box-sizing: border-box;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 28px;
+  padding:
+    max(24px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+}
+#lobby-difficulty { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+/* 게임 화면의 카툰 어휘를 그대로 쓴다 — 두꺼운 잉크 테두리 · 위쪽 광택 · 아래쪽 두께. */
+.lobby-diff {
+  padding: 14px 22px; font: inherit; font-size: 17px; font-weight: 800; letter-spacing: 2px;
+  cursor: pointer; color: #FFF6E4;
+  background: linear-gradient(#6C7A93, #4C5870 52%, #3C465C);
+  border: 3px solid #2A2028; border-radius: 11px;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+  box-shadow: 0 4px 0 #2A2028, inset 0 3px 0 rgba(255, 255, 255, 0.28);
+  margin-bottom: 4px; transition: transform 60ms, box-shadow 60ms;
+}
+.lobby-diff:active { transform: translateY(4px); box-shadow: 0 0 0 #2A2028, inset 0 3px 0 rgba(255, 255, 255, 0.2); }
+/* 고른 것 — 금색 테두리. 이 저장소에서 "지금 고른 것"은 늘 금색이다(스킨·탭). */
+.lobby-diff[aria-pressed='true'] {
+  background: linear-gradient(#F5C24E, #DE9A2C 52%, #BE7B16);
+  border-color: #FFD34D; color: #3A2408;
+  text-shadow: 0 2px 0 rgba(255, 255, 255, 0.3);
+}
+#lobby #battle { flex: 0 0 auto; min-width: 260px; }
+/* 크레딧은 화면 맨 아래로 — 로비의 내용은 버튼 넷뿐이므로 흐름에 두면 가운데 정렬을 흔든다. */
+#lobby #credit { position: absolute; left: 0; right: 0; bottom: 0; }
+
+/* ── 시작 화면 (ui/titleScreen.ts — ★ v1.37에서 보관됨) ───────────────────────
    위: 기물 설명 탭 / 아래: BATTLE. 게임 화면과 같은 팔레트를 쓰되, 보드가 없으므로
    가운데 한 단(min(880px, 화면폭))으로 모아 읽기 좋게 둔다. */
 #title {

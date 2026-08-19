@@ -10,6 +10,16 @@ import {
 import { CREDIT_HTML, createLayout, PIECE_NAME } from '../src/ui/layout';
 import { createTitleScreen, RANGE_CENTER, RANGE_RADIUS } from '../src/ui/titleScreen';
 
+/**
+ * ⚠️⚠️ **이 스위트는 보관된 화면을 검증한다** (v1.37). `ui/titleScreen.ts`는 지우지 않고
+ * 남겨 뒀지만 지금 뜨는 로비는 `ui/lobby.ts`이므로, 여기의 초록은 **되살렸을 때 동작한다**는
+ * 뜻이지 지금 화면이 그렇다는 뜻이 아니다.
+ *
+ * ★ 그래서 **저작자 표시 보증은 `tests/lobby.test.ts`로 옮겨 갔다.** 아래에도 같은 단언이
+ * 남아 있지만 그것은 보관된 화면의 것이다 — 실제 배포본에서 지켜지는지는 로비 쪽이 본다.
+ * (보증을 뜨지 않는 화면에만 두면, 표시가 사라져도 테스트는 초록이다.)
+ */
+
 const TYPES: PieceType[] = ['pawn', 'knight', 'bishop', 'rook', 'queen'];
 /** 탭에 실제로 실리는 전 기물(융합물 포함). TAB_ORDER와 같은 출처에서 뽑아 두면 기물이
  *  늘어도 전수 검사가 저절로 따라온다 — 여기에 목록을 다시 적으면 그 순간 갈라진다. */

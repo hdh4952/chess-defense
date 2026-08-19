@@ -20,18 +20,21 @@ import { updateHud } from './ui/hud';
 import { createLayout } from './ui/layout';
 import { updateShop, wireShop } from './ui/shop';
 import { updateTooltip } from './ui/tooltip';
-import { createTitleScreen } from './ui/titleScreen';
+import { createLobby } from './ui/lobby';
 import { DragController } from './ui/drag';
 import type { Difficulty, GameEvent } from './types';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 
-// 시작 화면 → BATTLE → 게임 (v1.5). 게임은 startGame이 불리기 전까지 전혀 부팅되지 않는다 —
-// 캔버스도, 프레임 루프도, AudioContext도 그때 비로소 만들어진다. 결과 화면의 "다시 시작"은
-// location.reload()이므로(ui/banners.ts) 별도 배선 없이 자연히 이 시작 화면으로 되돌아온다.
-// ★ 난이도는 시작 화면이 넘겨준다 (v1.20). 여기서 다시 읽지 않는 이유는 titleScreen.ts의
-// createTitleScreen 주석에 있다 — 누른 순간의 선택이 그대로 판에 굳어야 한다.
-createTitleScreen(app, difficulty => startGame(app, difficulty));
+// 로비 → BATTLE → 게임 (v1.5, ★ v1.37에서 로비가 바뀌었다). 게임은 startGame이 불리기
+// 전까지 전혀 부팅되지 않는다 — 캔버스도, 프레임 루프도, AudioContext도 그때 비로소
+// 만들어진다. 결과 화면의 "다시 시작"은 location.reload()이므로(ui/banners.ts) 별도 배선
+// 없이 자연히 이 로비로 되돌아온다.
+// ★ 난이도는 로비가 넘겨준다 (v1.20). 여기서 다시 읽지 않는 이유는 ui/lobby.ts에 있다 —
+// 누른 순간의 선택이 그대로 판에 굳어야 한다.
+// ⚠️ 예전 시작 화면은 `ui/titleScreen.ts`에 **그대로 보관돼 있다**(사용자 요청). 되살리려면
+//    이 한 줄을 `createTitleScreen(app, …)`으로 되돌리면 된다.
+createLobby(app, difficulty => startGame(app, difficulty));
 
 // frame() 예외 로깅 스로틀 (회귀 5). 매 호출마다 새 Error 인스턴스가 달려 있어 DevTools가
 // 동일 에러로 묶어 접지 못하므로, 결함이 프레임마다(~60Hz) 계속 재발하면 콘솔·보존 메모리가
